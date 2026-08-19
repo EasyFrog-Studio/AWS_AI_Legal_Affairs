@@ -1,0 +1,266 @@
+"""地端 AIProvider(見 DECISIONS.md「AI_PROVIDER=local 地端模式」)。
+
+- ollama 原生 API:/api/chat 以 format=JSON schema 強制結構化輸出;/api/embed 取向量。
+- pgvector SQL 查詢:law_chunks/case_chunks 語意檢索,對應 AWSProvider 的 KB-LAW/KB-CASE retrieve。
+- law_articles 表:cited_articles 精查補 amend_date/全文,取代 DynamoDB batch_get_item。
+  LLM 絕不生成修正日期——LawRef.amend_date 一律來自向量檢索 metadata/law_articles,查不到填「未收錄」。
+"""
+import json
+
+from app.config import settings
+from app.models import CaseInfo, DraftResult, LawRef, ScreeningResult, SimilarCase
+from app.providers.aws import _clause_to_appeal_article, _load_prompt
+from app.providers.base import AIProvider
+
+
+def _vector_literal(vec: list[float]) -> str:
+    return "[" + ",".join(str(x) for x in vec) + "]"
+
+
+class LocalProvider(AIProvider):
+    def __init__(self, http_client=None, connect=None) -> None:
+        self._llm_model = settings.LOCAL_LLM_MODEL
+        self._embed_model = settings.LOCAL_EMBED_MODEL
+
+        if http_client is None:
+            import httpx
+
+            http_client = httpx.Client(base_url=settings.LOCAL_LLM_BASE_URL, timeout=300)
+        self._http = http_client
+
+        if connect is None:
+
+            def _default_connect():
+                import psycopg
+
+                # autocommit:唯讀查詢不留 idle-in-transaction,失敗的陳述式也不會
+                # 讓重用中的連線卡在 aborted 交易狀態
+                return psycopg.connect(settings.POSTGRES_URL, autocommit=True)
+
+            connect = _default_connect
+        self._connect = connect
+        self._conn = None  # 延遲建立,之後跨查詢重用(比照 PostgresStore)
+
+    # ---------- ollama /api/chat:format=JSON schema 強制結構化輸出 ----------
+    def _chat_json(self, system_prompt: str, user_text: str, schema: dict) -> dict:
+        resp = self._http.post(
+            "/api/chat",
+            json={
+                "model": self._llm_model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_text},
+                ],
+                "stream": False,
+                "format": schema,
+                # num_ctx:ollama 預設 4096,F4 輸入(案件+法規+案例 JSON)會超過而被靜默截斷
+                "options": {"temperature": 0, "num_ctx": 16384},
+            },
+        )
+        resp.raise_for_status()
+        content = resp.json()["message"]["content"]
+        return json.loads(content)
+
+    # ---------- ollama /api/embed ----------
+    def _embed(self, text: str) -> list[float]:
+        resp = self._http.post(
+            "/api/embed",
+            json={"model": self._embed_model, "input": [text]},
+        )
+        resp.raise_for_status()
+        return resp.json()["embeddings"][0]
+
+    # ---------- pgvector / Postgres 查詢 ----------
+    def _execute(self, sql: str, params) -> list[tuple]:
+        if self._conn is None:
+            self._conn = self._connect()
+        with self._conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchall()
+
+    def extract_case_info(self, text: str) -> CaseInfo:
+        schema = {
+            "type": "object",
+            "properties": {
+                "appellant": {"type": "string"},
+                "agency": {"type": "string"},
+                "disposition_date": {"type": "string"},
+                "disposition_no": {"type": "string"},
+                "disposition_summary": {"type": "string"},
+                "appeal_reasons": {"type": "array", "items": {"type": "string"}},
+                "case_type": {"type": "string"},
+                "issues": {"type": "array", "items": {"type": "string"}},
+                "cited_articles": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": [
+                "appellant",
+                "agency",
+                "disposition_date",
+                "disposition_no",
+                "disposition_summary",
+                "case_type",
+            ],
+        }
+        data = self._chat_json(_load_prompt("f1_extract.txt"), text, schema)
+        return CaseInfo(**data)
+
+    def screen_admissibility(self, info: CaseInfo, text: str) -> ScreeningResult:
+        schema = {
+            "type": "object",
+            "properties": {
+                "passed": {"type": "boolean"},
+                "matched_clause": {"type": ["string", "null"]},
+                "reasoning": {"type": "string"},
+            },
+            "required": ["passed", "reasoning"],
+        }
+        user_text = f"【案件資訊】\n{info.model_dump_json(indent=2)}\n\n【訴願書原文】\n{text}"
+        data = self._chat_json(_load_prompt("screening.txt"), user_text, schema)
+        return ScreeningResult(**data)
+
+    # ---------- pgvector law_chunks 檢索 + law_articles 精查(對應 AWSProvider.recommend_laws) ----------
+    def recommend_laws(self, info: CaseInfo) -> list[LawRef]:
+        query = f"{info.case_type} {' '.join(info.issues)}".strip()
+        vec_lit = _vector_literal(self._embed(query))
+        rows = self._execute(
+            "SELECT id, text, metadata, 1 - (embedding <=> %s::vector) AS score "
+            "FROM law_chunks "
+            "WHERE metadata->>'law_type' IS DISTINCT FROM '普通法' "
+            "ORDER BY embedding <=> %s::vector LIMIT %s",
+            (vec_lit, vec_lit, 5),
+        )
+
+        law_refs: dict[str, LawRef] = {}
+        for _id, text, metadata, _score in rows:
+            law_name = metadata.get("law_name", "")
+            article_no = metadata.get("article_no", "")
+            key = f"{law_name}#{article_no}"
+            law_refs[key] = LawRef(
+                law_name=law_name,
+                article_no=article_no,
+                text=text,
+                amend_date=metadata.get("amend_date") or "未收錄",  # 一律來自檢索 metadata,LLM 不生成
+                source_key=metadata.get("source_file"),
+                relevance="向量檢索命中(pgvector law_chunks)",
+            )
+
+        # F1 cited_articles 走 law_articles 精查,補齊向量檢索未涵蓋的引用法條
+        missing_keys = [a for a in info.cited_articles if a not in law_refs]
+        if missing_keys:
+            found_rows = self._execute(
+                "SELECT law_article, text, metadata FROM law_articles WHERE law_article = ANY(%s)",
+                (missing_keys,),
+            )
+            found = {law_article: (text, metadata) for law_article, text, metadata in found_rows}
+            for key in missing_keys:
+                law_name, _, article_no = key.partition("#")
+                hit = found.get(key)
+                if hit:
+                    text, metadata = hit
+                    metadata = metadata or {}
+                    law_refs[key] = LawRef(
+                        law_name=metadata.get("law_name", law_name),
+                        article_no=metadata.get("article_no", article_no),
+                        text=text or "",
+                        amend_date=metadata.get("amend_date") or "未收錄",  # 一律來自 law_articles
+                        source_key=metadata.get("source_key"),
+                        relevance="F1 擷取之引用法條(law_articles 精查)",
+                    )
+                else:
+                    law_refs[key] = LawRef(
+                        law_name=law_name,
+                        article_no=article_no,
+                        text="",
+                        amend_date="未收錄",  # 查無資料,禁止由 LLM 生成修正日期
+                        source_key=None,
+                        relevance="F1 擷取之引用法條,law_articles 未查得資料",
+                    )
+        return list(law_refs.values())
+
+    def _search_cases(self, vec_lit: str, where_sql, where_params, num_results: int = 5) -> list[tuple]:
+        sql = "SELECT id, text, metadata, 1 - (embedding <=> %s::vector) AS score FROM case_chunks"
+        params: list = [vec_lit]
+        if where_sql:
+            sql += f" WHERE {where_sql}"
+            params.extend(where_params)
+        sql += " ORDER BY embedding <=> %s::vector LIMIT %s"
+        params.extend([vec_lit, num_results])
+        return self._execute(sql, tuple(params))
+
+    def find_similar_cases(
+        self, info: CaseInfo, screening: ScreeningResult, text: str
+    ) -> list[SimilarCase]:
+        query = f"{info.case_type} {' '.join(info.issues)}".strip()
+        vec_lit = _vector_literal(self._embed(query))
+
+        if screening.passed:
+            where_sql, where_params = "metadata->>'case_type' = %s", [info.case_type]
+        else:
+            clauses = ["metadata->>'case_type' = %s", "metadata->>'result' = %s"]
+            where_params = [info.case_type, "不受理"]
+            appeal_article = _clause_to_appeal_article(screening.matched_clause)
+            if appeal_article:
+                clauses.append("metadata->>'appeal_article' = %s")
+                where_params.append(appeal_article)
+            where_sql = " AND ".join(clauses)
+
+        rows = self._search_cases(vec_lit, where_sql, where_params)
+        if not rows:
+            # 無結果則放寬 filter(僅保留 case_type)重查一次
+            rows = self._search_cases(vec_lit, "metadata->>'case_type' = %s", [info.case_type])
+        if not rows:
+            # F1 的 case_type 字面可能與檢索 metadata 不一致(如「廢棄物清理」vs「廢棄物清理法」),
+            # 最後退為純語意檢索(不受理案件仍保留 result filter)
+            if screening.passed:
+                rows = self._search_cases(vec_lit, None, [])
+            else:
+                rows = self._search_cases(vec_lit, "metadata->>'result' = %s", ["不受理"])
+
+        cases: dict[str, SimilarCase] = {}
+        for _id, text_, metadata, _score in rows:
+            case_no = metadata.get("case_no", "")
+            if not case_no:
+                continue  # 缺 case_no 的結果不可辨識,跳過以免以空 key 相互覆蓋
+            cases[case_no] = SimilarCase(
+                case_no=case_no,
+                year=metadata.get("year", ""),
+                case_type=metadata.get("case_type", ""),
+                appeal_article=metadata.get("appeal_article", ""),
+                issue=metadata.get("issue", ""),
+                result=metadata.get("result", ""),
+                summary=text_[:200],
+                similarity_note="向量檢索命中(pgvector case_chunks)",
+                source_key=metadata.get("source_file"),
+            )
+        return list(cases.values())
+
+    def generate_draft(
+        self,
+        info: CaseInfo,
+        screening: ScreeningResult,
+        laws: list[LawRef],
+        cases: list[SimilarCase],
+    ) -> DraftResult:
+        schema = {
+            "type": "object",
+            "properties": {
+                "draft_type": {"type": "string", "enum": ["不受理", "駁回", "原處分撤銷"]},
+                "fact": {"type": "string"},
+                "reason": {"type": "string"},
+                "main_text": {"type": "string"},
+                "cited_laws": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["draft_type", "fact", "reason", "main_text"],
+        }
+        allowed_laws = [f"{l.law_name}#{l.article_no}" for l in laws]
+        user_text = (
+            f"【案件資訊】\n{info.model_dump_json(indent=2)}\n\n"
+            f"【審查結果】\n{screening.model_dump_json(indent=2)}\n\n"
+            f"【可引用法規清單(僅能引用此清單內的法條,不得自創法條)】\n"
+            f"{json.dumps(allowed_laws, ensure_ascii=False)}\n\n"
+            f"【相似案例】\n{json.dumps([c.model_dump() for c in cases], ensure_ascii=False)}"
+        )
+        data = self._chat_json(_load_prompt("f4_draft.txt"), user_text, schema)
+        # 防禦性過濾:即使 LLM 違反指示,也強制 cited_laws 只能是提供清單的子集
+        data["cited_laws"] = [c for c in data.get("cited_laws", []) if c in allowed_laws]
+        return DraftResult(**data)

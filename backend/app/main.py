@@ -43,7 +43,14 @@ def get_provider() -> AIProvider:
     # boto3 client 建立成本不低,以模組層單例重用(與 get_store 一致)
     global _provider
     if _provider is None:
-        _provider = AWSProvider() if settings.AI_PROVIDER == "aws" else MockProvider()
+        if settings.AI_PROVIDER == "aws":
+            _provider = AWSProvider()
+        elif settings.AI_PROVIDER == "local":
+            from app.providers.local import LocalProvider
+
+            _provider = LocalProvider()
+        else:
+            _provider = MockProvider()
     return _provider
 
 
