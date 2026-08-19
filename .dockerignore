@@ -1,0 +1,12 @@
+.git
+.hallmark
+.dockerignore
+**/node_modules
+**/dist
+**/__pycache__
+**/.pytest_cache
+aws_setup
+deploy
+docker/.env
+data_show/examples
+*.md

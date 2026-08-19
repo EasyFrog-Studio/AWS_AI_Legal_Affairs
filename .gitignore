@@ -1,0 +1,13 @@
+*.env
+*.env.*
+!*.env.example
+
+*.venv/
+*venv/
+*__pycache__/
+
+.hallmark/
+node_modules/
+frontend/dist/
+.pytest_cache/
+backend/static/

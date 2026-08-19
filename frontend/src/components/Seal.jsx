@@ -1,0 +1,24 @@
+export default function Seal({ kind = 'accent', size = 'sm', children }) {
+  return <span className={`seal seal--${kind} seal--${size}`}>{children}</span>
+}
+
+/**
+ * 依 Case 物件推導狀態章樣式與文字。
+ * status=processing → 審理中(accent)
+ * status=error → 處理失敗(error)
+ * status=done, track=inadmissible → 不受理(reject)
+ * status=done, track=admissible → draft_type 文字(駁回→reject,原處分撤銷→pass)
+ */
+export function resolveCaseSeal(caseData) {
+  if (!caseData) return { kind: 'accent', text: '審理中' }
+  if (caseData.status === 'error') return { kind: 'error', text: '處理失敗' }
+  if (caseData.status === 'processing') return { kind: 'accent', text: '審理中' }
+  if (caseData.track === 'inadmissible') return { kind: 'reject', text: '不受理' }
+  if (caseData.track === 'admissible') {
+    const draftType = caseData.f4?.draft_type
+    if (draftType === '駁回') return { kind: 'reject', text: draftType }
+    if (draftType === '原處分撤銷') return { kind: 'pass', text: draftType }
+    return { kind: 'accent', text: draftType || '審理中' }
+  }
+  return { kind: 'accent', text: '審理中' }
+}
