@@ -1,0 +1,81 @@
+/* Login 頁專用(波次 2:左右分割,無左欄)*/
+
+.login {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 100vh;
+}
+
+/* ---------- 左:forest 面板 ---------- */
+
+.login__panel {
+  background: var(--color-forest);
+  color: var(--color-on-forest);
+  padding: var(--space-3xl);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.login__mark {
+  position: absolute;
+  right: var(--space-xl);
+  bottom: var(--space-xl);
+  width: 320px;
+  color: var(--color-bark);
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.login__title {
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-display);
+  color: var(--color-on-forest);
+}
+
+.login__tagline {
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+  color: var(--color-on-forest-soft);
+  margin-top: var(--space-md);
+}
+
+/* ---------- 右:paper 表單 ---------- */
+
+.login__form {
+  background: var(--color-paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl);
+}
+
+.login__box {
+  width: 100%;
+  max-width: 360px;
+}
+
+.login__heading {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  margin-bottom: var(--space-lg);
+}
+
+/* ---------- Responsive: stack panel above form ---------- */
+
+@media (max-width: 1023px) {
+  .login {
+    grid-template-columns: 1fr;
+  }
+
+  .login__panel {
+    min-height: 240px;
+  }
+}

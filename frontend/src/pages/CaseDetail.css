@@ -1,0 +1,99 @@
+/* CaseDetail 頁專用 */
+
+/* ---------- F1 擷取(2 欄格線)---------- */
+
+.f1-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md) var(--space-lg);
+  margin: 0;
+}
+
+.f1-field--wide {
+  grid-column: 1 / -1;
+}
+
+.f1-field dt {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--color-bark);
+  margin: 0 0 var(--space-2xs);
+}
+
+.f1-field dd {
+  font-family: var(--font-body);
+  margin: 0;
+}
+
+.f1-field dd.mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.f1-field ul {
+  margin: 0;
+  padding-left: var(--space-lg);
+}
+
+/* ---------- 程序審查 ---------- */
+
+.screening-result {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.screening-result__reasoning {
+  font-family: var(--font-body);
+  max-width: var(--measure);
+}
+
+/* ---------- F2 法規參照 ---------- */
+
+.law-ref {
+  padding-block: var(--space-md);
+  border-bottom: var(--rule-hairline);
+}
+
+.law-ref:last-child {
+  border-bottom: none;
+}
+
+.law-ref__name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-lg);
+}
+
+.law-ref__date {
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+  margin-left: var(--space-sm);
+}
+
+.law-ref__text {
+  font-family: var(--font-body);
+  margin-block: var(--space-xs);
+}
+
+/* ---------- F3 相似案例 ---------- */
+
+.similar-case {
+  padding-block: var(--space-md);
+  border-bottom: var(--rule-hairline);
+}
+
+.similar-case:last-child {
+  border-bottom: none;
+}
+
+.similar-case__title {
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.similar-case__meta {
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+}

@@ -1,0 +1,12 @@
+/* NewCase 頁專用(波次 2:表單容器寬度 + 說明文字)*/
+
+.newcase {
+  max-width: var(--measure);
+}
+
+.newcase__intro {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+  margin-bottom: var(--space-lg);
+}

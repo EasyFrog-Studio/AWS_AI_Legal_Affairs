@@ -1,0 +1,23 @@
+/* CaseList 頁專用(波次 2 · W3)*/
+
+/* 左欄篩選群組間垂直間距(rail-section 內三組:搜尋 / 狀態 / 案類)*/
+.case-list-filter-group {
+  margin-top: var(--space-md);
+}
+
+.case-list-filter-group:first-child {
+  margin-top: 0;
+}
+
+/* 空狀態文案與按鈕的垂直間距(state-message 內自訂子層) */
+.case-list-empty-text {
+  margin-bottom: var(--space-md);
+}
+
+/* 「尚無案件」空狀態的樹木線稿浮水印(每頁 ≤ 1,bark 在 paper 上 opacity ≤ 0.25) */
+.case-list-watermark {
+  width: 160px;
+  margin: 0 auto var(--space-md);
+  color: var(--color-bark);
+  opacity: 0.25;
+}
