@@ -1,8 +1,6 @@
 @import "./tokens.css";
 
-/* base:reset · html/body · 字體階層 · prefers-reduced-motion
- * 密度切換數值在 tokens.css 的 :root[data-density="comfort"] 區塊;body 引用 --text-md / --leading-body 即生效。
- * 擁有者:orchestrator。worker 不得修改本檔。*/
+/* base:reset · html/body · 標題階層 · 連結 · reduced-motion */
 
 * {
   box-sizing: border-box;
@@ -12,6 +10,7 @@ html,
 body {
   margin: 0;
   padding: 0;
+  overflow-x: clip;
 }
 
 body {
@@ -32,13 +31,14 @@ body {
   }
 }
 
-/* 中文階層靠字重:主標 700 · 區塊標 600 · 內文 400(brief 1.3.1)*/
+/* 中文階層靠字重:主標 700 · 區塊標 600 · 內文 400 */
 h1,
 h2,
 h3 {
   font-family: var(--font-display);
   font-style: normal;
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 h1 {
@@ -51,7 +51,9 @@ h3 {
 }
 
 a {
-  color: var(--color-accent);
+  color: var(--color-link);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
 }
 
 button,

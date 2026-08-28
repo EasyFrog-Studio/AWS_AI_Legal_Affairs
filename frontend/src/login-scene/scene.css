@@ -1,20 +1,20 @@
 /* 登入頁裝飾場景「抽象法理」:彩繪玻璃切面 + 天秤/高背椅/法槌/法典插畫
- * 色彩為本頁專用(依參考圖),不進 tokens.css;動畫只動 transform / opacity / 已註冊的自訂變數 */
+ * 橄欖與金取自全站 token;鼠尾草、木色、亮金只在本頁用。動畫只動 transform / opacity / 已註冊的自訂變數 */
 
 .login {
-  --ls-olive-1: #2e3a31;
-  --ls-olive-2: #3e4c41;
-  --ls-olive-3: #566450;
-  --ls-sage-1: #7c8b78;
-  --ls-sage-2: #9eaa97;
-  --ls-gold: #c9a64a;
-  --ls-gold-2: #9e7e2c;
-  --ls-gold-3: #e6cf7e;
-  --ls-wood: #6b4a33;
-  --ls-wood-2: #46301f;
-  --ls-wood-3: #8c6748;
-  --ls-cream: #f3e9d2;
-  --ls-overlay: rgb(46 58 49 / 0.8);
+  --ls-olive-1: var(--color-rail-deep);
+  --ls-olive-2: var(--color-rail);
+  --ls-olive-3: var(--color-rail-2);
+  --ls-sage-1: oklch(58% 0.03 140);
+  --ls-sage-2: oklch(70% 0.03 130);
+  --ls-gold: var(--color-gold);
+  --ls-gold-2: var(--color-gold-deep);
+  --ls-gold-3: oklch(84% 0.11 90);
+  --ls-wood: oklch(40% 0.06 55);
+  --ls-wood-2: oklch(30% 0.05 55);
+  --ls-wood-3: oklch(50% 0.06 55);
+  --ls-cream: var(--color-on-rail);
+  --ls-overlay: oklch(33% 0.035 150 / 0.8);
 
   --ls-breath: ls-breath 12s ease-in-out infinite;
   --ls-weigh: ls-weigh 2.4s ease-in-out infinite;

@@ -160,7 +160,7 @@ export default function CaseList() {
       {!error && cases !== null && cases.length === 0 && (
         <div className="state-message">
           <div className="case-list-watermark">
-            <Icon name="tree-mark" />
+            <Icon name="scale-mark" />
           </div>
           <div className="case-list-empty-text">尚無案件。</div>
           <button type="button" className="btn btn-primary" onClick={() => navigate('/new')}>

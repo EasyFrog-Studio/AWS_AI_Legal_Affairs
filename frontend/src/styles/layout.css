@@ -1,4 +1,4 @@
-/* layout:app shell(左欄 + 內容區)*/
+/* layout:app shell(左欄 + 內容區)與頁首 */
 
 /* ---------- App Shell ---------- */
 
@@ -9,19 +9,38 @@
 }
 
 .rail {
-  background: var(--color-forest);
-  color: var(--color-on-forest);
   position: sticky;
   top: 0;
   height: 100vh;
   overflow-y: auto;
+  overflow-x: clip;
   display: flex;
   flex-direction: column;
   padding: var(--space-lg) 0;
+  background: var(--color-rail);
+  color: var(--color-on-rail);
+  isolation: isolate;
 }
 
+/* 內容浮在靜態切面底紋之上;底紋只比底色暗(ΔL ≤ 4%),文字對比不受影響 */
+.rail > * {
+  position: relative;
+}
+
+.rail__texture {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.rail__facet--0 { fill: var(--color-rail-deep); }
+.rail__facet--1 { fill: var(--color-rail); }
+.rail__facet--2 { fill: var(--color-rail-mid); }
+
 .rail :focus-visible {
-  outline: 2px solid var(--color-focus-on-forest);
+  outline: 2px solid var(--color-focus-on-rail);
   outline-offset: 2px;
 }
 
@@ -29,9 +48,9 @@
   font-family: var(--font-display);
   font-weight: 600;
   font-size: var(--text-lg);
-  color: var(--color-on-forest);
+  color: var(--color-on-rail);
   padding: 0 var(--space-lg) var(--space-md);
-  border-bottom: 1px solid var(--color-rule); /* forest 上 3.15:1;朱絲欄額度留給頁面 */
+  border-bottom: 1px solid var(--color-rail-2);
 }
 
 .rail__nav {
@@ -42,81 +61,89 @@
 
 .rail__link {
   display: block;
+  min-height: 40px;
   padding: var(--space-xs) var(--space-lg);
   font-family: var(--font-ui);
-  font-size: var(--text-sm);
-  font-weight: 500; /* 可操作項 500,標籤 400(1.3.1 同字級須有一軸不同)*/
-  color: var(--color-on-forest-soft);
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--color-on-rail-soft);
   text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 
 .rail__link:hover {
-  background: var(--color-forest-2);
-  color: var(--color-on-forest);
+  background: var(--color-rail-2);
+  color: var(--color-on-rail);
 }
 
 .rail__link--active {
-  background: var(--color-forest-2);
-  color: var(--color-on-forest);
-  box-shadow: inset 3px 0 0 var(--color-focus-on-forest);
+  background: var(--color-rail-2);
+  color: var(--color-on-rail);
+  box-shadow: inset 3px 0 0 var(--color-gold);
 }
 
 .rail__page {
   flex: 1 1 auto;
   padding: var(--space-md) 0;
-  border-top: 1px solid var(--color-rule);
+  border-top: 1px solid var(--color-rail-2);
 }
 
 .rail__footer {
   margin-top: auto;
   padding: var(--space-md) var(--space-lg) 0;
-  border-top: 1px solid var(--color-rule);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
+  border-top: 1px solid var(--color-rail-2);
 }
-
-
-
-
 
 .rail__logout {
   background: none;
   border: none;
   cursor: pointer;
   font-family: var(--font-ui);
-  font-size: var(--text-sm);
-  color: var(--color-on-forest-soft);
-  text-align: left;
-  padding: 0;
+  font-size: var(--text-ui);
   font-weight: 500;
+  color: var(--color-on-rail-soft);
+  text-align: left;
+  padding: var(--space-xs) 0;
 }
 
 .rail__logout:hover {
-  color: var(--color-on-forest);
+  color: var(--color-on-rail);
 }
 
 /* ---------- Content column ---------- */
 
 .content {
   background: var(--color-paper);
-  padding: var(--space-3xl) var(--space-2xl) var(--space-2xl);
+  padding: var(--space-2xl) var(--space-2xl) var(--space-3xl);
   min-width: 0;
 }
 
+/* 頁首:髮絲線 + 左側 48×3 金色「秤樑」,全站唯一重複的簽名 */
 .page-header {
+  position: relative;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-md);
   padding-bottom: var(--space-md);
-  border-bottom: var(--rule-double);
+  border-bottom: 1px solid var(--color-rule);
   margin-bottom: var(--space-xl);
+}
+
+.page-header::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -2px;
+  width: 48px;
+  height: 3px;
+  background: var(--color-gold);
 }
 
 .page-header__title {
   font-size: var(--text-display);
   font-weight: 700;
+  line-height: 1.3;
 }
 
 .page-header__meta {
@@ -128,7 +155,7 @@
 
 .page-header__count {
   font-family: var(--font-ui);
-  font-size: var(--text-sm);
+  font-size: var(--text-ui);
   color: var(--color-ink-soft);
   white-space: nowrap;
 }
@@ -140,11 +167,11 @@
   flex-shrink: 0;
 }
 
-/* ---------- Responsive: collapse rail to top row ---------- */
+/* ---------- Responsive:左欄收成頂列 ---------- */
 
 @media (max-width: 1023px) {
   .shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .rail {
@@ -155,5 +182,13 @@
   .rail__nav {
     flex-direction: row;
     gap: var(--space-md);
+  }
+
+  .content {
+    padding: var(--space-xl) var(--space-md) var(--space-2xl);
+  }
+
+  .page-header {
+    flex-wrap: wrap;
   }
 }

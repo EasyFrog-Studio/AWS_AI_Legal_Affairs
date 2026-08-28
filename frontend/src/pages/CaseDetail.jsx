@@ -47,7 +47,7 @@ function stageMarker(key, caseData) {
     return { icon: 'fishtail-solid', modifier: 'done', note: null }
   }
   if (caseData.status === 'processing' && key === caseData.current_stage) {
-    return { icon: 'fishtail-accent', modifier: 'active', note: '進行中', pulse: true }
+    return { icon: 'fishtail-accent', modifier: 'active', note: '進行中' }
   }
   return { icon: 'fishtail-hollow', modifier: 'pending', note: null }
 }
@@ -59,7 +59,7 @@ function draftMarker(caseData) {
   }
   if (caseData.f4) return { icon: 'fishtail-solid', modifier: 'done', note: null }
   if (caseData.status === 'processing' && atDraft) {
-    return { icon: 'fishtail-accent', modifier: 'active', note: '進行中', pulse: true }
+    return { icon: 'fishtail-accent', modifier: 'active', note: '進行中' }
   }
   return { icon: 'fishtail-hollow', modifier: 'pending', note: null }
 }
@@ -306,7 +306,7 @@ export default function CaseDetail() {
               onClick={() => handleSelect(stage.key)}
             >
               <span className={`rail-item__marker rail-item__marker--${marker.modifier}`}>
-                <Icon name={marker.icon} className={marker.pulse ? 'icon--pulse' : ''} />
+                <Icon name={marker.icon} />
               </span>
               {stage.label}
               {marker.note && <span className="rail-item__note">{marker.note}</span>}
@@ -325,7 +325,7 @@ export default function CaseDetail() {
               onClick={() => handleSelect('draft')}
             >
               <span className={`rail-item__marker rail-item__marker--${marker.modifier}`}>
-                <Icon name={marker.icon} className={marker.pulse ? 'icon--pulse' : ''} />
+                <Icon name={marker.icon} />
               </span>
               決定書草稿
               {marker.note && <span className="rail-item__note">{marker.note}</span>}

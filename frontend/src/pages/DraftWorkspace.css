@@ -2,7 +2,7 @@
 
 .draft-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 7fr) minmax(0, 3fr); /* 左右 7:3 */
+  grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
   gap: var(--space-md);
   align-items: start;
 }
@@ -11,11 +11,12 @@
   display: none;
 }
 
-/* ---------- Draft paper ---------- */
+/* ---------- 稿紙 ---------- */
 
 .draft-paper {
   background: var(--color-surface);
-  border: var(--rule-double);
+  border: var(--rule-strong);
+  border-radius: var(--radius);
   padding: var(--space-2xl);
   font-family: var(--font-body);
   line-height: var(--leading-body);
@@ -45,14 +46,14 @@
   display: block;
   width: 3em;
   margin: var(--space-xs) auto 0;
-  border-top: var(--rule-vermilion);
+  border-top: 2px solid var(--color-gold);
 }
 
 .draft-paper textarea {
   width: 100%;
   margin-top: var(--space-2xs);
   min-height: 0;
-  resize: none; /* 禁止手動拖拉;高度由 useAutoGrow 依內容伸展 */
+  resize: none; /* 高度由 useAutoGrow 依內容伸展 */
   overflow: hidden;
   font-family: var(--font-body);
   line-height: var(--leading-body);
@@ -70,11 +71,11 @@
 
 .draft-actions__ok {
   font-family: var(--font-ui);
-  font-size: var(--text-sm);
+  font-size: var(--text-ui);
   color: var(--color-pass);
 }
 
-/* ---------- Basis panel(承辦參考依據)---------- */
+/* ---------- 依據面板 ---------- */
 
 .basis-panel {
   background: var(--color-surface);
@@ -92,16 +93,16 @@
 .basis-panel__heading {
   font-family: var(--font-ui);
   font-size: var(--text-sm);
-  color: var(--color-bark);
-  letter-spacing: 0.08em;
+  color: var(--color-wood);
+  letter-spacing: 0.06em;
   padding-bottom: var(--space-2xs);
-  border-bottom: 2px solid var(--color-rule-strong);
+  border-bottom: var(--rule-strong);
   margin-bottom: var(--space-sm);
 }
 
 .basis-item {
   padding: var(--space-xs) 0;
-  border-bottom: var(--rule-hairline);
+  border-bottom: 1px solid var(--color-rule-soft);
 }
 
 .basis-item:last-child {

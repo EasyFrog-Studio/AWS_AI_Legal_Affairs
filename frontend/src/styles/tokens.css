@@ -1,77 +1,74 @@
-/* 訴願案件審理輔助系統 · 古籍卷宗 · 三層色彩體系
- * 環境層 米白紙+深墨綠+樹褐(量體) / 訊號層 朱砂(唯一動作色) / 狀態層 黛綠·赭(僅印章)
- * 全部數值已通過 WCAG 實算驗證,見 REDESIGN_BRIEF.md 1.4 節。禁止調整。*/
+/* 全站 token(唯一色彩權威,規則見 design.md)
+ * 環境層:紙 / 橄欖 / 墨與木;訊號層:金;狀態層:只給印章與狀態字。零純黑純白。*/
 :root {
-  /* ── 環境層:紙 ───────────────────────────────── */
-  --color-paper:         oklch(92.5% 0.032 85);   /* #F0E5CF 頁底 · 桌面 */
-  --color-surface:       oklch(97.2% 0.014 88);   /* #FAF5EB 卡片 · 紙(比底更亮,這是圖地關係的來源)*/
-  --color-surface-2:     oklch(89.0% 0.034 82);   /* #E6D9C2 hover · 凹陷 */
+  /* ── 紙 ── */
+  --color-paper:        oklch(94.5% 0.022 90);  /* #EFE8D8 頁底 */
+  --color-surface:      oklch(97.5% 0.012 90);  /* #FAF6EE 卡片 · 輸入框 · 稿紙 */
+  --color-surface-2:    oklch(91.5% 0.024 90);  /* #E5DDC9 hover · 停用 */
 
-  /* ── 環境層:深墨綠(量體錨點:左欄、登入頁面板)── */
-  --color-forest:        oklch(32.0% 0.038 152);  /* #243929 */
-  --color-forest-2:      oklch(38.5% 0.040 152);  /* #334A39 面板內 hover / 選中 */
-  --color-on-forest:     oklch(94.0% 0.016 90);   /* #EFEBDF 反白主字(暖米白,非純白)*/
-  --color-on-forest-soft:oklch(76.0% 0.022 100);  /* #B4B2A2 反白次要字 */
+  /* ── 橄欖(左欄、主按鈕)── */
+  --color-rail:         oklch(37% 0.035 150);   /* #3E4C41 */
+  --color-rail-2:       oklch(43% 0.035 150);   /* #4D5C4F hover · 選中 */
+  --color-rail-mid:     oklch(35% 0.035 150);   /* 底紋:只往暗走,不吃字的對比 */
+  --color-rail-deep:    oklch(33% 0.035 150);
+  --color-on-rail:      oklch(92% 0.02 90);     /* #EAE3D2 主字 */
+  --color-on-rail-soft: oklch(86% 0.02 100);    /* 次字,對左欄 ≥ 6:1 */
 
-  /* ── 環境層:墨與樹褐 ─────────────────────────── */
-  --color-ink:           oklch(26.0% 0.024 68);   /* #2C2217 主文字 */
-  --color-ink-soft:      oklch(45.0% 0.028 70);   /* #605345 次要文字 */
-  --color-ink-faint:     oklch(51.0% 0.026 72);   /* #706456 佔位 · 停用 · 未到達階段名 */
-  --color-bark:          oklch(45.0% 0.045 65);   /* #67503B 樹褐:線稿圖示、裝飾線 */
-  --color-rule:          oklch(60.0% 0.030 78);   /* #8A7E6C 髮絲界線(舊值 1.76:1 隱形,已修正)*/
-  --color-rule-strong:   oklch(48.0% 0.038 72);   /* #6B5A46 雙線框 · 表頭線 */
+  /* ── 墨與木 ── */
+  --color-ink:          oklch(30% 0.02 150);    /* 內文,對紙約 11.5:1,低於 12:1 的眩光上限 */
+  --color-ink-soft:     oklch(44% 0.02 150);    /* 次要文字 */
+  --color-ink-faint:    oklch(45% 0.02 150);    /* 佔位 · 停用,對紙仍 ≥ 4.5:1 */
+  --color-wood:         oklch(45% 0.05 60);     /* #6F5A3F 欄位標籤 · 表頭 · 線稿 */
+  --color-link:         oklch(40% 0.05 150);
+  --color-rule:         oklch(76% 0.02 110);    /* 髮絲線(裝飾) */
+  --color-rule-soft:    oklch(86% 0.018 100);   /* 表格列線 */
+  --color-rule-strong:  oklch(56% 0.03 130);    /* 元件邊界,對紙 ≥ 3:1 */
 
-  /* ── 訊號層:朱砂(唯一 accent)───────────────── */
-  --color-accent:        oklch(43.0% 0.170 27);   /* #970911 */
-  --color-accent-hover:  oklch(37.5% 0.150 27);   /* #7E040B */
-  --color-accent-soft:   oklch(91.5% 0.038 30);   /* #FBDAD4 朱砂淡底 */
-  --color-on-accent:     oklch(97.5% 0.012 88);   /* #FAF6EE */
-  --color-vermilion-rule:oklch(60.0% 0.115 30);   /* #BB6456 朱絲欄(古籍朱紅界線)*/
+  /* ── 動作:橄欖填色 ── */
+  --color-accent:       var(--color-rail);
+  --color-accent-hover: var(--color-rail-2);
+  --color-on-accent:    var(--color-on-rail);
 
-  /* ── 狀態層:僅用於印章與狀態字 ───────────────── */
-  --color-pass:          oklch(40.0% 0.090 155);  /* #115531 黛綠:受理 · 通過 · 撤銷 */
-  --color-reject:        oklch(43.0% 0.105 42);   /* #7E381B 赭:不受理 · 駁回 */
-  --color-error:         oklch(46.0% 0.145 30);   /* #982D21 */
-  --color-focus:         var(--color-accent);      /* 米白紙面上的 focus ring */
-  --color-focus-on-forest:oklch(78.0% 0.110 34);  /* #F59D88 深墨綠面板「內」的 focus ring
-                                                    * 必要:朱砂 #970911 對 forest 只有 1.41:1,
-                                                    * 鍵盤使用者走訪左欄時會完全看不到 focus。
-                                                    * 亮化後仍屬朱砂色系,維持訊號層語彙不破。*/
+  /* ── 訊號:金 ── */
+  --color-gold:         oklch(74% 0.12 85);     /* #C9A64A 深底上的訊號 */
+  --color-gold-deep:    oklch(55% 0.11 80);     /* 紙上的訊號,≥ 3:1 */
+  --color-focus:        var(--color-gold-deep);
+  --color-focus-on-rail: var(--color-gold);
 
-  /* ── 字族(必須有字族對比,舊 spec 的 display 與 body 是同一個值)── */
+  /* ── 狀態:只給印章與狀態字 ── */
+  --color-pass:         oklch(42% 0.08 150);    /* 受理 · 撤銷 */
+  --color-reject:       oklch(45% 0.09 45);     /* 不受理 · 駁回 */
+  --color-processing:   oklch(48% 0.10 78);     /* 審理中 · 已審結 */
+  --color-error:        oklch(46% 0.13 30);
+
+  /* ── 字族 ── */
   --font-display: "Noto Serif TC", "PMingLiU", serif;               /* 標題 · 印章 · 法律內文 */
-  --font-body:    "Noto Serif TC", "PMingLiU", serif;               /* 長文閱讀(明體)*/
+  --font-body:    "Noto Serif TC", "PMingLiU", serif;
   --font-ui:      "Noto Sans TC", "Microsoft JhengHei", sans-serif; /* 按鈕 · 標籤 · 表單 · 導覽 */
   --font-mono:    "JetBrains Mono", Consolas, monospace;            /* 案號 · 字號 · 日期 */
 
-  /* ── 字級:中文最小 14px(中文筆畫密度高,13px 真的太小)── */
-  --text-display: 2rem;       /* 32px 頁面主標 */
-  --text-xl:      1.375rem;   /* 22px 區塊標 */
-  --text-lg:      1.125rem;   /* 18px */
-  --text-md:      1rem;       /* 16px 內文 */
-  --text-sm:      0.875rem;   /* 14px ← 中文最小,禁止再小 */
-  --text-micro:   0.8125rem;  /* 13px ← 僅限 --font-mono 的拉丁數字(案號/日期),禁用於中文 */
+  /* ── 字級(中文最小 14px)── */
+  --text-display: 1.875rem;  /* 30px */
+  --text-xl:      1.375rem;  /* 22px */
+  --text-lg:      1.125rem;  /* 18px */
+  --text-md:      1.0625rem; /* 17px 內文 */
+  --text-ui:      0.9375rem; /* 15px 機能文字 */
+  --text-sm:      0.875rem;  /* 14px */
+  --text-micro:   0.8125rem; /* 13px 只給 mono 數字 */
 
   --leading-body: 1.9;
-  --measure:      36em;       /* 長文最大行長,約 36 個中文字 */
+  --measure:      36em;
 
-  /* ── 間距(4pt)──────────────────────────────── */
+  /* ── 間距(4pt)── */
   --space-2xs: 4px;  --space-xs: 8px;   --space-sm: 12px;  --space-md: 16px;
   --space-lg: 24px;  --space-xl: 32px;  --space-2xl: 48px; --space-3xl: 64px;
 
-  /* ── 形狀:卷宗方正,但 2px 是「單板」的成因之一 ── */
-  --radius:    6px;   /* 卡片 · 面板 · 上限,禁止更大 */
-  --radius-sm: 4px;   /* 按鈕 · 輸入框 · 印章 */
-  --rule-hairline:  1px solid var(--color-rule);
-  --rule-double:    3px double var(--color-rule-strong);
-  --rule-vermilion: 1px solid var(--color-vermilion-rule);
+  /* ── 形狀與線 ── */
+  --radius:    6px;
+  --radius-sm: 4px;
+  --rule-hairline: 1px solid var(--color-rule);
+  --rule-strong:   1px solid var(--color-rule-strong);
 
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --dur-fast: 150ms; --dur-base: 200ms;
-}
-
-/* 護眼:字級密度切換(存 localStorage,見 1.7.5 節)*/
-:root[data-density="comfort"] {
-  --text-md:      1.125rem;   /* 18px */
-  --leading-body: 2.05;
 }

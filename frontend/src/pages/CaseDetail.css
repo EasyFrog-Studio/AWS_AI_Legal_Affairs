@@ -16,7 +16,7 @@
 .f1-field dt {
   font-family: var(--font-ui);
   font-size: var(--text-sm);
-  color: var(--color-bark);
+  color: var(--color-wood);
   margin: 0 0 var(--space-2xs);
 }
 
@@ -53,7 +53,7 @@
 
 .law-ref {
   padding-block: var(--space-md);
-  border-bottom: var(--rule-hairline);
+  border-bottom: 1px solid var(--color-rule-soft);
 }
 
 .law-ref:last-child {
@@ -74,6 +74,7 @@
 
 .law-ref__text {
   font-family: var(--font-body);
+  max-width: var(--measure);
   margin-block: var(--space-xs);
 }
 
@@ -81,7 +82,7 @@
 
 .similar-case {
   padding-block: var(--space-md);
-  border-bottom: var(--rule-hairline);
+  border-bottom: 1px solid var(--color-rule-soft);
 }
 
 .similar-case:last-child {
@@ -96,4 +97,14 @@
 .similar-case__meta {
   font-size: var(--text-sm);
   color: var(--color-ink-soft);
+}
+
+.similar-case p {
+  max-width: var(--measure);
+}
+
+@media (max-width: 767px) {
+  .f1-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

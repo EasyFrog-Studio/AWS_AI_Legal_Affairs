@@ -1,4 +1,4 @@
-/* components:紙面元件 + 左欄頁面區元件(契約 B)+ 動效原語(REDESIGN_BRIEF 波次 1 · W2 重寫)*/
+/* components:左欄頁面區元件 · 紙面元件 · 動效原語 */
 
 /* ---------- Icon ---------- */
 
@@ -8,16 +8,12 @@
   display: block;
 }
 
-.icon--pulse {
-  animation: stage-pulse 1.6s ease-in-out infinite;
-}
-
-.icon--tree-mark {
+.icon--scale-mark {
   width: 100%;
   height: auto;
 }
 
-/* ---------- Rail 頁面區(左欄,契約 B)---------- */
+/* ---------- Rail 頁面區(左欄)---------- */
 
 .rail-section {
   padding: 0 var(--space-lg);
@@ -27,32 +23,34 @@
 .rail-section__title {
   display: block;
   font-family: var(--font-ui);
-  font-size: var(--text-sm);
-  color: var(--color-on-forest-soft);
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--color-on-rail);
   letter-spacing: 0.08em;
   margin-bottom: var(--space-sm);
 }
 
 .rail-divider {
   border: none;
-  border-top: 1px solid var(--color-rule);
+  border-top: 1px solid var(--color-rail-2);
   margin: var(--space-md) 0;
 }
 
 .rail-label {
   display: block;
   font-family: var(--font-ui);
-  font-size: var(--text-sm);
-  color: var(--color-on-forest);
+  font-size: var(--text-ui);
+  color: var(--color-on-rail);
   margin-bottom: var(--space-xs);
 }
 
 .rail-field {
   width: 100%;
+  min-height: 36px;
   background: var(--color-surface);
   color: var(--color-ink);
   font-family: var(--font-ui);
-  font-size: var(--text-sm);
+  font-size: var(--text-ui);
   border: none;
   border-radius: var(--radius-sm);
   padding: var(--space-xs) var(--space-sm);
@@ -63,7 +61,7 @@
 }
 
 .rail-field:focus-visible {
-  outline: 2px solid var(--color-focus-on-forest);
+  outline: 2px solid var(--color-focus-on-rail);
   outline-offset: 2px;
 }
 
@@ -91,40 +89,41 @@
   align-items: center;
   gap: var(--space-xs);
   width: 100%;
+  min-height: 40px;
   text-align: left;
   padding: var(--space-xs) var(--space-lg);
   margin-inline: calc(-1 * var(--space-lg));
   font-family: var(--font-ui);
-  font-size: var(--text-sm);
-  color: var(--color-on-forest-soft);
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--color-on-rail-soft);
   background: none;
   border: none;
   cursor: pointer;
-  transition: background-color var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
-  font-weight: 500;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 
 .rail-item:hover {
-  background: var(--color-forest-2);
+  background: var(--color-rail-2);
+  color: var(--color-on-rail);
 }
 
 .rail-item:focus-visible {
-  outline: 2px solid var(--color-focus-on-forest);
+  outline: 2px solid var(--color-focus-on-rail);
   outline-offset: 2px;
 }
 
 .rail-item--current {
-  background: var(--color-forest-2);
-  color: var(--color-on-forest);
-  box-shadow: inset 3px 0 0 var(--color-focus-on-forest);
+  background: var(--color-rail-2);
+  color: var(--color-on-rail);
+  box-shadow: inset 3px 0 0 var(--color-gold);
 }
 
 .rail-item--emphasis {
   font-family: var(--font-display);
   font-weight: 600;
   font-size: var(--text-md);
-  color: var(--color-on-forest);
+  color: var(--color-on-rail);
 }
 
 .rail-item__marker {
@@ -135,30 +134,30 @@
 }
 
 .rail-item__marker--done {
-  color: var(--color-on-forest);
+  color: var(--color-on-rail);
 }
 
-.rail-item__marker--pending {
-  color: var(--color-on-forest-soft);
-}
-
+.rail-item__marker--pending,
 .rail-item__marker--na {
-  color: var(--color-on-forest-soft);
+  color: var(--color-on-rail-soft);
 }
 
-.rail-item__marker--active {
-  color: var(--color-focus-on-forest);
-}
-
+/* 進行中與中斷都用金,靠圖形(魚尾 / 方框)區分;不做脈動 */
+.rail-item__marker--active,
 .rail-item__marker--error {
-  color: var(--color-focus-on-forest);
+  color: var(--color-gold);
 }
 
 .rail-item__note {
   margin-left: auto;
   font-family: var(--font-ui);
   font-size: var(--text-sm);
-  color: var(--color-on-forest-soft);
+  color: var(--color-on-rail-soft);
+}
+
+.rail-item--current .rail-item__note,
+.rail-item:hover .rail-item__note {
+  color: var(--color-on-rail);
 }
 
 /* ---------- Buttons ---------- */
@@ -167,34 +166,30 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
+  min-height: 40px;
   font-family: var(--font-ui);
-  font-size: var(--text-sm);
+  font-size: var(--text-ui);
+  font-weight: 500;
   padding: var(--space-xs) var(--space-md);
   border-radius: var(--radius-sm);
+  border: var(--rule-strong);
+  background: transparent;
+  color: var(--color-ink);
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);
-  border: var(--rule-hairline);
-  background: transparent;
-  color: var(--color-ink);
 }
 
 .btn-primary {
   background: var(--color-accent);
-  border: 1px solid var(--color-accent);
+  border-color: var(--color-accent);
   color: var(--color-on-accent);
 }
 
 .btn-primary:hover {
   background: var(--color-accent-hover);
   border-color: var(--color-accent-hover);
-}
-
-.btn-secondary {
-  background: transparent;
-  border: var(--rule-hairline);
-  color: var(--color-ink);
 }
 
 .btn-secondary:hover {
@@ -205,11 +200,16 @@
   background: none;
   border: none;
   padding: 0;
-  color: var(--color-accent);
+  font-family: var(--font-ui);
+  font-size: var(--text-ui);
+  color: var(--color-link);
   text-decoration: underline;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
 }
 
-.btn:focus-visible {
+.btn:focus-visible,
+.btn-link:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
   transition: none;
@@ -223,7 +223,7 @@
 .btn[aria-disabled="true"] {
   color: var(--color-ink-faint);
   border-color: var(--color-rule);
-  background: transparent;
+  background: var(--color-surface-2);
   cursor: not-allowed;
   pointer-events: none;
 }
@@ -252,20 +252,21 @@
   display: block;
   font-family: var(--font-ui);
   font-size: var(--text-sm);
-  color: var(--color-bark);
+  color: var(--color-wood);
   margin-bottom: var(--space-xs);
 }
 
 .input,
 .textarea {
   width: 100%;
+  min-height: 40px;
   background: var(--color-surface);
-  border: var(--rule-hairline);
+  border: var(--rule-strong);
   border-radius: var(--radius-sm);
   color: var(--color-ink);
   font-family: var(--font-ui);
   font-size: var(--text-md);
-  padding: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
   transition: border-color var(--dur-fast) var(--ease-out);
 }
 
@@ -276,14 +277,14 @@
 
 .input:hover,
 .textarea:hover {
-  border-color: var(--color-rule-strong);
+  border-color: var(--color-ink-soft);
 }
 
 .input:focus-visible,
 .textarea:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 0;
-  border-color: var(--color-accent);
+  border-color: var(--color-focus);
 }
 
 .input:disabled,
@@ -299,6 +300,7 @@
 }
 
 .field__error {
+  font-family: var(--font-ui);
   color: var(--color-error);
   font-size: var(--text-sm);
   margin-top: var(--space-2xs);
@@ -307,26 +309,25 @@
 .textarea {
   resize: vertical;
   min-height: 220px;
-  line-height: 1.9;
+  line-height: var(--leading-body);
 }
 
-/* ---------- Seal (印章) ---------- */
+/* ---------- Seal(印章):方正雙線框,顏色只來自狀態層 ---------- */
 
 .seal {
   display: inline-block;
   border: 2px solid currentColor;
+  box-shadow: inset 0 0 0 2px var(--color-surface), inset 0 0 0 3px currentColor;
   font-family: var(--font-display);
   font-weight: 700;
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  letter-spacing: 0.15em;
-  transform: rotate(-2deg);
-  box-shadow: inset 0 0 0 1px currentColor;
+  padding: var(--space-2xs) var(--space-sm);
+  letter-spacing: 0.12em;
+  line-height: 1.4;
   white-space: nowrap;
 }
 
 .seal--accent {
-  color: var(--color-accent);
+  color: var(--color-processing);
 }
 
 .seal--pass {
@@ -371,23 +372,25 @@
 
 .table-wrap {
   overflow-x: auto;
+  background: var(--color-surface);
+  border: var(--rule-hairline);
+  border-radius: var(--radius);
 }
 
 table.list-table {
   width: 100%;
   border-collapse: collapse;
-  background: var(--color-surface);
 }
 
 .list-table thead th {
   font-family: var(--font-ui);
   font-size: var(--text-sm);
   font-weight: 500;
-  color: var(--color-bark);
-  letter-spacing: 0.08em;
+  color: var(--color-wood);
+  letter-spacing: 0.06em;
   text-align: left;
-  padding-block: var(--space-sm);
-  border-bottom: 2px solid var(--color-rule-strong);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: var(--rule-strong);
 }
 
 .list-table tbody tr {
@@ -400,8 +403,8 @@ table.list-table {
 }
 
 .list-table tbody td {
-  padding-block: var(--space-md);
-  border-bottom: var(--rule-hairline);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-rule-soft);
 }
 
 .list-table tbody tr:last-child td {
@@ -417,7 +420,7 @@ table.list-table {
   font-family: var(--font-mono);
 }
 
-/* ---------- Tabs (新建案件) ---------- */
+/* ---------- Tabs ---------- */
 
 .tabs {
   display: flex;
@@ -428,11 +431,13 @@ table.list-table {
 
 .tab {
   font-family: var(--font-ui);
-  font-size: var(--text-sm);
+  font-size: var(--text-ui);
+  font-weight: 500;
   color: var(--color-ink-soft);
   background: none;
   border: none;
-  padding: var(--space-sm) 0;
+  min-height: 40px;
+  padding: var(--space-xs) 0;
   cursor: pointer;
   border-bottom: 2px solid transparent;
   transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
@@ -444,7 +449,7 @@ table.list-table {
 
 .tab--active {
   color: var(--color-ink);
-  border-bottom-color: var(--color-accent);
+  border-bottom-color: var(--color-gold);
 }
 
 .tab:focus-visible {
@@ -452,11 +457,11 @@ table.list-table {
   outline-offset: 2px;
 }
 
-/* ---------- State message(三態:na / pending / empty,無修飾 = 舊樣式)---------- */
+/* ---------- State message(三態:na / pending / empty)---------- */
 
 .state-message {
   font-family: var(--font-ui);
-  font-size: var(--text-sm);
+  font-size: var(--text-ui);
   color: var(--color-ink-soft);
   padding: var(--space-2xl) 0;
   text-align: center;
@@ -466,18 +471,11 @@ table.list-table {
   text-align: left;
   padding: var(--space-md);
   border-left: 3px solid var(--color-rule-strong);
-  color: var(--color-ink-soft);
   max-width: var(--measure);
 }
 
 .state-message--pending {
-  text-align: center;
   color: var(--color-ink-faint);
-}
-
-.state-message--empty {
-  text-align: center;
-  color: var(--color-ink-soft);
 }
 
 .state-message--error {
@@ -489,7 +487,7 @@ table.list-table {
 .form-result {
   margin-top: var(--space-md);
   font-family: var(--font-ui);
-  font-size: var(--text-sm);
+  font-size: var(--text-ui);
 }
 
 .form-result--error {
@@ -523,7 +521,7 @@ table.list-table {
 
 .overlay__panel {
   background: var(--color-surface);
-  border: var(--rule-double);
+  border: var(--rule-strong);
   border-radius: var(--radius);
   max-width: 640px;
   max-height: 80vh;
@@ -538,21 +536,11 @@ table.list-table {
 .overlay__text {
   white-space: pre-wrap;
   font-family: var(--font-body);
-  line-height: 1.9;
+  line-height: var(--leading-body);
   clear: both;
 }
 
-/* ---------- Keyframes(全站上限 3 個,只能是這三個)---------- */
-
-@keyframes stage-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.6;
-  }
-}
+/* ---------- Keyframes(全站只有這兩個)---------- */
 
 @keyframes fade-in {
   from {

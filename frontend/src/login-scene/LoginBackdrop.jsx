@@ -1,5 +1,5 @@
 import Facets from './art/Facets.jsx'
-import { fan } from './art/facets.js'
+import { fan } from '../art/facets.js'
 
 // 頁面外圍:紙色大切面,靜態(色階 0 紙 / 1 卡紙 / 2 凹陷)
 const PAGE = fan({

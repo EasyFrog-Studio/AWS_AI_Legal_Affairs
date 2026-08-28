@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import usePaused from './usePaused.js'
 import Facets from './art/Facets.jsx'
 import Objects from './art/Objects.jsx'
-import { fan } from './art/facets.js'
+import { fan } from '../art/facets.js'
 import './scene.css'
 
 // 進場動畫每個分頁只播一次;無 storage(隱私模式)則每次都播

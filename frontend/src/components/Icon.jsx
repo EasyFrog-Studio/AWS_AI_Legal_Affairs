@@ -1,5 +1,5 @@
 /**
- * 線稿圖示(封閉清單,見 REDESIGN_BRIEF.md 1.7.9)。
+ * 線稿圖示(封閉清單,規則見 design.md)。
  * 顏色一律由 currentColor 繼承,元件內不得寫任何顏色。
  * 裝飾用:aria-hidden + focusable=false,不加 <title>。
  */
@@ -25,26 +25,23 @@ const ICONS = {
       <line x1="9.5" y1="9.5" x2="13.5" y2="13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </>
   ),
-  'tree-mark': (
-    <>
-      <path d="M100 180 V70" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M100 150 L70 120" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M100 150 L130 120" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M100 120 L75 90" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M100 120 L125 90" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M100 95 L100 60" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <path
-        d="M60 130 Q55 90 80 65 Q100 45 120 65 Q145 90 140 130 Q120 145 100 140 Q80 145 60 130 Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      />
-    </>
+  // 天秤線稿:底座、柱、支點飾、樑、兩盤各三條鏈
+  'scale-mark': (
+    <g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M70 168 H130 L124 158 H76 Z" />
+      <path d="M100 158 V60" />
+      <path d="M100 40 L106 50 L100 60 L94 50 Z" />
+      <path d="M40 62 H160" />
+      <path d="M50 62 L34 110 M50 62 L66 110 M50 62 V108" />
+      <path d="M150 62 L134 110 M150 62 L166 110 M150 62 V108" />
+      <path d="M30 112 H70 Q50 134 30 112 Z" />
+      <path d="M130 112 H170 Q150 134 130 112 Z" />
+    </g>
   ),
 }
 
 const VIEWBOX = {
-  'tree-mark': '0 0 200 200',
+  'scale-mark': '0 0 200 200',
 }
 
 export default function Icon({ name, className = '' }) {
