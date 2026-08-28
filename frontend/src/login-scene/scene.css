@@ -1,0 +1,348 @@
+/* 登入頁裝飾場景「抽象法理」:彩繪玻璃切面 + 天秤/高背椅/法槌/法典插畫
+ * 色彩為本頁專用(依參考圖),不進 tokens.css;動畫只動 transform / opacity / 已註冊的自訂變數 */
+
+.login {
+  --ls-olive-1: #2e3a31;
+  --ls-olive-2: #3e4c41;
+  --ls-olive-3: #566450;
+  --ls-sage-1: #7c8b78;
+  --ls-sage-2: #9eaa97;
+  --ls-gold: #c9a64a;
+  --ls-gold-2: #9e7e2c;
+  --ls-gold-3: #e6cf7e;
+  --ls-wood: #6b4a33;
+  --ls-wood-2: #46301f;
+  --ls-wood-3: #8c6748;
+  --ls-cream: #f3e9d2;
+  --ls-overlay: rgb(46 58 49 / 0.8);
+
+  --ls-breath: ls-breath 12s ease-in-out infinite;
+  --ls-weigh: ls-weigh 2.4s ease-in-out infinite;
+}
+
+/* 天秤角度:breath 待機每 12s 秤量一次再回穩、weigh 依狀態、live 成功時 1→0 把兩者一起收回水平 */
+@property --breath {
+  syntax: '<angle>';
+  inherits: true;
+  initial-value: 0deg;
+}
+@property --weigh {
+  syntax: '<angle>';
+  inherits: true;
+  initial-value: 0deg;
+}
+@property --live {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
+}
+
+/* ---------- 兩層的位置 ---------- */
+
+.login-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.login-backdrop svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0.45; /* 外圍切面只做底紋;放 svg 上,容器的進場淡入才不會蓋掉它 */
+}
+
+.login-scene {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.scene__geo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.scene__objects {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: var(--login-art-h);
+}
+
+/* ---------- 有場景時的卡片外觀(移除場景即回到紙面卡)---------- */
+
+.login__card:has(.login-scene) {
+  --login-art-h: 320px;
+  background: var(--ls-olive-2);
+  border-color: var(--ls-olive-1);
+}
+@media (max-height: 759px) {
+  .login__card:has(.login-scene) {
+    --login-art-h: 240px;
+  }
+}
+.login__card:has(.login-scene) .login__panel {
+  background: var(--ls-overlay);
+  color: var(--ls-cream);
+}
+.login__card:has(.login-scene) .login__tagline {
+  color: var(--ls-sage-2);
+}
+.login__card:has(.login-scene) .login__title {
+  font-family: var(--font-ui);
+  color: var(--ls-cream);
+}
+.login__card:has(.login-scene) .field__label {
+  color: var(--ls-cream);
+}
+.login__card:has(.login-scene) .field__error {
+  color: var(--ls-gold-3);
+}
+.login__card:has(.login-scene) .input {
+  background: var(--ls-cream);
+  border-color: transparent;
+}
+.login__card:has(.login-scene) .input:hover {
+  border-color: var(--ls-gold-2);
+}
+.login__card:has(.login-scene) .input:focus-visible {
+  outline-color: var(--ls-gold);
+  border-color: var(--ls-gold);
+}
+.login__card:has(.login-scene) .input:disabled {
+  background: var(--ls-sage-2);
+}
+.login__card:has(.login-scene) .field--error .input {
+  border-color: var(--ls-gold-3);
+}
+.login__card:has(.login-scene) .btn-primary {
+  background: var(--ls-olive-1);
+  border-color: var(--ls-sage-2); /* 細邊讓按鈕在深色表單層上有輪廓 */
+  color: var(--ls-cream);
+}
+.login__card:has(.login-scene) .btn-primary:hover {
+  background: var(--ls-olive-3);
+}
+.login__card:has(.login-scene) .btn-primary:disabled {
+  background: var(--ls-olive-2);
+  border-color: var(--ls-sage-1);
+  color: var(--ls-sage-2);
+  cursor: not-allowed;
+}
+.login__card:has(.login-scene) .btn:focus-visible {
+  outline-color: var(--ls-gold);
+}
+
+/* ---------- 切面 ---------- */
+
+.geo__c--0 { fill: var(--ls-olive-1); --tone: 0; }
+.geo__c--1 { fill: var(--ls-olive-2); --tone: 1; }
+.geo__c--2 { fill: var(--ls-olive-3); --tone: 2; }
+.geo__c--3 { fill: var(--ls-sage-1); --tone: 3; }
+.geo__c--4 { fill: var(--ls-sage-2); --tone: 4; }
+.geo__c--5 { fill: var(--ls-gold); --tone: 5; }
+.geo__p--0 { fill: var(--color-paper); }
+.geo__p--1 { fill: var(--color-surface); }
+.geo__p--2 { fill: var(--color-surface-2); }
+
+.geo__lit {
+  animation: ls-shimmer var(--lit-period) ease-in-out var(--lit-delay) infinite alternate;
+}
+
+/* ---------- 插畫 ---------- */
+
+.login-scene .f-gold { fill: var(--ls-gold); }
+.login-scene .f-gold2 { fill: var(--ls-gold-2); }
+.login-scene .f-gold3 { fill: var(--ls-gold-3); }
+.login-scene .f-wood { fill: var(--ls-wood); }
+.login-scene .f-wood2 { fill: var(--ls-wood-2); }
+.login-scene .f-wood3 { fill: var(--ls-wood-3); }
+.login-scene .f-olive3 { fill: var(--ls-olive-3); }
+.login-scene .s-gold { fill: none; stroke: var(--ls-gold); stroke-width: 2; }
+.login-scene .s-gold2 { fill: none; stroke: var(--ls-gold-2); stroke-width: 1.5; }
+.login-scene .o20 { opacity: 0.2; }
+.login-scene .ob__floor { fill: var(--ls-olive-1); opacity: 0.45; }
+.login-scene .ob__glow ellipse { fill: var(--ls-cream); opacity: 0.05; }
+
+/* 天秤:樑 = (呼吸 + 權衡) × live;盤反向同角保持水平,再各自微擺 */
+.scene__objects {
+  animation: var(--ls-breath);
+}
+.sc__beam {
+  transform-box: view-box;
+  transform-origin: 140px 100px;
+  transform: rotate(calc((var(--breath) + var(--weigh)) * var(--live)));
+}
+.sc__hang {
+  transform-box: view-box;
+  transform-origin: var(--hang-x) 100px;
+  transform: rotate(calc(-1 * (var(--breath) + var(--weigh)) * var(--live)));
+}
+.sc__swing {
+  transform-box: view-box;
+  transform-origin: var(--hang-x) 100px;
+  animation: ls-swing var(--swing) ease-in-out var(--swing-delay) infinite alternate;
+}
+
+/* 法槌與漣漪:成功時、或點擊卡片外(.is-knock)時敲一下 */
+.sc__gavel {
+  transform-box: view-box;
+  transform-origin: 381px 238px;
+}
+.sc__ring {
+  fill: none;
+  stroke: var(--ls-gold-3);
+  stroke-width: 2;
+  opacity: 0;
+  transform-box: view-box;
+  transform-origin: 300px 266px;
+}
+.sc__knock.is-knock .sc__gavel {
+  animation: ls-strike 0.34s ease-in forwards;
+}
+.sc__ring--knock {
+  animation: ls-ring 0.4s ease-out 0.22s forwards; /* 延遲到落槌瞬間才擴散 */
+}
+
+/* ---------- 進場(每分頁一次)---------- */
+
+.login:has(.login-scene[data-enter]) .login__card {
+  animation: ls-rise 0.5s var(--ease-out) backwards;
+}
+.login:has(.login-scene[data-enter]) .login-backdrop {
+  animation: ls-lit 0.8s var(--ease-out) backwards;
+}
+.login-scene[data-enter] .geo__f {
+  animation: ls-lit 0.5s var(--ease-out) calc(var(--tone) * 90ms) backwards;
+}
+.login-scene[data-enter] .geo__lit {
+  animation:
+    ls-shimmer var(--lit-period) ease-in-out var(--lit-delay) infinite alternate,
+    ls-lit 0.5s var(--ease-out) calc(var(--tone) * 90ms) backwards;
+}
+.login-scene[data-enter] .scene__objects {
+  animation:
+    var(--ls-breath),
+    ls-settle 2.4s var(--ease-out);
+}
+
+/* ---------- 狀態連動(讀 .login[data-state];選擇器多帶 .login-scene 以壓過進場規則)---------- */
+
+.login[data-state='loading'] .login-scene .scene__objects {
+  animation:
+    var(--ls-breath),
+    var(--ls-weigh);
+}
+.login[data-state='error'] .login-scene .scene__objects {
+  animation:
+    var(--ls-breath),
+    ls-tip 1.8s var(--ease-out);
+}
+.login[data-state='success'] .login-scene .scene__objects {
+  animation:
+    var(--ls-breath),
+    var(--ls-weigh),
+    ls-lock 0.12s ease-out forwards;
+}
+.login[data-state='success'] .sc__gavel {
+  animation: ls-strike 0.34s ease-in forwards;
+}
+.login[data-state='success'] .sc__ring {
+  animation: ls-ring 0.4s ease-out 0.22s forwards;
+}
+
+/* ---------- 離場(playExit 設 data-exiting;落槌與漣漪先播完,0.4s 起淡出)---------- */
+
+.login-scene[data-exiting] {
+  animation: ls-exit 0.3s ease-in 0.4s forwards;
+}
+.login:has(.login-scene[data-exiting]) .login-backdrop {
+  animation: ls-exit 0.3s ease-in 0.4s forwards;
+}
+.login:has(.login-scene[data-exiting]) .login__card {
+  animation: ls-fold 0.3s ease-in 0.4s forwards;
+}
+
+/* ---------- 暫停 / reduced-motion ---------- */
+
+.login-scene.is-paused,
+.login-scene.is-paused *,
+.login:has(.login-scene.is-paused) .login__card {
+  animation-play-state: paused !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-scene,
+  .login-scene *,
+  .login-backdrop,
+  .login__card {
+    animation: none !important;
+  }
+}
+
+/* ---------- keyframes ---------- */
+
+@keyframes ls-breath {
+  0%, 60%, 100% { --breath: 0deg; }
+  8% { --breath: 5deg; }
+  24% { --breath: -4deg; }
+  38% { --breath: 1.8deg; }
+  50% { --breath: -0.6deg; }
+}
+@keyframes ls-settle {
+  0% { --weigh: -5deg; }
+  40% { --weigh: 1.6deg; }
+  70% { --weigh: -0.5deg; }
+  100% { --weigh: 0deg; }
+}
+@keyframes ls-weigh {
+  0%, 100% { --weigh: 0deg; }
+  25% { --weigh: 2.5deg; }
+  75% { --weigh: -2.5deg; }
+}
+@keyframes ls-tip {
+  0% { --weigh: 0deg; }
+  15% { --weigh: -6deg; }
+  45% { --weigh: 1.8deg; }
+  70% { --weigh: -0.6deg; }
+  100% { --weigh: 0deg; }
+}
+@keyframes ls-lock {
+  to { --live: 0; }
+}
+@keyframes ls-swing {
+  from { transform: rotate(-2deg); }
+  to { transform: rotate(2deg); }
+}
+@keyframes ls-shimmer {
+  from { opacity: 0.78; }
+  to { opacity: 1; }
+}
+@keyframes ls-lit {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes ls-strike {
+  0% { transform: rotate(0deg); }
+  30%, 42% { transform: rotate(25deg); } /* 以柄尾握點為軸,握柄上抬、槌頭離墊,停一拍 */
+  62% { transform: rotate(-2deg); } /* 由上往下落到擊墊,略過衝 */
+  100% { transform: rotate(0deg); }
+}
+@keyframes ls-ring {
+  0% { transform: scale(0.1); opacity: 0.9; }
+  100% { transform: scale(1); opacity: 0; }
+}
+@keyframes ls-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes ls-exit {
+  to { opacity: 0; }
+}
+@keyframes ls-fold {
+  to { opacity: 0; transform: translateY(-8px) scale(0.98); }
+}
