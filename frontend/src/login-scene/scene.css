@@ -248,8 +248,9 @@
     var(--ls-weigh),
     ls-lock 0.12s ease-out forwards;
 }
+/* 剛敲過的法槌已停在 ls-strike 的 forwards 狀態,同名動畫不會重播,故成功落槌另取名 */
 .login[data-state='success'] .sc__gavel {
-  animation: ls-strike 0.34s ease-in forwards;
+  animation: ls-strike-final 0.34s ease-in forwards;
 }
 .login[data-state='success'] .sc__ring {
   animation: ls-ring 0.4s ease-out 0.22s forwards;
@@ -330,6 +331,12 @@
   0% { transform: rotate(0deg); }
   30%, 42% { transform: rotate(25deg); } /* 以柄尾握點為軸,握柄上抬、槌頭離墊,停一拍 */
   62% { transform: rotate(-2deg); } /* 由上往下落到擊墊,略過衝 */
+  100% { transform: rotate(0deg); }
+}
+@keyframes ls-strike-final {
+  0% { transform: rotate(0deg); }
+  30%, 42% { transform: rotate(25deg); }
+  62% { transform: rotate(-2deg); }
   100% { transform: rotate(0deg); }
 }
 @keyframes ls-ring {

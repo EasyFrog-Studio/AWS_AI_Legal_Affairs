@@ -37,13 +37,10 @@ export default function Login() {
       <div className="login__card">
         <LoginScene />{/* login-scene ③ */}
         <div className="login__panel">
-          <p className="login__tagline">新北市政府訴願案件審理 · 承辦人內部使用</p>
           <h1 className="login__title">訴願案件審理輔助系統</h1>
+          <p className="login__tagline">新北市政府訴願案件審理 · 承辦人內部使用</p>
           <form onSubmit={handleSubmit}>
             <div className={`field ${status === 'error' ? 'field--error' : ''}`}>
-              <label className="field__label" htmlFor="apiKey">
-                密碼
-              </label>
               <input
                 id="apiKey"
                 className="input"
