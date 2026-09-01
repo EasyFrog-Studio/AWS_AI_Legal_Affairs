@@ -1,11 +1,4 @@
-"""建立 App Runner 服務指向 ECR image(冪等)。
-
-需要兩個 IAM role(WSParticipantRole 若無 iam:CreateRole 權限會失敗,
-失敗時本腳本會印出需要在 Console 手動完成的事項後 exit(1)):
-  1. access role:App Runner 拉 ECR image 用(信任 build.apprunner.amazonaws.com)
-  2. instance role:容器執行期呼叫 Bedrock/DynamoDB/S3 用(信任 tasks.apprunner.amazonaws.com)
-執行:python deploy/apprunner.py
-"""
+"""建立 App Runner 服務指向 ECR image(冪等);需 access role(拉 ECR)與 instance role(呼叫 Bedrock/DynamoDB/S3),無 iam:CreateRole 時印出手動步驟後 exit(1)。"""
 import json
 import sys
 import time

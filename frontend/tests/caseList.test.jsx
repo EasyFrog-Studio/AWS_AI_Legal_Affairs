@@ -24,8 +24,8 @@ async function renderList(rows) {
   if (rows.length) await screen.findByRole('table')
 }
 
-describe('案件清單(W3)', () => {
-  it('搜尋 / 狀態 / 案類篩選在前端收斂,且只打一次 API(3.3 #4)', async () => {
+describe('案件清單', () => {
+  it('搜尋 / 狀態 / 案類篩選在前端收斂,且只打一次 API', async () => {
     const user = userEvent.setup()
     await renderList(listRows)
     expect(dataRows()).toHaveLength(3)
@@ -51,7 +51,7 @@ describe('案件清單(W3)', () => {
     expect(api.listCases).toHaveBeenCalledTimes(1)
   })
 
-  it('篩選後 0 筆:顯示專屬文案與「清除篩選」,清除後列回來(1.7.5 三態)', async () => {
+  it('篩選後 0 筆:顯示專屬文案與「清除篩選」,清除後列回來(三態)', async () => {
     const user = userEvent.setup()
     await renderList(listRows)
     await user.type(screen.getByRole('textbox', { name: '搜尋' }), '不存在的案號')

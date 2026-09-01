@@ -1,9 +1,4 @@
-"""決定書草稿 PDF 產生(見 DECISIONS.md「Backend API 契約」節:GET .../draft.pdf)。
-
-只含決定書本文:標題 + 主文 + 事實欄 + 理由欄,不含依據(cited_laws)。
-中文以 fitz 內建 CJK 字型 china-t 繪製;逐行手動換行與分頁,避免
-insert_textbox 遇長文時裁切遺失內容。
-"""
+"""決定書草稿 PDF:標題 + 主文 + 事實 + 理由,不含 cited_laws;逐行手動換行分頁,insert_textbox 遇長文會裁切。"""
 from __future__ import annotations
 
 import fitz

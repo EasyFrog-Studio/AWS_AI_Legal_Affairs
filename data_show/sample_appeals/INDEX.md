@@ -13,7 +13,7 @@
 
 ## 說明
 
-- 每份樣本檔案為 `{代號}.json`，結構：`{"name","source_decision","appeal_text","expected":{"f1","screening","f2","f3","f4"}}`，欄位名逐字對齊 `DECISIONS.md` 之 Pydantic models（CaseInfo/ScreeningResult/LawRef/SimilarCase/DraftResult）。
+- 每份樣本檔案為 `{代號}.json`，結構：`{"name","source_decision","appeal_text","expected":{"f1","screening","f2","f3","f4"}}`，欄位名逐字對齊 `backend/app/models.py`（CaseInfo/ScreeningResult/LawRef/SimilarCase/DraftResult）。
 - `appeal_text` 為反推撰寫之第一人稱訴願書全文（繁體中文），個資沿用原決定書之遮罩姓名（如「劉○誼」）。
 - 不受理三案(a/b/c) 的 `expected.screening.passed = false`；駁回二案(d/e) 為程序審查通過後實體審理無理由，`passed = true`。
 - `_fallback.json` 為泛用樣本，`appeal_text` 較簡短，`expected` 完整，作為 MockProvider 未命中任何樣本時的保底回應。

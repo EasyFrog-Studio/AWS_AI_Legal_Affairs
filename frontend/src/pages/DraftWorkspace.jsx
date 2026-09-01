@@ -80,10 +80,7 @@ function useAutoGrow(ref, value, hidden) {
   }, [ref, value, hidden])
 }
 
-/**
- * 決定書草稿工作台。切換左欄階段時,呼叫端只切換 `hidden`——這個元件永不 unmount,
- * 三個 textarea 的 useState 因此在切換階段時存活。只在 caseId 真的變更(換案件)時重置。
- */
+/** 決定書草稿工作台:切換階段只切 `hidden`、永不 unmount,textarea 的未儲存內容才能存活;只在 caseId 變更時重置。 */
 export default function DraftWorkspace({
   caseId,
   draft,

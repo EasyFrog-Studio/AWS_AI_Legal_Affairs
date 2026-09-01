@@ -1,4 +1,4 @@
-// 依 mock 後端 GET /api/cases/:id 實際回應形狀(2026-08-27 抓取)裁剪
+// 依 mock 後端 GET /api/cases/:id 回應形狀裁剪
 const f1 = {
   appellant: '王○明',
   agency: '新北市政府環境保護局',

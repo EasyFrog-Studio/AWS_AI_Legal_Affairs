@@ -1,4 +1,4 @@
-"""CaseStore 抽象 + MemoryStore + DynamoDBStore(見 DECISIONS.md「CaseStore 介面」節)。"""
+"""CaseStore 抽象 + MemoryStore / DynamoDBStore / PostgresStore。"""
 from __future__ import annotations
 
 import json
@@ -56,7 +56,7 @@ class MemoryStore(CaseStore):
 
 
 class DynamoDBStore(CaseStore):
-    """PK 為 case_id(見 DECISIONS.md 「appeal_cases」表)。"""
+    """appeal_cases 表,PK 為 case_id。"""
 
     def __init__(self, table=None) -> None:
         if table is None:
@@ -129,7 +129,7 @@ class DynamoDBStore(CaseStore):
 
 
 class PostgresStore(CaseStore):
-    """案件整包以 JSONB 存(見 DECISIONS.md「appeal_cases」表)。"""
+    """appeal_cases 表,案件整包以 JSONB 存。"""
 
     def __init__(self, url, connect=None) -> None:
         if connect is None:

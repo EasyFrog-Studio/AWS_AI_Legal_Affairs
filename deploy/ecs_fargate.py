@@ -1,8 +1,4 @@
-"""ECS Fargate 部署(App Runner 被此帳號 SCP 封鎖時的替代方案)。
-
-跑現有 ECR image(不改任何程式碼),task 分配 public IP,直接以 http://<ip>:8000 對外。
-冪等:資源已存在就沿用。執行:python deploy/ecs_fargate.py
-"""
+"""ECS Fargate 部署(App Runner 被 SCP 封鎖的替代):跑現有 ECR image,task 直接以 public IP:8000 對外,資源已存在就沿用。"""
 import json
 import sys
 import time

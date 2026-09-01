@@ -1,4 +1,4 @@
-"""aws_setup 共用常數與 resources.json 讀寫。DECISIONS.md「AWS 資源命名」節為契約來源。"""
+"""aws_setup 共用常數與 resources.json 讀寫。"""
 import json
 from pathlib import Path
 

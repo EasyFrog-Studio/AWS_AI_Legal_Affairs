@@ -1,4 +1,4 @@
-"""FastAPI app(見 DECISIONS.md「Backend API 契約」節,路由與 schema 逐字照做)。"""
+"""FastAPI app:案件 CRUD、草稿 PATCH / PDF,pipeline 走 BackgroundTask。"""
 import urllib.parse
 import uuid
 from datetime import datetime, timezone

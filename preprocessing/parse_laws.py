@@ -1,18 +1,5 @@
 """解析 11 個法規 PDF -> data/output/law_chunks.jsonl + data/output/markdown/相關法規/*.md
-
-背景/已知問題(見回報)：
-common.extract_text() 用 page.get_text() 預設順序(依 PDF content stream 順序，非視覺位置)。
-其中 4 個檔案(訴願法/行政程序法/洗錢防制法/審議規則，判斷依據是頁首含 " EN" 與
-"所有條文" 字樣的新版排版)把每頁的「條號」文字方塊(位於左側頁邊，y 座標對齊該條內文
-起始列)在 content stream 中排在該頁內文之前，導致 extract_text() 併出來的純文字會把
-一整頁的條號清單("第 5 條\n第 6 條\n...")集中堆在該頁內文前面，條號與內文完全脫節，
-無法用簡單正則切條。
-
-驗證發現：用 PyMuPDF 的 page.get_text("text", sort=True)（依視覺位置由上到下、由左到右
-排序）可讓條號正確對齊排回其內文正前方(章節標題亦同)，11 個檔案全部條數與預期值(共
-2214 條)完全吻合、零重複、零缺漏。因此本檔改為直接呼叫 fitz 並加 sort=True 抽取全文，
-不使用 common.extract_text()（common.py 依規定不可修改）；clean_filename / write_jsonl /
-write_markdown / DATASET_DIR / OUTPUT_DIR 仍依規定直接沿用 common.py。
+直接用 fitz get_text(sort=True) 抽字而非 common.extract_text():新版排版的條號方塊在 content stream 中整頁堆在內文前,不排序無法切條。
 """
 import random
 import re

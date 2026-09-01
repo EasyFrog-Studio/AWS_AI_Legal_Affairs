@@ -1,9 +1,5 @@
-"""地端 AIProvider(見 DECISIONS.md「AI_PROVIDER=local 地端模式」)。
-
-- ollama 原生 API:/api/chat 以 format=JSON schema 強制結構化輸出;/api/embed 取向量。
-- pgvector SQL 查詢:law_chunks/case_chunks 語意檢索,對應 AWSProvider 的 KB-LAW/KB-CASE retrieve。
-- law_articles 表:cited_articles 精查補 amend_date/全文,取代 DynamoDB batch_get_item。
-  LLM 絕不生成修正日期——LawRef.amend_date 一律來自向量檢索 metadata/law_articles,查不到填「未收錄」。
+"""地端 AIProvider:ollama /api/chat(format=JSON schema)+ /api/embed、pgvector 檢索、law_articles 精查。
+amend_date 一律來自 metadata/law_articles,查不到填「未收錄」,絕不由 LLM 生成。
 """
 import json
 

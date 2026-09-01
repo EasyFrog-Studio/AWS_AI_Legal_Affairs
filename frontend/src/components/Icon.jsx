@@ -1,5 +1,5 @@
 /**
- * 線稿圖示(封閉清單,規則見 design.md)。
+ * 線稿圖示(封閉清單)。
  * 顏色一律由 currentColor 繼承,元件內不得寫任何顏色。
  * 裝飾用:aria-hidden + focusable=false,不加 <title>。
  */

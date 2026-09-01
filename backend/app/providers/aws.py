@@ -1,9 +1,5 @@
-"""AWS Bedrock AIProvider(見 DECISIONS.md「F2/F3 檢索裁決」節)。
-
-- bedrock-runtime converse:用 toolConfig 強制 JSON schema 輸出結構化結果。
-- bedrock-agent-runtime retrieve:KB_LAW_ID/KB_CASE_ID 向量檢索 + metadata filter。
-- DynamoDB:cited_articles 精查補 amend_date/全文。
-  LLM 絕不生成修正日期——LawRef.amend_date 一律來自 DynamoDB/metadata,查不到填「未收錄」。
+"""AWS Bedrock AIProvider:converse+toolConfig 強制 JSON、KB retrieve+metadata filter、DynamoDB 精查。
+amend_date 一律來自 DynamoDB/metadata,查不到填「未收錄」,絕不由 LLM 生成。
 """
 import json
 import re

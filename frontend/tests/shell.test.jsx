@@ -15,7 +15,7 @@ function renderAt(path) {
   )
 }
 
-describe('App shell(W1)', () => {
+describe('App shell', () => {
   it('登入頁沒有左欄;其他頁有全域導覽', async () => {
     api.listCases.mockResolvedValue(listRows)
     const { unmount } = renderAt('/login')

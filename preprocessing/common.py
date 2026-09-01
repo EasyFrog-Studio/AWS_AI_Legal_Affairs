@@ -1,4 +1,4 @@
-"""前處理共用工具。orchestrator 維護,parser 只 import 不修改。"""
+"""前處理共用工具,parser 只 import 不修改。"""
 import json
 import re
 import unicodedata

@@ -1,17 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-產生 2 份可上傳測試用的訴願書 PDF 範例(一受理一不受理)。
-
-素材來源(取 appeal_text 欄位):
-- 不受理:data_show/sample_appeals/b_overdue_77_2.json (77(2) 訴願逾期,廢棄物清理法)
-- 受理:  data_show/sample_appeals/d_dismiss_waste.json (實體審理駁回,廢棄物清理法)
-
-用 PyMuPDF(fitz)產生 A4 直式 PDF,標題「訴願書」+ 內文,自動分頁續印。
-內文字體改用系統內嵌 TrueType 字體(微軟正黑體 msjh.ttc),因為 PyMuPDF 內建
-CJK 字型(china-t)雖可正常「顯示」中文,但未提供 ToUnicode CMap,會導致
-get_text() 抽出的文字亂碼、無法被下游 PyMuPDF 文字抽取系統正確讀取。
-改用內嵌 TrueType 字體後,顯示與文字抽取皆正確。
-"""
+"""由 sample_appeals 的 b_overdue_77_2 / d_dismiss_waste 產生兩份可上傳的訴願書 PDF;字體用系統 msjh.ttc,fitz 內建 CJK 字型缺 ToUnicode,抽字會亂碼。"""
 import json
 import os
 

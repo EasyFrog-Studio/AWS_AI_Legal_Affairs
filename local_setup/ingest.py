@@ -26,7 +26,7 @@ POSTGRES_URL = os.environ.get("POSTGRES_URL", "postgresql://appeal:appeal@localh
 
 EMBED_BATCH_SIZE = 32
 
-# --- DDL(與 DECISIONS.md / docker/initdb/01_schema.sql 一字不差) ---
+# --- DDL(與 docker/initdb/01_schema.sql 一字不差) ---
 DDL = """
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE IF NOT EXISTS law_chunks (

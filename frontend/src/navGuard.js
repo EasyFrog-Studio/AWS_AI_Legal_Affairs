@@ -1,12 +1,6 @@
 import { createContext, useContext, useEffect } from 'react'
 
-/**
- * 離開有未儲存修改的頁面前提示(brief 1.7.4「離開前必須提示」;3.3 行為 #6)。
- * - 頁面端:useNavGuard(isDirty, message) —— dirty 時登記守衛訊息並掛 beforeunload。
- * - shell 端:AppShell 以 useRef 建 guardRef、透過 NavGuardContext 提供;
- *   全域導覽連結 / 登出按鈕的 onClick 先呼叫 confirmLeave(guardRef, e),回傳 false 即不得導頁。
- * 擁有者:orchestrator。W1 只使用 NavGuardContext + confirmLeave;W5 只使用 useNavGuard。
- */
+/** 離開有未儲存修改的頁面前提示:頁面用 useNavGuard 登記,AppShell 的導覽 onClick 先過 confirmLeave。 */
 export const NavGuardContext = createContext({ guardRef: { current: null } })
 
 export function useNavGuard(isDirty, message) {

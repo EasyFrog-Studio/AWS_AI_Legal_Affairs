@@ -1,4 +1,4 @@
-"""集中讀取環境變數設定(見 DECISIONS.md「環境變數」節)。"""
+"""集中讀取環境變數設定。"""
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     # 非契約環境變數(實作細節):mock 樣本資料目錄
     MOCK_DATA_DIR: str = _DEFAULT_MOCK_DATA_DIR
 
-    # local 模式(見 DECISIONS.md「AI_PROVIDER=local 地端模式」)
+    # local 模式
     LOCAL_LLM_BASE_URL: str = "http://host.docker.internal:11434"
     LOCAL_LLM_MODEL: str = "kamekichi128/qwen3-4b-instruct-2507"
     LOCAL_EMBED_MODEL: str = "bge-m3"

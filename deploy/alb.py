@@ -1,10 +1,4 @@
-"""在 ECS Fargate 服務前架 ALB,取得固定 DNS 網址(冪等,可重複執行)。
-
-執行:python deploy/alb.py(任意工作目錄皆可)
-產出:http://<ALB DNS>(不隨 task 重啟改變)
-前置:ecs_fargate.py 已建立 cluster appeal-ai / service appeal-ai-svc / SG appeal-ai-sg。
-HTTPS 需自有網域 + ACM 憑證,拿到網域後在 listener 上加 443 即可升級。
-"""
+"""在 ECS Fargate 服務前架 ALB 取得固定 DNS(冪等);前置為 ecs_fargate.py 已建 cluster/service/SG,HTTPS 需自有網域 + ACM 後在 listener 加 443。"""
 import time
 
 import boto3

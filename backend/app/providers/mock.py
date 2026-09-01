@@ -1,8 +1,4 @@
-"""Mock AIProvider(見 DECISIONS.md「Mock 模式裁決」節)。
-
-樣本目錄下每個 `{name}.json` = {"appeal_text": "...", "expected": {f1,screening,f2,f3,f4}}。
-`_fallback.json` 為未命中任何樣本時的泛用回應。
-"""
+"""Mock AIProvider:樣本目錄每個 `{name}.json` = {appeal_text, expected:{f1,screening,f2,f3,f4}},`_fallback.json` 為未命中時的回應。"""
 import json
 import time
 from pathlib import Path
@@ -37,11 +33,7 @@ class MockProvider(AIProvider):
         return fallback["expected"]
 
     def _match_by_text(self, text: str) -> dict:
-        """訴願人姓名/機關/案由三項關鍵詞計分,取最高分且 >= 2 的樣本;否則 fallback。
-
-        同案類樣本(機關+案由相同)會同時拿 2 分,必須以訴願人姓名的第 3 分決勝,
-        故不能採「首個 >= 2 即回傳」。
-        """
+        """姓名/機關/案由各 1 分,取最高分且 >= 2 者;同案類樣本會並列 2 分,需以姓名決勝,不能首個命中即回傳。"""
         best: dict | None = None
         best_hits = 0
         for name, sample in self._samples.items():

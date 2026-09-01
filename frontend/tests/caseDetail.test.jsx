@@ -22,8 +22,8 @@ function renderDetail(id = 'c-1') {
 const rail = (name) => screen.getByRole('button', { name })
 const isCurrent = (name) => rail(name).getAttribute('aria-current') === 'true'
 
-describe('案件詳情(W5)', () => {
-  it('切換階段再切回,草稿未儲存內容存活(3.3 #1,最高風險)', async () => {
+describe('案件詳情', () => {
+  it('切換階段再切回,草稿未儲存內容存活', async () => {
     api.getCase.mockResolvedValue(doneAdmissible)
     const user = userEvent.setup()
     renderDetail()
@@ -57,7 +57,7 @@ describe('案件詳情(W5)', () => {
     expect(isCurrent(/^程序審查/)).toBe(true)
   })
 
-  it('輪詢自動跟隨 current_stage;手動點過左欄後永久停止跟隨(1.7.3、3.3 #2)', async () => {
+  it('輪詢自動跟隨 current_stage;手動點過左欄後永久停止跟隨', async () => {
     api.getCase
       .mockResolvedValueOnce(processingAt('screening'))
       .mockResolvedValueOnce(processingAt('f2'))
@@ -85,7 +85,7 @@ describe('案件詳情(W5)', () => {
     expect(isCurrent(/^F3 案例/)).toBe(false)
   }, 12000)
 
-  it('不受理案件:F2 標「不適用」+ 說明句,不顯示「無」;草稿依據欄隱藏 F2 組(1.7.6、3.3 #3)', async () => {
+  it('不受理案件:F2 標「不適用」+ 說明句,不顯示「無」;草稿依據欄隱藏 F2 組', async () => {
     api.getCase.mockResolvedValue(doneInadmissible)
     const user = userEvent.setup()
     renderDetail('c-2')
@@ -100,7 +100,7 @@ describe('案件詳情(W5)', () => {
     expect(screen.queryByText('無')).toBeNull()
   })
 
-  it('status=error:左欄標記失敗階段「中斷」,內容區顯示錯誤原因(1.7.2)', async () => {
+  it('status=error:左欄標記失敗階段「中斷」,內容區顯示錯誤原因', async () => {
     api.getCase.mockResolvedValue(errorAtF2)
     renderDetail('c-4')
     const f2 = await screen.findByRole('button', { name: /^F2 法規/ })
@@ -108,7 +108,7 @@ describe('案件詳情(W5)', () => {
     expect(screen.getByText(/Bedrock 檢索逾時/)).toBeInTheDocument()
   })
 
-  it('有未儲存修改時,離開頁面前提示;取消則留在原頁(3.3 #6)', async () => {
+  it('有未儲存修改時,離開頁面前提示;取消則留在原頁', async () => {
     api.getCase.mockResolvedValue(doneAdmissible)
     api.listCases.mockResolvedValue(listRows)
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)

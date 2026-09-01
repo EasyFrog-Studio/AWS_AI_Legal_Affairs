@@ -1,4 +1,4 @@
-"""AIProvider 介面(見 DECISIONS.md「AIProvider 介面」節,簽名逐字照做)。"""
+"""AIProvider 介面,三種 provider 共用簽名。"""
 from abc import ABC, abstractmethod
 
 from app.models import CaseInfo, DraftResult, LawRef, ScreeningResult, SimilarCase

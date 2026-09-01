@@ -1,4 +1,4 @@
-"""API Key 驗證 dependency(見 DECISIONS.md「Backend API 契約」節)。"""
+"""API Key 驗證 dependency。"""
 from typing import Optional
 
 from fastapi import Header, HTTPException, status

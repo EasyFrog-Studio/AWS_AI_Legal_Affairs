@@ -1,4 +1,4 @@
-"""契約 Pydantic models(見 DECISIONS.md「Backend API 契約」節,逐字照做)。"""
+"""API / store / 前端共用的 Pydantic models。"""
 from __future__ import annotations
 
 from typing import Literal, Optional
