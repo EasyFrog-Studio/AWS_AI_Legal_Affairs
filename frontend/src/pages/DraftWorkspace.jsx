@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { updateDraft, downloadDraftPdf } from '../api'
+import { updateDraft, downloadDraftPdf, finalizeCase } from '../api'
 import { useNavGuard } from '../navGuard.js'
 import './DraftWorkspace.css'
 
@@ -87,6 +87,9 @@ export default function DraftWorkspace({
   laws,
   cases,
   track,
+  versionCount = 0,
+  versionsTruncated = false,
+  finalizedAt = null,
   onViewSource,
   onSaved,
   hidden,
@@ -122,27 +125,51 @@ export default function DraftWorkspace({
 
   useNavGuard(dirty, '草稿有未儲存的修改,離開後將遺失。確定要離開?')
 
+  function draftPatch() {
+    // base_version 帶目前的版本數:伺服器端不符即回 409,擋掉兩個視窗互相無聲覆寫
+    return { fact, reason, main_text: mainText, base_version: versionCount }
+  }
+
   async function handleSave() {
     setState('saving')
     setMessage('')
     try {
-      await updateDraft(caseId, { fact, reason, main_text: mainText })
+      await updateDraft(caseId, draftPatch())
       setState('saved')
       setMessage('已儲存')
       onSaved?.()
     } catch (err) {
       setState('error')
       setMessage(err.message || '儲存失敗,請重試。')
+      // 版本衝突:同步真實狀態,但不沖掉使用者剛打的字(他還要拿來比對差異)
+      if (err.status === 409) onSaved?.()
     }
   }
 
   async function handleDownload() {
     try {
-      if (dirty) await updateDraft(caseId, { fact, reason, main_text: mainText })
+      if (dirty) await updateDraft(caseId, draftPatch())
       await downloadDraftPdf(caseId)
     } catch (err) {
       setState('error')
       setMessage(err.message || '下載失敗,請重試。')
+      if (err.status === 409) onSaved?.()
+    }
+  }
+
+  async function handleFinalize() {
+    setState('saving')
+    setMessage('')
+    try {
+      if (dirty) await updateDraft(caseId, draftPatch())
+      const result = await finalizeCase(caseId)
+      setState('saved')
+      setMessage(`已標記定稿(${result.pdf_location || '已落地'})`)
+      onSaved?.()
+    } catch (err) {
+      setState('error')
+      setMessage(err.message || '定稿失敗,請重試。')
+      if (err.status === 409) onSaved?.()
     }
   }
 
@@ -172,6 +199,11 @@ export default function DraftWorkspace({
             ref={factRef}
             className="textarea"
             value={fact}
+            placeholder={
+              track === 'inadmissible'
+                ? '不受理決定依訴願法第 89 條第 1 項第 3 款得不記載事實;如需記載請於此輸入。'
+                : undefined
+            }
             onChange={(e) => setFact(e.target.value)}
             rows={8}
           />
@@ -189,6 +221,12 @@ export default function DraftWorkspace({
             rows={10}
           />
         </div>
+        {draft.cited_laws?.length > 0 && (
+          <div className="draft-field">
+            <span className="draft-paper__section-title">引用法條</span>
+            <p className="mono">{draft.cited_laws.join('、')}</p>
+          </div>
+        )}
         <div className="draft-actions">
           <button
             type="button"
@@ -201,6 +239,14 @@ export default function DraftWorkspace({
           <button type="button" className="btn btn-primary" onClick={handleDownload}>
             下載 PDF 寄審
           </button>
+          {/* 定稿只是標記,不鎖:定稿後仍可修改,改了再存一版 */}
+          <button type="button" className="btn btn-secondary" onClick={handleFinalize}>
+            {finalizedAt ? '重新定稿' : '標記定稿'}
+          </button>
+          <span className="draft-actions__meta">
+            已存 {versionCount} 版{versionsTruncated ? '(最舊版本已捨棄)' : ''}
+            {finalizedAt ? ` · 定稿於 ${finalizedAt}` : ''}
+          </span>
           {message && (
             <span
               className={

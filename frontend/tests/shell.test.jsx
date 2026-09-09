@@ -27,4 +27,25 @@ describe('App shell', () => {
     expect(nav).toHaveTextContent('新建案件')
     expect(screen.getByRole('button', { name: '登出' })).toBeInTheDocument()
   })
+
+  it('對照資料過期時,頁面上就看得到該重抓的提示', async () => {
+    api.listCases.mockResolvedValue(listRows)
+    api.health.mockResolvedValueOnce({
+      status: 'ok',
+      provider: 'mock',
+      warning: '國定假日表僅收錄至 2027 年,未及 2028 年,請執行 preprocessing/fetch_holidays.py 重抓',
+    })
+    renderAt('/')
+
+    expect(await screen.findByText(/fetch_holidays.py/)).toBeInTheDocument()
+  })
+
+  it('health 沒有警告時不佔畫面', async () => {
+    api.listCases.mockResolvedValue(listRows)
+    api.health.mockResolvedValueOnce({ status: 'ok', provider: 'mock', warning: '' })
+    renderAt('/')
+
+    await screen.findByRole('table')
+    expect(screen.queryByText(/對照資料須更新/)).toBeNull()
+  })
 })

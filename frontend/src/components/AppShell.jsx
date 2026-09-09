@@ -1,6 +1,6 @@
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { clearApiKey } from '../api'
+import { clearApiKey, health } from '../api'
 import { NavGuardContext, confirmLeave } from '../navGuard.js'
 import { fan } from '../art/facets.js'
 
@@ -21,6 +21,20 @@ const RAIL_FACETS = fan({
 export default function AppShell({ railSlot, children }) {
   const guardRef = useRef(null)
   const navigate = useNavigate()
+  // 外部對照資料(國定假日表/在途期間附表)過期時,期間末日的順延判斷會算不出來。
+  // health 是唯一會主動講「該重抓了」的地方,不接起來就等於沒有那道提醒。
+  const [dataWarning, setDataWarning] = useState('')
+  useEffect(() => {
+    let alive = true
+    health()
+      .then((body) => {
+        if (alive) setDataWarning(body?.warning || '')
+      })
+      .catch(() => {}) // health 掛掉不該擋住整個畫面,案件本身還能看
+    return () => {
+      alive = false
+    }
+  }, [])
   function handleLogout() {
     if (!confirmLeave(guardRef)) return
     clearApiKey()
@@ -67,7 +81,14 @@ export default function AppShell({ railSlot, children }) {
             </button>
           </div>
         </aside>
-        <main className="content">{children}</main>
+        <main className="content">
+          {dataWarning && (
+            <div className="review-banner" role="status">
+              對照資料須更新:{dataWarning}
+            </div>
+          )}
+          {children}
+        </main>
       </div>
     </NavGuardContext.Provider>
   )

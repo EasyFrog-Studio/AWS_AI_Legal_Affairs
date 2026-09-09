@@ -6,7 +6,17 @@ import Icon from '../components/Icon.jsx'
 import Seal, { resolveCaseSeal } from '../components/Seal.jsx'
 import './CaseList.css'
 
-const STATUS_OPTIONS = ['全部', '審理中', '已審結', '不受理', '駁回', '原處分撤銷', '處理失敗']
+const STATUS_OPTIONS = [
+  '全部',
+  '待確認',
+  '審理中',
+  '待人工確認',
+  '已審結',
+  '不受理',
+  '駁回',
+  '原處分撤銷',
+  '處理失敗',
+]
 const ALL = '全部'
 
 function formatDate(iso) {

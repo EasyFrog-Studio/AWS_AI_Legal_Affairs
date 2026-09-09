@@ -7,12 +7,21 @@ from pathlib import Path
 from typing import Optional
 
 from app.config import settings
-from app.models import CaseInfo, DraftResult, LawRef, ScreeningResult, SimilarCase
+from app.models import (
+    CaseInfo,
+    DraftResult,
+    LawRef,
+    ScreeningResult,
+    SimilarCase,
+    StandingAssessment,
+    parse_clause,
+)
 from app.providers.base import AIProvider
 
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 _DDB_BATCH_LIMIT = 100  # DynamoDB BatchGetItem 單次上限
-_CLAUSE_RE = re.compile(r"(\d+)條第(\d+)款")
+_ARTICLE_NO_RE = re.compile(r"^\d+(-\d+)?$")  # 如 "27"、"27-1";F1 抽不到條號時填「未載明」,不是有效條號
+_MAX_QUERY_ISSUE_CHARS = 40  # F2 查詢只取首個爭點的前 N 字,避免多爭點串成長句把語意重心稀釋掉
 
 
 def _load_prompt(name: str) -> str:
@@ -21,12 +30,21 @@ def _load_prompt(name: str) -> str:
 
 def _clause_to_appeal_article(clause: Optional[str]) -> Optional[str]:
     """"77條第2款" -> "77(2)"(對應 case_chunks metadata.appeal_article 格式)。"""
-    if not clause:
-        return None
-    m = _CLAUSE_RE.search(clause)
-    if not m:
-        return None
-    return f"{m.group(1)}({m.group(2)})"
+    parsed = parse_clause(clause)
+    return f"{parsed[0]}({parsed[1]})" if parsed else None
+
+
+def _valid_cited_articles(cited_articles: list[str]) -> list[str]:
+    """過濾 F1 產出的假條號(如 "廢棄物清理法#未載明")——條號欄位查無明確依據時 prompt 要求填
+    「未載明」,這種鍵送進精查必然查無,只會產出 text="" 的空殼卻仍被算進可引用清單。"""
+    return [a for a in cited_articles if _ARTICLE_NO_RE.match(a.partition("#")[2])]
+
+
+def _retrieval_query(info: CaseInfo) -> str:
+    """F2/F3 共用的檢索查詢字串:只取首個爭點(截斷),不把全部爭點串成長句。issues 全句串接
+    會把語意重心稀釋掉,案由本身(case_type)與最主要的爭點才是決定該撈哪部法規/哪些案例的關鍵訊號。"""
+    primary_issue = info.issues[0][:_MAX_QUERY_ISSUE_CHARS] if info.issues else ""
+    return f"{info.case_type} {primary_issue}".strip()
 
 
 class AWSProvider(AIProvider):
@@ -47,13 +65,18 @@ class AWSProvider(AIProvider):
 
     # ---------- bedrock-runtime converse:toolConfig 強制 JSON schema ----------
     def _converse_json(
-        self, system_prompt: str, user_text: str, tool_name: str, schema: dict
+        self,
+        system_prompt: str,
+        user_text: str,
+        tool_name: str,
+        schema: dict,
+        temperature: Optional[float] = None,
     ) -> dict:
-        resp = self._brt.converse(
-            modelId=settings.BEDROCK_MODEL_ID,
-            system=[{"text": system_prompt}],
-            messages=[{"role": "user", "content": [{"text": user_text}]}],
-            toolConfig={
+        kwargs: dict = {
+            "modelId": settings.BEDROCK_MODEL_ID,
+            "system": [{"text": system_prompt}],
+            "messages": [{"role": "user", "content": [{"text": user_text}]}],
+            "toolConfig": {
                 "tools": [
                     {
                         "toolSpec": {
@@ -65,7 +88,10 @@ class AWSProvider(AIProvider):
                 ],
                 "toolChoice": {"tool": {"name": tool_name}},
             },
-        )
+        }
+        if temperature is not None:
+            kwargs["inferenceConfig"] = {"temperature": temperature}
+        resp = self._brt.converse(**kwargs)
         content = resp["output"]["message"]["content"]
         for block in content:
             if "toolUse" in block:
@@ -85,6 +111,12 @@ class AWSProvider(AIProvider):
                 "case_type": {"type": "string"},
                 "issues": {"type": "array", "items": {"type": "string"}},
                 "cited_articles": {"type": "array", "items": {"type": "string"}},
+                "receipt_date": {"type": "string"},
+                "service_date": {"type": "string"},
+                "service_method": {"type": "string"},
+                "disposition_fine": {"type": "string"},
+                "disposition_notice_clause": {"type": "string"},
+                "disposition_recipient": {"type": "string"},
             },
             "required": [
                 "appellant",
@@ -112,6 +144,26 @@ class AWSProvider(AIProvider):
         data = self._converse_json(_load_prompt("screening.txt"), user_text, "screen_admissibility", schema)
         return ScreeningResult(**data)
 
+    def assess_standing(self, info: CaseInfo, text: str) -> StandingAssessment:
+        """保護規範理論的判斷是全流程唯一需要 LLM 做價值判斷的節點,同一卷證跑兩次必須得到
+        同一結果(見實作計畫 §Ticket 6 約束3),故固定 temperature=0,不受其他呼叫的預設值影響。"""
+        schema = {
+            "type": "object",
+            "properties": {
+                "referenced_norm": {"type": "string"},
+                "has_standing": {"type": ["boolean", "null"]},
+                "reasoning": {"type": "string"},
+            },
+            "required": ["referenced_norm", "has_standing", "reasoning"],
+        }
+        user_text = f"【案件資訊】\n{info.model_dump_json(indent=2)}\n\n【訴願書原文】\n{text}"
+        data = self._converse_json(
+            _load_prompt("standing.txt"), user_text, "assess_standing", schema, temperature=0
+        )
+        return StandingAssessment(
+            referenced_norm=data.get("referenced_norm") or "", has_standing=data.get("has_standing")
+        )
+
     # ---------- bedrock-agent-runtime retrieve ----------
     def _retrieve(self, kb_id: str, query: str, filter_: Optional[dict], num_results: int = 5) -> list[dict]:
         vector_search_config: dict = {"numberOfResults": num_results}
@@ -137,10 +189,29 @@ class AWSProvider(AIProvider):
                 result[item["law_article"]] = item
         return result
 
+    def get_law_articles(self, keys: list[str]) -> list[LawRef]:
+        """依「法規名稱#條號」精查全文與修正日期;條號是精確鍵,不走向量檢索。"""
+        items = self._batch_get_law_articles(keys)
+        refs: list[LawRef] = []
+        for key in keys:
+            item = items.get(key)
+            law_name, _, article_no = key.partition("#")
+            refs.append(
+                LawRef(
+                    law_name=item.get("law_name", law_name) if item else law_name,
+                    article_no=item.get("article_no", article_no) if item else article_no,
+                    text=item.get("text", "") if item else "",
+                    # 一律來自 DynamoDB,查無資料填死值,禁止由 LLM 生成修正日期
+                    amend_date=(item.get("amend_date") or "未收錄") if item else "未收錄",
+                    source_key=item.get("source_key") if item else None,
+                    relevance="條號精查(DynamoDB)" if item else "條號精查,DynamoDB 未查得資料",
+                )
+            )
+        return refs
+
     def recommend_laws(self, info: CaseInfo) -> list[LawRef]:
         filter_ = {"notEquals": {"key": "law_type", "value": "普通法"}}
-        query = f"{info.case_type} {' '.join(info.issues)}".strip()
-        retrieved = self._retrieve(settings.KB_LAW_ID, query, filter_)
+        retrieved = self._retrieve(settings.KB_LAW_ID, _retrieval_query(info), filter_)
 
         law_refs: dict[str, LawRef] = {}
         for r in retrieved:
@@ -157,37 +228,18 @@ class AWSProvider(AIProvider):
                 relevance="向量檢索命中(KB-LAW)",
             )
 
-        # F1 cited_articles 走 DynamoDB 精查,補齊 KB 檢索未涵蓋的引用法條
-        missing_keys = [a for a in info.cited_articles if a not in law_refs]
-        if missing_keys:
-            ddb_items = self._batch_get_law_articles(missing_keys)
-            for key in missing_keys:
-                item = ddb_items.get(key)
-                law_name, _, article_no = key.partition("#")
-                if item:
-                    law_refs[key] = LawRef(
-                        law_name=item.get("law_name", law_name),
-                        article_no=item.get("article_no", article_no),
-                        text=item.get("text", ""),
-                        amend_date=item.get("amend_date") or "未收錄",  # 一律來自 DynamoDB
-                        source_key=item.get("source_key"),
-                        relevance="F1 擷取之引用法條(DynamoDB 精查)",
-                    )
-                else:
-                    law_refs[key] = LawRef(
-                        law_name=law_name,
-                        article_no=article_no,
-                        text="",
-                        amend_date="未收錄",  # 查無資料,禁止由 LLM 生成修正日期
-                        source_key=None,
-                        relevance="F1 擷取之引用法條,DynamoDB 未查得資料",
-                    )
+        # F1 cited_articles 走 DynamoDB 精查,補齊 KB 檢索未涵蓋的引用法條;先濾掉「未載明」等假條號
+        missing_keys = [a for a in _valid_cited_articles(info.cited_articles) if a not in law_refs]
+        # 以請求的 key 落位,不用回傳值重組:DB 的 law_name/article_no 與 key 不一致時,
+        # 重組出的 key 會撞掉檢索結果
+        for key, ref in zip(missing_keys, self.get_law_articles(missing_keys)):
+            law_refs[key] = ref
         return list(law_refs.values())
 
     def find_similar_cases(
         self, info: CaseInfo, screening: ScreeningResult, text: str
     ) -> list[SimilarCase]:
-        query = f"{info.case_type} {' '.join(info.issues)}".strip()
+        query = _retrieval_query(info)
 
         if screening.passed:
             filter_ = {"equals": {"key": "case_type", "value": info.case_type}}

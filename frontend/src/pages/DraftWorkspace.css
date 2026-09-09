@@ -75,6 +75,13 @@
   color: var(--color-pass);
 }
 
+/* 版本數與定稿時間:承辦人要看得出「這份改過幾次、是否已定稿」 */
+.draft-actions__meta {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+}
+
 /* ---------- 依據面板 ---------- */
 
 .basis-panel {

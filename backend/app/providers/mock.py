@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.config import settings
-from app.models import CaseInfo, DraftResult, LawRef, ScreeningResult, SimilarCase
+from app.models import CaseInfo, DraftResult, LawRef, ScreeningResult, SimilarCase, StandingAssessment
 from app.providers.base import AIProvider
 
 _FALLBACK_NAME = "_fallback"
@@ -70,9 +70,44 @@ class MockProvider(AIProvider):
         time.sleep(1)
         return ScreeningResult(**self._match_by_text(text)["screening"])
 
+    def assess_standing(self, info: CaseInfo, text: str) -> StandingAssessment:
+        """樣本無 "standing" 鍵時回空 StandingAssessment(referenced_norm="",has_standing=None,
+        即證據不足)——既有樣本沒有一件是§77(3)當事人適格案,補樣本時才需要加這個鍵,
+        鍵的形狀是 {"referenced_norm": "...", "has_standing": true/false/null}。"""
+        time.sleep(1)
+        standing = self._match_by_text(text).get("standing") or {}
+        return StandingAssessment(**standing)
+
     def recommend_laws(self, info: CaseInfo) -> list[LawRef]:
         time.sleep(1)
         return [LawRef(**item) for item in self._match_by_info(info)["f2"]]
+
+    def get_law_articles(self, keys: list[str]) -> list[LawRef]:
+        """從所有樣本的 f2 彙整成條號索引;查無者比照真實 provider 回「未收錄」。"""
+        time.sleep(1)
+        index: dict[str, dict] = {}
+        # 同一條號可能出現在多個樣本且內容不同,依檔名排序取最後一筆,結果才不隨字典順序漂移
+        for name in sorted(self._samples):
+            for item in self._samples[name]["expected"].get("f2", []):
+                index[f"{item['law_name']}#{item['article_no']}"] = item
+        refs = []
+        for key in keys:
+            item = index.get(key)
+            if item:
+                refs.append(LawRef(**item))
+            else:
+                law_name, _, article_no = key.partition("#")
+                refs.append(
+                    LawRef(
+                        law_name=law_name,
+                        article_no=article_no,
+                        text="",
+                        amend_date="未收錄",
+                        source_key=None,
+                        relevance="條號精查,樣本未收錄",
+                    )
+                )
+        return refs
 
     def find_similar_cases(
         self, info: CaseInfo, screening: ScreeningResult, text: str

@@ -21,7 +21,13 @@
         "訴願法#1",
         "訴願法#77",
         "訴願法#79"
-      ]
+      ],
+      "receipt_date": "",
+      "service_date": "",
+      "service_method": "",
+      "disposition_fine": "",
+      "disposition_notice_clause": "",
+      "disposition_recipient": ""
     },
     "screening": {
       "passed": true,

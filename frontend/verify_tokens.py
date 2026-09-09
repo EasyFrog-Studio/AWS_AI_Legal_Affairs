@@ -43,6 +43,7 @@ T = {
     'rule': (.76, .02, 110), 'rule-soft': (.86, .018, 100), 'rule-strong': (.56, .03, 130),
     'gold': (.74, .12, 85), 'gold-deep': (.55, .11, 80),
     'pass': (.42, .08, 150), 'reject': (.45, .09, 45), 'processing': (.48, .10, 78), 'error': (.46, .13, 30),
+    'review': (.45, .09, 75),
 }
 S = {k: lin(v) for k, v in T.items()}
 
@@ -57,6 +58,7 @@ CHECKS = [
     ('gold', 'rail', 3), ('gold', 'rail-2', 3), ('surface', 'rail', 3),
     ('pass', 'surface', 4.5), ('reject', 'surface', 4.5), ('processing', 'surface', 4.5),
     ('error', 'paper', 4.5), ('error', 'surface', 4.5),
+    ('review', 'paper', 4.5), ('review', 'surface', 4.5),
 ]
 
 fail = 0

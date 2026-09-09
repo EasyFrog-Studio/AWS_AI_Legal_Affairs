@@ -64,6 +64,14 @@ export const doneAdmissible = {
   input_text: '…',
   f1,
   screening: { passed: true, matched_clause: null, reasoning: '形式審查無不受理事由。' },
+  deadline: {
+    overdue: null,
+    service_date: null,
+    due_date: null,
+    filed_date: null,
+    detail: '',
+    review_note: '期間未計算,送達日無法認定:抽到 0 個',
+  },
   f2,
   f3,
   f4: { draft_type: '駁回', fact: '事實原文', reason: '理由原文', main_text: '訴願駁回。' },
@@ -76,8 +84,54 @@ export const doneInadmissible = {
   title: '訴願書 B',
   track: 'inadmissible',
   screening: { passed: false, matched_clause: '77條第2款', reasoning: '逾三十日提起。' },
+  deadline: {
+    overdue: true,
+    service_date: '2025-05-28',
+    due_date: '2025-06-27',
+    filed_date: '2025-10-31',
+    detail: '送達生效日114年5月28日,起算日114年5月29日,期間30日、在途0日,末日114年6月27日,機關收文日114年10月31日,已逾期。',
+    review_note: '',
+  },
   f2: null,
   f4: { draft_type: '不受理', fact: '事實原文B', reason: '理由原文B', main_text: '訴願不受理。' },
+}
+
+export const collectingAllMatched = {
+  case_id: 'c-5',
+  created_at: '2026-08-27T04:00:00+00:00',
+  title: '訴願書 D',
+  status: 'collecting',
+  current_stage: 'f1',
+  track: null,
+  source: 'text',
+  input_text: '…',
+  documents: {
+    appeal: { slot: 'appeal', source: 'text', text: '訴願書全文', check: { matched: true, method: 'rule', note: '符合訴願書的文字特徵' } },
+    service: { slot: 'service', source: 'text', text: '送達證書全文', check: { matched: true, method: 'rule', note: '符合送達證書的文字特徵' } },
+    disposition: { slot: 'disposition', source: 'text', text: '原處分書全文', check: { matched: true, method: 'rule', note: '符合原處分書的文字特徵' } },
+  },
+  f1: null,
+  screening: null,
+  deadline: null,
+  f2: null,
+  f3: null,
+  f4: null,
+  error: null,
+}
+
+export const collectingWithMismatch = {
+  ...collectingAllMatched,
+  case_id: 'c-6',
+  title: '訴願書 E',
+  documents: {
+    ...collectingAllMatched.documents,
+    service: {
+      slot: 'service',
+      source: 'text',
+      text: '送達證書全文',
+      check: { matched: false, method: 'rule', note: '文字特徵更接近原處分書,不是送達證書' },
+    },
+  },
 }
 
 export function processingAt(currentStage) {

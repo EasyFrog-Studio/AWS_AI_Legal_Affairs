@@ -6,8 +6,18 @@
 *venv/
 *__pycache__/
 
-.hallmark/
 node_modules/
 frontend/dist/
 .pytest_cache/
 backend/static/
+
+# 執行期產物
+finalized/
+.coverage
+htmlcov/
+
+# 工具 / 編輯器 / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

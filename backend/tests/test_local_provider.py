@@ -166,6 +166,50 @@ def test_screen_admissibility_calls_chat_and_parses_result():
     assert body["format"]["properties"]["passed"]["type"] == "boolean"
 
 
+# ---------- b2. assess_standing(§77(3)) ----------
+def test_assess_standing_calls_chat_and_parses_result():
+    http = FakeHTTP(
+        chat_payloads=[
+            {
+                "referenced_norm": "廢棄物清理法#27",
+                "has_standing": True,
+                "reasoning": "訴願人為受處分行為之共有人,具利害關係",
+            }
+        ]
+    )
+    provider = _provider(http_client=http)
+
+    result = provider.assess_standing(_info(), "訴願書原文")
+
+    assert result.referenced_norm == "廢棄物清理法#27"
+    assert result.has_standing is True
+    path, body = http.calls[0]
+    assert path == "/api/chat"
+    assert body["format"]["properties"]["has_standing"]["type"] == ["boolean", "null"]
+    assert body["options"]["temperature"] == 0  # §77(3)保護規範判斷須與其他呼叫一樣是決定性的
+
+
+def test_assess_standing_returns_none_when_evidence_insufficient():
+    http = FakeHTTP(chat_payloads=[{"referenced_norm": "", "has_standing": None, "reasoning": "證據不足"}])
+    provider = _provider(http_client=http)
+
+    result = provider.assess_standing(_info(), "訴願書原文")
+    assert result.referenced_norm == ""
+    assert result.has_standing is None
+
+
+def test_assess_standing_is_deterministic_across_repeated_calls():
+    """同一輸入連跑兩次要得到同一結果(實作計畫§Ticket 6 約束3)——這裡驗證的是呼叫形狀
+    固定 temperature=0,兩次呼叫用同一份 fake payload 模擬「模型在溫度0下的穩定輸出」。"""
+    payload = {"referenced_norm": "廢棄物清理法#27", "has_standing": False, "reasoning": "僅單純事實上利害關係"}
+    provider = _provider(http_client=FakeHTTP(chat_payloads=[payload, dict(payload)]))
+
+    first = provider.assess_standing(_info(), "訴願書原文")
+    second = provider.assess_standing(_info(), "訴願書原文")
+
+    assert first == second
+
+
 # ---------- c. F2 ----------
 def test_recommend_laws_excludes_general_law_and_does_not_call_chat():
     http = FakeHTTP(chat_payloads=[])
@@ -197,6 +241,19 @@ def test_recommend_laws_excludes_general_law_and_does_not_call_chat():
     assert laws[0].law_name == "廢棄物清理法"
 
 
+def test_recommend_laws_embed_query_uses_only_first_issue():
+    """issues 全句串接會稀釋語意重心,查詢只該帶案由與首個爭點,不含其他爭點文字。"""
+    http = FakeHTTP(chat_payloads=[])
+    connect, calls = _fake_connect_factory([])
+    provider = _provider(http_client=http, connect=connect)
+
+    provider.recommend_laws(_info(issues=["是否構成任意棄置", "是否符合行政罰法第7條之故意過失"]))
+
+    embed_calls = [body for path, body in http.calls if path == "/api/embed"]
+    assert len(embed_calls) == 1
+    assert embed_calls[0]["input"] == ["廢棄物清理 是否構成任意棄置"]
+
+
 def test_recommend_laws_missing_cited_article_falls_back_to_未收錄():
     http = FakeHTTP(chat_payloads=[])
     # 第一批:law_chunks 向量檢索(空);第二批:law_articles 精查(空)
@@ -210,6 +267,18 @@ def test_recommend_laws_missing_cited_article_falls_back_to_未收錄():
     assert laws[0].law_name == "廢棄物清理法"
     assert laws[0].article_no == "99"
     assert len(calls) == 2  # law_chunks 檢索 + law_articles 精查
+
+
+def test_recommend_laws_skips_placeholder_cited_article_without_querying_law_articles():
+    """F1 對抽不到條號的欄位填「未載明」,這種假條號不該送進 law_articles 精查,也不該出現在結果裡。"""
+    http = FakeHTTP(chat_payloads=[])
+    connect, calls = _fake_connect_factory([])  # 只有 law_chunks 向量檢索這一批
+    provider = _provider(http_client=http, connect=connect)
+
+    laws = provider.recommend_laws(_info(cited_articles=["廢棄物清理法#未載明"]))
+
+    assert laws == []
+    assert len(calls) == 1  # 只查了 law_chunks,沒有觸發 law_articles 精查
 
 
 def test_recommend_laws_cited_article_found_in_law_articles_table():
@@ -362,3 +431,53 @@ def test_constructor_with_injected_fakes_never_imports_psycopg():
     provider = _provider()
     assert isinstance(provider, LocalProvider)
     assert "psycopg" not in sys.modules
+
+
+# ---------- get_law_articles:條號精查 ----------
+
+
+def test_get_law_articles_returns_ref_from_law_articles_table():
+    connect, calls = _fake_connect_factory(
+        [
+            (
+                "訴願法#77",
+                "訴願事件有左列各款情形之一者,應為不受理之決定:…",
+                {
+                    "law_name": "訴願法",
+                    "article_no": "77",
+                    "amend_date": "民國101年06月27日",
+                    "source_key": "laws/訴願法.md",
+                },
+            )
+        ]
+    )
+    provider = _provider(connect=connect)
+
+    refs = provider.get_law_articles(["訴願法#77"])
+
+    assert len(refs) == 1
+    assert refs[0].law_name == "訴願法"
+    assert refs[0].article_no == "77"
+    assert refs[0].amend_date == "民國101年06月27日"  # 來自 law_articles,非 LLM 生成
+    sql, params = calls[0]
+    assert "law_articles" in sql and params == (["訴願法#77"],)
+
+
+def test_get_law_articles_missing_key_falls_back_to_placeholder():
+    connect, _ = _fake_connect_factory([])
+    provider = _provider(connect=connect)
+
+    refs = provider.get_law_articles(["訴願法#77"])
+
+    assert len(refs) == 1
+    assert refs[0].law_name == "訴願法"
+    assert refs[0].text == ""
+    assert refs[0].amend_date == "未收錄"  # 查無資料填死值,不得由 LLM 生成
+
+
+def test_get_law_articles_empty_keys_skips_query():
+    connect, calls = _fake_connect_factory()
+    provider = _provider(connect=connect)
+
+    assert provider.get_law_articles([]) == []
+    assert calls == []

@@ -17,6 +17,9 @@ from config import (
     load_resources,
 )
 
+# 留出法測試集年度:這些年度的決定書 chunk 不得進檢索庫,與 preprocessing/parse_decisions.py 形成兩道防線
+HOLDOUT_YEARS = frozenset({"114"})
+
 INITIAL_BATCH_SIZE = 25
 FALLBACK_BATCH_SIZE = 10
 MAX_THROTTLE_RETRIES = 5
@@ -33,6 +36,15 @@ def load_jsonl(path) -> list:
             if line:
                 rows.append(json.loads(line))
     return rows
+
+
+def drop_holdout_years(rows: list) -> list:
+    """濾掉 metadata.year 落在留出年度的 chunk,回傳可入庫清單。"""
+    kept = [r for r in rows if str(r.get("metadata", {}).get("year", "")) not in HOLDOUT_YEARS]
+    dropped = len(rows) - len(kept)
+    if dropped:
+        print(f"[HOLDOUT] 排除 {dropped} 筆留出年度({'/'.join(sorted(HOLDOUT_YEARS))})chunk,不入庫")
+    return kept
 
 
 def build_document(row: dict) -> dict:
@@ -129,7 +141,7 @@ def main():
 
     law_rows = load_jsonl(LAW_CHUNKS_PATH)
     interp_rows = load_jsonl(INTERP_CHUNKS_PATH)
-    case_rows = load_jsonl(CASE_CHUNKS_PATH)
+    case_rows = drop_holdout_years(load_jsonl(CASE_CHUNKS_PATH))
 
     law_docs = [build_document(r) for r in law_rows + interp_rows]
     case_docs = [build_document(r) for r in case_rows]

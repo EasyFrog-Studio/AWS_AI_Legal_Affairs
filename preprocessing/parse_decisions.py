@@ -12,6 +12,9 @@ from common import DATASET_DIR, OUTPUT_DIR, clean_filename, extract_text, write_
 
 CASE_DIR = DATASET_DIR / "歷史訴願決定書"
 
+# 留出法測試集年度:這些年度的決定書不得產成 chunk 進檢索庫,否則評測等於洩題
+HOLDOUT_YEARS = frozenset({"114"})
+
 FILENAME_RE = re.compile(r"^(?P<seq>\d+)\.(?P<year>\d+)年-(?P<rest>.+)$")
 
 HEADER_LABEL_ORDER = ["案號", "要旨", "發文日期", "發文字號", "相關法條", "全文"]
@@ -108,6 +111,7 @@ def main():
     pdf_files = sorted(CASE_DIR.glob("*/*.pdf"))
 
     rows = []
+    holdout_skipped = []  # 留出年度而未解析的檔名
     filename_failures = []  # (filename, reason)
     field_issues = []  # (filename, reason)
     section_downgrades = []  # filenames where whole doc fell back to 全文
@@ -119,6 +123,10 @@ def main():
         info, err = parse_filename(pdf_path)
         if info is None:
             filename_failures.append((pdf_path.name, err))
+            continue
+
+        if info["year"] in HOLDOUT_YEARS:
+            holdout_skipped.append(pdf_path.name)
             continue
 
         text = extract_text(pdf_path)
@@ -191,7 +199,11 @@ def main():
     write_jsonl(OUTPUT_DIR / "case_chunks.jsonl", rows)
 
     total = len(pdf_files)
-    print(f"=== 解析結果:{success}/{total} 檔成功 ===")
+    print(f"=== 解析結果:{success}/{total - len(holdout_skipped)} 檔成功(來源目錄共 {total} 檔) ===")
+    print()
+    print(f"跳過 {len(holdout_skipped)} 筆(留出年度 {'/'.join(sorted(HOLDOUT_YEARS))},不進檢索庫):")
+    for name in holdout_skipped:
+        print(f"  - {name}")
     print()
     print(f"檔名解析失敗 / 無法產生內容 ({len(filename_failures)} 件):")
     for name, reason in filename_failures:

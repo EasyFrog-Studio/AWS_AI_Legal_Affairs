@@ -41,12 +41,14 @@ export default function Login() {
           <p className="login__tagline">新北市政府訴願案件審理 · 承辦人內部使用</p>
           <form onSubmit={handleSubmit}>
             <div className={`field ${status === 'error' ? 'field--error' : ''}`}>
+              {/* 版面不放可見 label,但欄位仍要有可及名稱:placeholder 一輸入就消失 */}
               <input
                 id="apiKey"
                 className="input"
                 type="password"
                 value={key}
                 onChange={(e) => setKey(e.target.value)}
+                aria-label="密碼"
                 placeholder="請輸入密碼"
                 disabled={busy}
               />

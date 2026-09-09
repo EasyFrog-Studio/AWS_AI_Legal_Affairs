@@ -6,7 +6,7 @@ from pathlib import Path
 
 import fitz  # PyMuPDF
 
-DATASET_DIR = Path(__file__).resolve().parents[2] / "data"
+DATASET_DIR = Path(__file__).resolve().parents[2] / "data" / "資料集"  # 四類來源 PDF 的共同父目錄
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "data" / "output"
 MARKDOWN_DIR = OUTPUT_DIR / "markdown"
 

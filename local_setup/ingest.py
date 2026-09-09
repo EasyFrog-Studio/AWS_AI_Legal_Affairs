@@ -13,7 +13,7 @@ from pathlib import Path
 import httpx
 import psycopg
 
-# --- 路徑推導(鏡像 LRB_automation/preprocessing/common.py:9-10 的相對寫法) ---
+# --- 路徑推導(鏡像 AWS_dev_infomation/AWS_AI_Legal_Affairs/preprocessing/common.py:9-10 的相對寫法) ---
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "data" / "output"
 LAW_CHUNKS_PATH = OUTPUT_DIR / "law_chunks.jsonl"
 INTERP_CHUNKS_PATH = OUTPUT_DIR / "interp_chunks.jsonl"
@@ -25,6 +25,9 @@ LOCAL_EMBED_MODEL = os.environ.get("LOCAL_EMBED_MODEL", "bge-m3")
 POSTGRES_URL = os.environ.get("POSTGRES_URL", "postgresql://appeal:appeal@localhost:5432/appeal")
 
 EMBED_BATCH_SIZE = 32
+
+# 留出法測試集年度:這些年度的決定書 chunk 不得進檢索庫,與 preprocessing/parse_decisions.py 形成兩道防線
+HOLDOUT_YEARS = frozenset({"114"})
 
 # --- DDL(與 docker/initdb/01_schema.sql 一字不差) ---
 DDL = """
@@ -64,6 +67,15 @@ def load_jsonl(path: Path) -> list:
             if line:
                 rows.append(json.loads(line))
     return rows
+
+
+def drop_holdout_years(rows: list) -> list:
+    """濾掉 metadata.year 落在留出年度的 chunk,回傳可入庫清單。"""
+    kept = [r for r in rows if str(r.get("metadata", {}).get("year", "")) not in HOLDOUT_YEARS]
+    dropped = len(rows) - len(kept)
+    if dropped:
+        print(f"[HOLDOUT] 排除 {dropped} 筆留出年度({'/'.join(sorted(HOLDOUT_YEARS))})chunk,不入庫")
+    return kept
 
 
 def vector_literal(vec: list) -> str:
@@ -135,7 +147,7 @@ def table_count(conn, table: str) -> int:
 def main():
     law_rows = load_jsonl(LAW_CHUNKS_PATH)
     interp_rows = load_jsonl(INTERP_CHUNKS_PATH)
-    case_rows = load_jsonl(CASE_CHUNKS_PATH)
+    case_rows = drop_holdout_years(load_jsonl(CASE_CHUNKS_PATH))
 
     conn = psycopg.connect(POSTGRES_URL)
     try:

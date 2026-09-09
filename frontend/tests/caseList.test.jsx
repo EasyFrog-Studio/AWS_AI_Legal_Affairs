@@ -67,6 +67,17 @@ describe('案件清單', () => {
     expect(screen.getByRole('button', { name: '新建案件' })).toBeInTheDocument()
   })
 
+  it('needs_review 的案件蓋「待人工確認」章,並可據此篩選', async () => {
+    const user = userEvent.setup()
+    await renderList([{ ...listRows[0], needs_review: true }, listRows[1]])
+
+    expect(dataRows()[0]).toHaveTextContent('待人工確認')
+    expect(dataRows()[0]).not.toHaveTextContent('不受理') // 結案章不能蓋在待複核的案子上
+    await user.selectOptions(screen.getByRole('combobox', { name: '狀態' }), '待人工確認')
+    expect(dataRows()).toHaveLength(1)
+    expect(dataRows()[0]).toHaveTextContent('c-0001')
+  })
+
   it('載入失敗:一句原因 + 重新載入', async () => {
     api.listCases.mockRejectedValueOnce(new Error('連線失敗'))
     api.listCases.mockResolvedValue(listRows)

@@ -2,10 +2,11 @@
 amend_date 一律來自 metadata/law_articles,查不到填「未收錄」,絕不由 LLM 生成。
 """
 import json
+from typing import Optional
 
 from app.config import settings
-from app.models import CaseInfo, DraftResult, LawRef, ScreeningResult, SimilarCase
-from app.providers.aws import _clause_to_appeal_article, _load_prompt
+from app.models import CaseInfo, DraftResult, LawRef, ScreeningResult, SimilarCase, StandingAssessment
+from app.providers.aws import _clause_to_appeal_article, _load_prompt, _retrieval_query, _valid_cited_articles
 from app.providers.base import AIProvider
 
 
@@ -87,6 +88,12 @@ class LocalProvider(AIProvider):
                 "case_type": {"type": "string"},
                 "issues": {"type": "array", "items": {"type": "string"}},
                 "cited_articles": {"type": "array", "items": {"type": "string"}},
+                "receipt_date": {"type": "string"},
+                "service_date": {"type": "string"},
+                "service_method": {"type": "string"},
+                "disposition_fine": {"type": "string"},
+                "disposition_notice_clause": {"type": "string"},
+                "disposition_recipient": {"type": "string"},
             },
             "required": [
                 "appellant",
@@ -114,10 +121,54 @@ class LocalProvider(AIProvider):
         data = self._chat_json(_load_prompt("screening.txt"), user_text, schema)
         return ScreeningResult(**data)
 
+    def assess_standing(self, info: CaseInfo, text: str) -> StandingAssessment:
+        """_chat_json 的 options 已固定 temperature=0(見上),同一卷證跑兩次得到同一結果
+        (實作計畫 §Ticket 6 約束3)不需要在這裡額外處理。"""
+        schema = {
+            "type": "object",
+            "properties": {
+                "referenced_norm": {"type": "string"},
+                "has_standing": {"type": ["boolean", "null"]},
+                "reasoning": {"type": "string"},
+            },
+            "required": ["referenced_norm", "has_standing", "reasoning"],
+        }
+        user_text = f"【案件資訊】\n{info.model_dump_json(indent=2)}\n\n【訴願書原文】\n{text}"
+        data = self._chat_json(_load_prompt("standing.txt"), user_text, schema)
+        return StandingAssessment(
+            referenced_norm=data.get("referenced_norm") or "", has_standing=data.get("has_standing")
+        )
+
+    def get_law_articles(self, keys: list[str]) -> list[LawRef]:
+        """依「法規名稱#條號」精查全文與修正日期;條號是精確鍵,不走向量檢索。"""
+        if not keys:
+            return []
+        rows = self._execute(
+            "SELECT law_article, text, metadata FROM law_articles WHERE law_article = ANY(%s)",
+            (keys,),
+        )
+        found = {law_article: (text, metadata or {}) for law_article, text, metadata in rows}
+        refs: list[LawRef] = []
+        for key in keys:
+            law_name, _, article_no = key.partition("#")
+            hit = found.get(key)
+            text, metadata = hit if hit else ("", {})
+            refs.append(
+                LawRef(
+                    law_name=metadata.get("law_name", law_name),
+                    article_no=metadata.get("article_no", article_no),
+                    text=text or "",
+                    # 一律來自 law_articles,查無資料填死值,禁止由 LLM 生成修正日期
+                    amend_date=(metadata.get("amend_date") or "未收錄") if hit else "未收錄",
+                    source_key=metadata.get("source_key"),
+                    relevance="條號精查(law_articles)" if hit else "條號精查,law_articles 未查得資料",
+                )
+            )
+        return refs
+
     # ---------- pgvector law_chunks 檢索 + law_articles 精查(對應 AWSProvider.recommend_laws) ----------
     def recommend_laws(self, info: CaseInfo) -> list[LawRef]:
-        query = f"{info.case_type} {' '.join(info.issues)}".strip()
-        vec_lit = _vector_literal(self._embed(query))
+        vec_lit = _vector_literal(self._embed(_retrieval_query(info)))
         rows = self._execute(
             "SELECT id, text, metadata, 1 - (embedding <=> %s::vector) AS score "
             "FROM law_chunks "
@@ -140,37 +191,12 @@ class LocalProvider(AIProvider):
                 relevance="向量檢索命中(pgvector law_chunks)",
             )
 
-        # F1 cited_articles 走 law_articles 精查,補齊向量檢索未涵蓋的引用法條
-        missing_keys = [a for a in info.cited_articles if a not in law_refs]
-        if missing_keys:
-            found_rows = self._execute(
-                "SELECT law_article, text, metadata FROM law_articles WHERE law_article = ANY(%s)",
-                (missing_keys,),
-            )
-            found = {law_article: (text, metadata) for law_article, text, metadata in found_rows}
-            for key in missing_keys:
-                law_name, _, article_no = key.partition("#")
-                hit = found.get(key)
-                if hit:
-                    text, metadata = hit
-                    metadata = metadata or {}
-                    law_refs[key] = LawRef(
-                        law_name=metadata.get("law_name", law_name),
-                        article_no=metadata.get("article_no", article_no),
-                        text=text or "",
-                        amend_date=metadata.get("amend_date") or "未收錄",  # 一律來自 law_articles
-                        source_key=metadata.get("source_key"),
-                        relevance="F1 擷取之引用法條(law_articles 精查)",
-                    )
-                else:
-                    law_refs[key] = LawRef(
-                        law_name=law_name,
-                        article_no=article_no,
-                        text="",
-                        amend_date="未收錄",  # 查無資料,禁止由 LLM 生成修正日期
-                        source_key=None,
-                        relevance="F1 擷取之引用法條,law_articles 未查得資料",
-                    )
+        # F1 cited_articles 走 law_articles 精查,補齊向量檢索未涵蓋的引用法條;先濾掉「未載明」等假條號
+        missing_keys = [a for a in _valid_cited_articles(info.cited_articles) if a not in law_refs]
+        # 以請求的 key 落位,不用回傳值重組:metadata 的 law_name/article_no 與 key 不一致時,
+        # 重組出的 key 會撞掉檢索結果
+        for key, ref in zip(missing_keys, self.get_law_articles(missing_keys)):
+            law_refs[key] = ref
         return list(law_refs.values())
 
     def _search_cases(self, vec_lit: str, where_sql, where_params, num_results: int = 5) -> list[tuple]:
@@ -186,8 +212,7 @@ class LocalProvider(AIProvider):
     def find_similar_cases(
         self, info: CaseInfo, screening: ScreeningResult, text: str
     ) -> list[SimilarCase]:
-        query = f"{info.case_type} {' '.join(info.issues)}".strip()
-        vec_lit = _vector_literal(self._embed(query))
+        vec_lit = _vector_literal(self._embed(_retrieval_query(info)))
 
         if screening.passed:
             where_sql, where_params = "metadata->>'case_type' = %s", [info.case_type]

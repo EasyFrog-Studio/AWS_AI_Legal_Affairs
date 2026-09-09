@@ -7,11 +7,38 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from app.config import settings
-from app.models import Case
+from app.models import Case, CaseDocument, build_input_text
 
-# f1/screening/f2/f3/f4 為巢狀結構,DynamoDB 存放時序列化為 JSON 字串,
+# 巢狀欄位在 DynamoDB 存放時序列化為 JSON 字串,
 # 避免巢狀 float 落地成 DynamoDB Decimal 造成的型別問題。
-_JSON_FIELDS = ("f1", "screening", "f2", "f3", "f4")
+# documents 預設值是 {} 不是 None,故走與 f1/screening 等欄位相同的「非 None 就序列化」路徑仍正確——
+# 序列化後是 "{}" 而非空字串,還原時 `if raw else None` 對非空字串一律走 json.loads,{} 也不例外。
+_JSON_FIELDS = (
+    "documents",
+    "f1",
+    "screening",
+    "screening_system",
+    "deadline",
+    "f2",
+    "f3",
+    "f4",
+    "draft_versions",
+)
+# 空清單/空 dict 的欄位:還原時的空值是 [] 或 {},不是 None(型別非 Optional,None 會驗證失敗)
+_EMPTY_ON_READ = {"documents": dict, "draft_versions": list}
+
+# DynamoDB 單筆項目上限 400KB;留 buffer 擋在 350KB,超過就在寫入前 raise 帶中文訊息的例外,
+# 不讓 boto3 的 ValidationException 在背景任務裡把案件打成 status=error(見實作計畫 Ticket 3c)
+MAX_ITEM_BYTES = 350 * 1024
+
+
+class CaseTooLargeError(Exception):
+    """卷證文字量超過單筆儲存上限。API 層轉 400,訊息要講得出是什麼超了。"""
+
+
+def item_size_bytes(item: dict) -> int:
+    """DynamoDB 計算項目大小的方式:屬性名 + 屬性值的 UTF-8 位元組數總和。"""
+    return sum(len(str(key).encode("utf-8")) + len(str(value).encode("utf-8")) for key, value in item.items())
 
 
 class CaseStore(ABC):
@@ -68,7 +95,7 @@ class DynamoDBStore(CaseStore):
         self._table = table
 
     def _to_item(self, case: Case) -> dict:
-        d = case.model_dump()
+        d = case.model_dump(mode="json")
         item = {
             "case_id": d["case_id"],
             "created_at": d["created_at"],
@@ -77,12 +104,22 @@ class DynamoDBStore(CaseStore):
             "current_stage": d["current_stage"],
             "track": d["track"] or "",
             "source": d["source"],
-            "input_text": d["input_text"],
+            # documents 有值時不另存 input_text:它是衍生值,兩份都存等於把卷證文字量加倍,
+            # 而 400KB 的單筆上限最可能被掃描件 OCR 全文撐爆。舊資料(無 documents)才留原字串。
+            "input_text": "" if d["documents"] else d["input_text"],
+            "finalized_at": d["finalized_at"] or "",
+            "draft_versions_truncated": "1" if d["draft_versions_truncated"] else "",
             "error": d["error"] or "",
         }
         for k in _JSON_FIELDS:
             v = d.get(k)
             item[k] = json.dumps(v, ensure_ascii=False) if v is not None else ""
+
+        size = item_size_bytes(item)
+        if size > MAX_ITEM_BYTES:
+            raise CaseTooLargeError(
+                f"卷證文字量超過單筆儲存上限({size} bytes,上限 {MAX_ITEM_BYTES} bytes)"
+            )
         return item
 
     def _from_item(self, item: dict) -> Case:
@@ -94,12 +131,20 @@ class DynamoDBStore(CaseStore):
             "current_stage": item.get("current_stage") or "f1",
             "track": item.get("track") or None,
             "source": item.get("source") or "text",
-            "input_text": item.get("input_text", ""),
+            "finalized_at": item.get("finalized_at") or None,
+            "draft_versions_truncated": bool(item.get("draft_versions_truncated")),
             "error": item.get("error") or None,
         }
         for k in _JSON_FIELDS:
             raw = item.get(k, "")
-            data[k] = json.loads(raw) if raw else None
+            # documents/draft_versions 的型別非 Optional,舊資料沒有這個 key 時不能落成 None
+            # ——Case 建構會直接驗證失敗;其餘欄位是 Optional,None 才是正確空值
+            empty = _EMPTY_ON_READ.get(k)
+            data[k] = json.loads(raw) if raw else (empty() if empty else None)
+
+        documents = {slot: CaseDocument(**doc) for slot, doc in data["documents"].items()}
+        # documents 有值就重建;沒有(加這欄之前寫入的舊資料)才沿用 item 裡的 input_text
+        data["input_text"] = build_input_text(documents) if documents else item.get("input_text", "")
         return Case(**data)
 
     def create(self, case: Case) -> None:
@@ -153,7 +198,7 @@ class PostgresStore(CaseStore):
         self._conn.commit()
 
     def create(self, case: Case) -> None:
-        data = json.dumps(case.model_dump(), ensure_ascii=False)
+        data = json.dumps(case.model_dump(mode="json"), ensure_ascii=False)
         cur = self._conn.cursor()
         cur.execute(
             "INSERT INTO appeal_cases (case_id, data) VALUES (%s, %s) "

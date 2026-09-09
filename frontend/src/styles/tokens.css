@@ -38,6 +38,7 @@
   --color-pass:         oklch(42% 0.08 150);    /* 受理 · 撤銷 */
   --color-reject:       oklch(45% 0.09 45);     /* 不受理 · 駁回 */
   --color-processing:   oklch(48% 0.10 78);     /* 審理中 · 已審結 */
+  --color-review:       oklch(45% 0.09 75);     /* 待人工確認:與已審結同色相但更深,免得兩者看起來一樣 */
   --color-error:        oklch(46% 0.13 30);
 
   /* ── 字族 ── */

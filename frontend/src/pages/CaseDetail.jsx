@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { getCase, getSource } from '../api'
+import {
+  analyzeCase,
+  getCase,
+  getSource,
+  overrideScreening,
+  reanalyzeCase,
+  replaceDocument,
+} from '../api'
 import AppShell from '../components/AppShell.jsx'
+import DocumentCheckBadge from '../components/DocumentCheckBadge.jsx'
+import { DOCUMENT_SLOTS } from '../components/documentSlots.js'
 import Icon from '../components/Icon.jsx'
 import Seal, { resolveCaseSeal } from '../components/Seal.jsx'
 import SourceOverlay from '../components/SourceOverlay.jsx'
@@ -15,9 +24,10 @@ const STAGES = [
   { key: 'f3', label: 'F3 案例' },
 ]
 
-/** processing → 跟隨 current_stage(f4/done 視為 draft);done → draft;error → current_stage。 */
+/** collecting → 待確認;processing → 跟隨 current_stage(f4/done 視為 draft);done → draft;error → current_stage。 */
 function autoTarget(caseData) {
   if (!caseData) return 'f1'
+  if (caseData.status === 'collecting') return 'collecting'
   if (caseData.status === 'done') return 'draft'
   if (caseData.status === 'processing') {
     return caseData.current_stage === 'f4' || caseData.current_stage === 'done'
@@ -64,6 +74,152 @@ function draftMarker(caseData) {
   return { icon: 'fishtail-hollow', modifier: 'pending', note: null }
 }
 
+/** 待確認階段:三份文件的型態確認結果、單槽重傳、開始分析。案件在 status='collecting' 時渲染,
+ * 取代原有的階段內容——分析尚未開始,F1~F4 都還沒有東西可看。 */
+function CollectingSection({ caseData, onReplaced, onAnalyzed }) {
+  const [replacing, setReplacing] = useState(null) // 目前正在重傳哪一槽(key),null 代表沒有
+  const [replaceText, setReplaceText] = useState('')
+  const [replaceFile, setReplaceFile] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const documents = caseData.documents || {}
+  const allMatched = DOCUMENT_SLOTS.every((s) => documents[s.key]?.check?.matched === true)
+
+  async function handleReplaceSubmit(slotKey) {
+    setBusy(true)
+    setError('')
+    try {
+      const formData = new FormData()
+      // 走 PDF 的案子重傳也要能給 PDF,只收貼上文字等於斷了一半的重傳路徑
+      if (replaceFile) formData.append('file', replaceFile)
+      else formData.append('text', replaceText)
+      await replaceDocument(caseData.case_id, slotKey, formData)
+      setReplacing(null)
+      setReplaceText('')
+      setReplaceFile(null)
+      onReplaced()
+    } catch (err) {
+      setError(err.message || '重傳失敗,請重試。')
+      // 409 代表案件已離開收案階段(他處已開始分析):畫面停在過期的收案視圖只會讓人重複操作
+      if (err.status === 409) onReplaced()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleAnalyze() {
+    setBusy(true)
+    setError('')
+    try {
+      await analyzeCase(caseData.case_id)
+      onAnalyzed()
+    } catch (err) {
+      setError(err.message || '開始分析失敗,請重試。')
+      if (err.status === 409) onAnalyzed()
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="card">
+      <p className="newcase__intro">
+        {allMatched
+          ? '三份文件皆已確認無誤,可以開始分析。'
+          : '有文件無法確認或判斷不符,請重新上傳該份文件。'}
+      </p>
+      {DOCUMENT_SLOTS.map((slot) => {
+        const doc = documents[slot.key]
+        const isReplacing = replacing === slot.key
+        return (
+          <div className="doc-slot doc-slot--review" key={slot.key}>
+            <span className="doc-slot__label">{slot.label}</span>
+            <DocumentCheckBadge check={doc?.check} />
+            {!isReplacing && (
+              <button
+                type="button"
+                className="btn-link"
+                onClick={() => {
+                  setReplacing(slot.key)
+                  setReplaceText('')
+                }}
+                disabled={busy}
+              >
+                重新上傳
+              </button>
+            )}
+            {isReplacing && (
+              <div className="doc-slot__replace">
+                <label htmlFor={`replace-file-${slot.key}`} className="rail-label">
+                  重新上傳 PDF
+                </label>
+                <input
+                  id={`replace-file-${slot.key}`}
+                  type="file"
+                  accept="application/pdf"
+                  className="rail-field"
+                  onChange={(e) => setReplaceFile(e.target.files?.[0] || null)}
+                  disabled={busy}
+                />
+                <textarea
+                  className="textarea"
+                  value={replaceText}
+                  onChange={(e) => setReplaceText(e.target.value)}
+                  placeholder={`或貼上${slot.label}全文`}
+                  rows={4}
+                  disabled={busy || Boolean(replaceFile)}
+                />
+                <div className="action-row">
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setReplacing(null)
+                      setReplaceFile(null)
+                    }}
+                    disabled={busy}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => handleReplaceSubmit(slot.key)}
+                    disabled={busy || (!replaceText.trim() && !replaceFile)}
+                  >
+                    送出
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
+      <div className="action-row">
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={handleAnalyze}
+          disabled={!allMatched || busy}
+        >
+          開始分析
+        </button>
+      </div>
+      {error && <div className="form-result form-result--error">{error}</div>}
+    </div>
+  )
+}
+
+// 期間與程序審查複核時最需要看的六欄(取自送達證書/原處分書/訴願書)。
+// 抽不到就顯示「—」而不是整欄不畫:少一欄的畫面看起來一樣完整,那正是最難發現的失效。
+const F1_DOCUMENT_FIELDS = [
+  ['收受或知悉日', 'receipt_date', true],
+  ['送達時間', 'service_date', true],
+  ['送達方式', 'service_method', false],
+  ['罰鍰金額', 'disposition_fine', false],
+  ['處分相對人', 'disposition_recipient', false],
+]
+
 function F1Section({ info }) {
   return (
     <dl className="f1-grid">
@@ -90,6 +246,16 @@ function F1Section({ info }) {
       <div className="f1-field">
         <dt>援引法條</dt>
         <dd>{(info.cited_articles || []).join('、')}</dd>
+      </div>
+      {F1_DOCUMENT_FIELDS.map(([label, key, mono]) => (
+        <div className="f1-field" key={key}>
+          <dt>{label}</dt>
+          <dd className={mono ? 'mono' : undefined}>{info[key] || '—'}</dd>
+        </div>
+      ))}
+      <div className="f1-field f1-field--wide">
+        <dt>教示條款</dt>
+        <dd>{info.disposition_notice_clause || '—'}</dd>
       </div>
       <div className="f1-field f1-field--wide">
         <dt>原處分內容</dt>
@@ -119,9 +285,38 @@ function F1Section({ info }) {
   )
 }
 
-function ScreeningSection({ screening }) {
+/** 程序審查結論 + 承辦人推翻入口。自動判之後承辦人只做確認,那就必須推翻得動——
+ * 否則自動判等於終局判斷。推翻後不自動重跑檢索(會覆蓋已編輯的草稿),另給重跑按鈕。 */
+function ScreeningSection({ caseData, onChanged }) {
+  const { screening } = caseData
+  const [editing, setEditing] = useState(false)
+  const [passed, setPassed] = useState(screening.passed)
+  const [clause, setClause] = useState(screening.matched_clause || '')
+  const [reasoning, setReasoning] = useState(screening.reasoning || '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
   const kind = screening.passed ? 'pass' : 'reject'
   const text = screening.passed ? '受理' : '不受理'
+
+  async function handleSubmit() {
+    setBusy(true)
+    setError('')
+    try {
+      await overrideScreening(caseData.case_id, {
+        passed,
+        matched_clause: passed ? null : clause || null,
+        reasoning,
+      })
+      setEditing(false)
+      onChanged()
+    } catch (err) {
+      setError(err.message || '推翻失敗,請重試。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="card">
       <div className="screening-result">
@@ -131,8 +326,132 @@ function ScreeningSection({ screening }) {
         {screening.matched_clause && (
           <span className="mono">適用條款:{screening.matched_clause}</span>
         )}
+        {caseData.screening_system && <span className="doc-check">已由承辦人推翻</span>}
       </div>
       <p className="screening-result__reasoning">{screening.reasoning}</p>
+      {screening.review_note && (
+        <p className="deadline__note">須人工確認:{screening.review_note}</p>
+      )}
+      {caseData.screening_system && (
+        <p className="screening-result__reasoning">
+          系統原判:{caseData.screening_system.passed ? '受理' : '不受理'}
+          {caseData.screening_system.matched_clause
+            ? `(${caseData.screening_system.matched_clause})`
+            : ''}
+          。{caseData.screening_system.reasoning}
+        </p>
+      )}
+      {!editing && (
+        <div className="action-row">
+          <button type="button" className="btn btn-secondary" onClick={() => setEditing(true)}>
+            推翻此結論
+          </button>
+        </div>
+      )}
+      {editing && (
+        <div className="doc-slot__replace">
+          <div className="case-list-filter-group">
+            <label htmlFor="override-passed" className="rail-label">
+              推翻後結論
+            </label>
+            <select
+              id="override-passed"
+              className="rail-field"
+              value={passed ? 'pass' : 'reject'}
+              onChange={(e) => setPassed(e.target.value === 'pass')}
+            >
+              <option value="pass">受理</option>
+              <option value="reject">不受理</option>
+            </select>
+          </div>
+          {!passed && (
+            <div className="case-list-filter-group">
+              <label htmlFor="override-clause" className="rail-label">
+                推翻後適用條款
+              </label>
+              <input
+                id="override-clause"
+                type="text"
+                className="rail-field"
+                placeholder="如 77條第2款"
+                value={clause}
+                onChange={(e) => setClause(e.target.value)}
+              />
+            </div>
+          )}
+          <label htmlFor="override-reasoning" className="rail-label">
+            推翻理由
+          </label>
+          <textarea
+            id="override-reasoning"
+            className="textarea"
+            rows={4}
+            value={reasoning}
+            onChange={(e) => setReasoning(e.target.value)}
+          />
+          <div className="action-row">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setEditing(false)}
+              disabled={busy}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleSubmit}
+              disabled={busy || !reasoning.trim()}
+            >
+              送出推翻
+            </button>
+          </div>
+          {error && <div className="form-result form-result--error">{error}</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const DEADLINE_DATES = [
+  ['送達生效日', 'service_date'],
+  ['期間末日', 'due_date'],
+  ['機關收文日', 'filed_date'],
+]
+
+/** 期間認定:overdue 為 null 是「無從認定」,與「未逾期」是兩件事,不可合併呈現。 */
+function DeadlineSection({ deadline }) {
+  if (!deadline) return null
+  const verdict =
+    deadline.overdue === null || deadline.overdue === undefined
+      ? { text: '無從認定', modifier: 'unknown' }
+      : deadline.overdue
+        ? { text: '已逾期', modifier: 'overdue' }
+        : { text: '未逾期', modifier: 'timely' }
+  const dates = DEADLINE_DATES.filter(([, key]) => deadline[key])
+  return (
+    <div className="card deadline">
+      <div className="deadline__head">
+        <span className="deadline__title">訴願期間</span>
+        <span className={`deadline__verdict deadline__verdict--${verdict.modifier}`}>
+          {verdict.text}
+        </span>
+      </div>
+      {dates.length > 0 && (
+        <dl className="deadline__dates">
+          {dates.map(([label, key]) => (
+            <div key={key}>
+              <dt>{label}</dt>
+              <dd className="mono">{deadline[key]}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {deadline.detail && <p className="deadline__detail">{deadline.detail}</p>}
+      {deadline.review_note && (
+        <p className="deadline__note">須人工確認:{deadline.review_note}</p>
+      )}
     </div>
   )
 }
@@ -172,7 +491,7 @@ function F2Section({ laws, track, screening, onViewSource }) {
   )
 }
 
-function F3Section({ cases }) {
+function F3Section({ cases, onViewSource }) {
   if (cases === null) {
     return <div className="state-message state-message--pending">檢索中…</div>
   }
@@ -191,6 +510,12 @@ function F3Section({ cases }) {
           </div>
           <p>{c.summary}</p>
           <p>{c.similarity_note}</p>
+          {/* 原文按鈕:草稿頁的參考依據面板有,階段頁沒有的話兩處呈現不一致 */}
+          {c.source_key && (
+            <button type="button" className="btn-link" onClick={() => onViewSource(c.source_key)}>
+              原文
+            </button>
+          )}
         </div>
       ))}
     </div>
@@ -198,12 +523,21 @@ function F3Section({ cases }) {
 }
 
 /** 選中階段的內容;status==='error' 且該階段正是 current_stage 時,一律顯示錯誤訊息。 */
-function stageContent(key, caseData, onViewSource) {
+function stageContent(key, caseData, onViewSource, onDocumentsChanged) {
   if (caseData.status === 'error' && key === caseData.current_stage) {
     return (
       <div className="state-message state-message--error">
         {caseData.error || '審理過程發生錯誤。'}
       </div>
+    )
+  }
+  if (key === 'collecting') {
+    return (
+      <CollectingSection
+        caseData={caseData}
+        onReplaced={onDocumentsChanged}
+        onAnalyzed={onDocumentsChanged}
+      />
     )
   }
   if (key === 'f1') {
@@ -217,7 +551,10 @@ function stageContent(key, caseData, onViewSource) {
   }
   if (key === 'screening') {
     return caseData.screening ? (
-      <ScreeningSection screening={caseData.screening} />
+      <>
+        <ScreeningSection caseData={caseData} onChanged={onDocumentsChanged} />
+        <DeadlineSection deadline={caseData.deadline} />
+      </>
     ) : (
       <div className="state-message state-message--pending">
         {caseData.status === 'processing' && key === caseData.current_stage ? '處理中…' : '尚未執行'}
@@ -235,15 +572,30 @@ function stageContent(key, caseData, onViewSource) {
     )
   }
   if (key === 'f3') {
-    return <F3Section cases={caseData.f3} />
+    return <F3Section cases={caseData.f3} onViewSource={onViewSource} />
   }
   return null
+}
+
+/** 待人工確認的具體原因(與後端 review.needs_review 的來源同一組事實,但這裡要講出是哪一項)。 */
+function reviewNotes(caseData) {
+  const reasons = []
+  Object.entries(caseData.documents || {}).forEach(([slot, doc]) => {
+    const label = DOCUMENT_SLOTS.find((s) => s.key === slot)?.label || slot
+    if (doc?.check?.matched !== true) reasons.push(`${label}尚未確認無誤`)
+    if (doc?.review_note) reasons.push(`${label}:${doc.review_note}`)
+  })
+  if (caseData.deadline?.review_note) reasons.push(`訴願期間:${caseData.deadline.review_note}`)
+  if (caseData.screening?.review_note) reasons.push(`程序審查:${caseData.screening.review_note}`)
+  return reasons
 }
 
 export default function CaseDetail() {
   const { id } = useParams()
   const [caseData, setCaseData] = useState(null)
   const [error, setError] = useState('')
+  const [actionError, setActionError] = useState('')
+  const [reanalyzing, setReanalyzing] = useState(false)
   const [overlayContent, setOverlayContent] = useState(null)
   const [selected, setSelected] = useState(null)
   const manualRef = useRef(false)
@@ -275,6 +627,19 @@ export default function CaseDetail() {
     setSelected(key)
   }
 
+  async function handleReanalyze() {
+    setReanalyzing(true)
+    setActionError('')
+    try {
+      await reanalyzeCase(id)
+      await load()
+    } catch (err) {
+      setActionError(err.message || '重跑失敗,請重試。')
+    } finally {
+      setReanalyzing(false)
+    }
+  }
+
   async function handleViewSource(key) {
     try {
       const result = await getSource(key)
@@ -289,11 +654,33 @@ export default function CaseDetail() {
       ? selected
       : autoTarget(caseData)
     : 'f1'
+  const reviewReasons = caseData ? reviewNotes(caseData) : []
 
   const railSlot = caseData && (
     <nav aria-label="審理歷程">
       <div className="rail-section">
         <div className="rail-section__title">審理歷程</div>
+        {(() => {
+          const current = effectiveSelected === 'collecting'
+          const isCollecting = caseData.status === 'collecting'
+          const marker = isCollecting
+            ? { icon: 'fishtail-accent', modifier: 'active', note: '進行中' }
+            : { icon: 'fishtail-solid', modifier: 'done', note: null }
+          return (
+            <button
+              type="button"
+              className={`rail-item ${current ? 'rail-item--current' : ''}`}
+              aria-current={current ? 'true' : undefined}
+              onClick={() => handleSelect('collecting')}
+            >
+              <span className={`rail-item__marker rail-item__marker--${marker.modifier}`}>
+                <Icon name={marker.icon} />
+              </span>
+              文件確認
+              {marker.note && <span className="rail-item__note">{marker.note}</span>}
+            </button>
+          )
+        })()}
         {STAGES.map((stage) => {
           const marker = stageMarker(stage.key, caseData)
           const current = effectiveSelected === stage.key
@@ -352,9 +739,32 @@ export default function CaseDetail() {
               <Seal kind={resolveCaseSeal(caseData).kind} size="lg">
                 {resolveCaseSeal(caseData).text}
               </Seal>
+              {/* done 與 error 都可重跑:推翻程序審查之後重跑是 done 狀態下的正常操作 */}
+              {(caseData.status === 'done' || caseData.status === 'error') && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleReanalyze}
+                  disabled={reanalyzing}
+                >
+                  {reanalyzing ? '重跑中…' : '重跑分析'}
+                </button>
+              )}
               <span className="page-header__meta">{caseData.case_id}</span>
             </div>
           </div>
+
+          {reviewReasons.length > 0 && (
+            <div className="review-banner" role="status">
+              此案有事實待人工確認,請勿逕行送出:
+              <ul className="review-banner__list">
+                {reviewReasons.map((reason, i) => (
+                  <li key={i}>{reason}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {actionError && <div className="form-result form-result--error">{actionError}</div>}
 
           {caseData.status === 'done' && manualRef.current && effectiveSelected !== 'draft' && (
             <div className="state-message state-message--empty">
@@ -362,8 +772,8 @@ export default function CaseDetail() {
             </div>
           )}
 
-          {STAGES.some((s) => s.key === effectiveSelected) &&
-            stageContent(effectiveSelected, caseData, handleViewSource)}
+          {(effectiveSelected === 'collecting' || STAGES.some((s) => s.key === effectiveSelected)) &&
+            stageContent(effectiveSelected, caseData, handleViewSource, load)}
 
           {effectiveSelected === 'draft' &&
             !caseData.f4 &&
@@ -383,6 +793,9 @@ export default function CaseDetail() {
               laws={caseData.f2}
               cases={caseData.f3}
               track={caseData.track}
+              versionCount={caseData.draft_versions?.length ?? 0}
+              versionsTruncated={Boolean(caseData.draft_versions_truncated)}
+              finalizedAt={caseData.finalized_at}
               onViewSource={handleViewSource}
               onSaved={load}
               hidden={effectiveSelected !== 'draft'}

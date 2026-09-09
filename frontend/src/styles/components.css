@@ -342,6 +342,28 @@
   color: var(--color-error);
 }
 
+.seal--review {
+  color: var(--color-review);
+}
+
+/* 待人工確認橫幅:詳情頁頁首,與清單的章同色,兩處講的是同一件事 */
+.review-banner {
+  border: var(--rule-hairline);
+  border-left: 3px solid var(--color-review);
+  background: var(--color-surface);
+  color: var(--color-review);
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-md);
+  font-family: var(--font-ui);
+  font-size: var(--text-ui);
+}
+
+.review-banner__list {
+  margin: var(--space-2xs) 0 0;
+  padding-left: 1.25em;
+  color: var(--color-ink);
+}
+
 .seal--sm {
   font-size: var(--text-sm);
 }
@@ -455,6 +477,83 @@ table.list-table {
 .tab:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
+}
+
+.tabs--sm {
+  margin-bottom: var(--space-sm);
+}
+
+/* ---------- 文件槽(NewCase 上傳 / CaseDetail 待確認共用)---------- */
+
+.doc-slot {
+  margin-bottom: var(--space-lg);
+  padding-bottom: var(--space-lg);
+  border-bottom: 1px solid var(--color-rule-soft);
+}
+
+.doc-slot:last-of-type {
+  border-bottom: none;
+}
+
+.doc-slot__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+  margin-bottom: var(--space-xs);
+}
+
+.doc-slot__label {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.doc-slot__hint {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+}
+
+.doc-slot--review {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.doc-slot__replace {
+  width: 100%;
+  margin-top: var(--space-sm);
+}
+
+/* 文件型態確認結果:matched=null(unknown)是「無法確認」,顏色不可與 ok/mismatch 共用,
+   否則承辦人員無法一眼分辨「已確認正確」和「還沒判斷出來」。 */
+.doc-check {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+}
+
+.doc-check--ok {
+  color: var(--color-pass);
+}
+
+.doc-check--mismatch {
+  color: var(--color-reject);
+}
+
+.doc-check--unknown {
+  color: var(--color-processing);
+}
+
+/* 按鈕列排版與 DraftWorkspace 的 .draft-actions 一致,此處供 NewCase / CaseDetail 待確認階段共用 */
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: var(--rule-hairline);
+  flex-wrap: wrap;
 }
 
 /* ---------- State message(三態:na / pending / empty)---------- */

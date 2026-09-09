@@ -108,3 +108,63 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---------- 期間認定 ---------- */
+
+.deadline {
+  margin-top: var(--space-md);
+}
+
+.deadline__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.deadline__title {
+  font-family: var(--font-ui);
+  color: var(--color-wood);
+}
+
+.deadline__verdict {
+  font-family: var(--font-ui);
+  font-weight: 600;
+}
+
+.deadline__verdict--overdue {
+  color: var(--color-reject);
+}
+
+.deadline__verdict--timely {
+  color: var(--color-pass);
+}
+
+.deadline__verdict--unknown {
+  color: var(--color-processing);
+}
+
+.deadline__dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+  margin: 0 0 var(--space-md);
+}
+
+.deadline__dates dt {
+  font-family: var(--font-ui);
+  font-size: var(--text-ui);
+  color: var(--color-wood);
+}
+
+.deadline__detail,
+.deadline__note {
+  font-family: var(--font-body);
+  max-width: var(--measure);
+}
+
+.deadline__note {
+  color: var(--color-ink-soft);
+  border-left: 3px solid var(--color-rule-strong);
+  padding-left: var(--space-md);
+}

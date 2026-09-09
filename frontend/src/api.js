@@ -26,19 +26,34 @@ async function request(path, options = {}) {
   }
   if (!res.ok) {
     let message = `請求失敗(${res.status})`
+    let detail = null
     try {
       const body = await res.json()
-      if (body?.detail) message = body.detail
+      detail = body?.detail ?? null
+      // detail 可能是物件(草稿版本衝突會帶最新內容),此時錯誤訊息另取,不把物件塞進字串
+      if (typeof detail === 'string') message = detail
+      else if (detail?.message) message = detail.message
     } catch {
       // ignore parse failure
     }
-    throw new Error(message)
+    const error = new Error(message)
+    error.status = res.status
+    error.detail = detail
+    throw error
   }
   return res.json()
 }
 
 export function createCase(formData) {
   return request('/cases', { method: 'POST', body: formData })
+}
+
+export function replaceDocument(caseId, slot, formData) {
+  return request(`/cases/${caseId}/documents/${slot}`, { method: 'PATCH', body: formData })
+}
+
+export function analyzeCase(caseId) {
+  return request(`/cases/${caseId}/analyze`, { method: 'POST' })
 }
 
 export function listCases() {
@@ -59,6 +74,22 @@ export function updateDraft(id, body) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+export function overrideScreening(id, body) {
+  return request(`/cases/${id}/screening`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function reanalyzeCase(id) {
+  return request(`/cases/${id}/reanalyze`, { method: 'POST' })
+}
+
+export function finalizeCase(id) {
+  return request(`/cases/${id}/finalize`, { method: 'POST' })
 }
 
 export async function downloadDraftPdf(id) {

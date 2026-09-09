@@ -10,6 +10,7 @@ from botocore.exceptions import ClientError
 from config import DATASET_DIR, MARKDOWN_DIR, REGION, S3_BUCKET
 
 PDF_COPY_SUFFIX_RE = re.compile(r"\.pdf 的副本\.pdf$")
+HOLDOUT_YEARS = frozenset({"114"})  # 留出法測試集,連原始 PDF 都不上雲,免得日後有人從 raw/ 建索引
 
 
 def clean_filename(name: str) -> str:
@@ -57,8 +58,12 @@ def upload_raw_pdfs(s3, counters: dict):
     if not DATASET_DIR.exists():
         print(f"[SKIP] 找不到資料集目錄: {DATASET_DIR}")
         return
+    holdout_dirs = {f"{year}年" for year in HOLDOUT_YEARS}
     for pdf_path in DATASET_DIR.rglob("*.pdf"):
         rel_dir_parts = pdf_path.parent.relative_to(DATASET_DIR).parts  # 類別資料夾(可能含年度子資料夾)
+        if holdout_dirs & set(rel_dir_parts):
+            counters["holdout"] += 1
+            continue
         clean_name = clean_filename(pdf_path.name)
         key_parts = ["raw", *rel_dir_parts, clean_name]
         key = "/".join(key_parts)
@@ -79,11 +84,14 @@ def main():
     s3 = boto3.client("s3", region_name=REGION)
     ensure_bucket(s3)
 
-    counters = {"upload": 0, "skip": 0}
+    counters = {"upload": 0, "skip": 0, "holdout": 0}
     upload_raw_pdfs(s3, counters)
     upload_markdown(s3, counters)
 
-    print(f"[DONE] bucket={S3_BUCKET} 上傳={counters['upload']} 跳過(已存在)={counters['skip']}")
+    print(
+        f"[DONE] bucket={S3_BUCKET} 上傳={counters['upload']} 跳過(已存在)={counters['skip']}"
+        f" 排除(留出年度)={counters['holdout']}"
+    )
 
 
 if __name__ == "__main__":

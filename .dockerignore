@@ -10,3 +10,5 @@ deploy
 docker/.env
 data_show/examples
 *.md
+.venv
+finalized

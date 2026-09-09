@@ -79,6 +79,9 @@ def render_draft_pdf(case) -> bytes:
     w.gap(20)
 
     sections = [("主　文", f4.main_text), ("事　實", f4.fact), ("理　由", f4.reason)]
+    # 只有不受理案的空事實欄整段不輸出;其餘欄位為空仍印標題,否則少一欄看不出來
+    if f4.draft_type == "不受理" and not (f4.fact or "").strip():
+        sections = [s for s in sections if s[0] != "事　實"]
     for heading, body in sections:
         w.write_line(heading, _HEADING_SIZE)
         w.gap(6)

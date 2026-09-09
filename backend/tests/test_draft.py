@@ -43,7 +43,8 @@ def test_patch_draft_updates_f4_and_persists():
         headers=_headers(),
     )
     assert resp.status_code == 200
-    assert resp.json() == {"ok": True}
+    assert resp.json()["ok"] is True
+    assert resp.json()["version"] == 1  # 每次 PATCH 存一版,回傳版本數供前端帶下一次的 base_version
 
     get_resp = client.get("/api/cases/c-draft001", headers=_headers())
     assert get_resp.status_code == 200
@@ -111,6 +112,79 @@ def test_get_draft_pdf_returns_pdf_with_chinese_content():
     assert "新北市政府訴願決定書" in extracted
     assert "訴願人於民國110年間因違反廢棄物清理法遭裁處罰鍰" in extracted
     assert "訴願駁回" in extracted
+
+
+def test_get_draft_pdf_inadmissible_omits_empty_fact_section():
+    """不受理決定得不記載事實,PDF 不應留下沒有內文的「事　實」標題。"""
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main_module.app)
+    case = Case(
+        case_id="c-draft007",
+        created_at="2026-08-17T00:00:00+00:00",
+        title="不受理測試案件",
+        source="text",
+        input_text="測試訴願書內容",
+    )
+    main_module.store.create(case)
+    main_module.store.update(
+        "c-draft007",
+        {
+            "f4": DraftResult(
+                draft_type="不受理",
+                fact="",
+                reason="本件訴願逾法定期間,依訴願法第77條第2款規定應為不受理之決定。",
+                main_text="訴願不受理。",
+                cited_laws=[],
+            )
+        },
+    )
+
+    resp = client.get("/api/cases/c-draft007/draft.pdf", headers=_headers())
+    assert resp.status_code == 200
+
+    doc = fitz.open(stream=resp.content, filetype="pdf")
+    extracted = "".join(page.get_text() for page in doc)
+    assert "主　文" in extracted
+    assert "理　由" in extracted
+    assert "事　實" not in extracted  # 內文為空,整段不輸出
+    assert "訴願不受理" in extracted
+    assert "本件訴願逾法定期間" in extracted
+
+
+def test_get_draft_pdf_admissible_keeps_heading_of_empty_section():
+    """受理案缺欄仍要印標題:少一欄的決定書讀起來仍然通順,靜默略過會讓它更難發現。"""
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main_module.app)
+    case = Case(
+        case_id="c-draft008",
+        created_at="2026-08-17T00:00:00+00:00",
+        title="受理案缺理由欄",
+        source="text",
+        input_text="測試訴願書內容",
+    )
+    main_module.store.create(case)
+    main_module.store.update(
+        "c-draft008",
+        {
+            "f4": DraftResult(
+                draft_type="駁回",
+                fact="訴願人於民國110年間遭裁處罰鍰。",
+                reason="",  # 模型漏產理由欄
+                main_text="訴願駁回。",
+                cited_laws=[],
+            )
+        },
+    )
+
+    resp = client.get("/api/cases/c-draft008/draft.pdf", headers=_headers())
+    assert resp.status_code == 200
+
+    doc = fitz.open(stream=resp.content, filetype="pdf")
+    extracted = "".join(page.get_text() for page in doc)
+    assert "事　實" in extracted
+    assert "理　由" in extracted  # 內文雖空,標題仍在
 
 
 def test_get_draft_pdf_case_not_found_returns_404():
