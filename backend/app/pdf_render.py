@@ -1,9 +1,24 @@
-"""決定書草稿 PDF:標題 + 主文 + 事實 + 理由,不含 cited_laws;逐行手動換行分頁,insert_textbox 遇長文會裁切。"""
+"""決定書草稿 PDF:體例照語料 21 份真實決定書,系統填不出來的欄位留空給承辦人。
+逐行手動換行分頁,insert_textbox 遇長文會裁切。"""
 from __future__ import annotations
+
+import os
 
 import fitz
 
-_FONT = "china-t"
+from app.config import settings
+
+_BUILTIN_FONT = "china-t"
+_EMBEDDED_FONT_NAME = "kai"
+
+
+def resolve_font() -> tuple[str, str | None]:
+    """回傳 (fontname, fontfile);字型檔不存在就退回內建 CJK 字型。"""
+    path = settings.DECISION_FONT_FILE
+    if path and os.path.isfile(path):
+        return (_EMBEDDED_FONT_NAME, path)
+    # 內建 china-t 沒有 ToUnicode CMap:畫得出來,但 PDF 的文字複製出來是亂碼
+    return (_BUILTIN_FONT, None)
 _MARGIN = 60
 _PAGE_RECT = fitz.paper_rect("a4")
 _PAGE_WIDTH = _PAGE_RECT.width
@@ -15,14 +30,22 @@ _HEADING_SIZE = 13
 _BODY_SIZE = 11
 _LINE_GAP = 1.6
 
+_AUTHORITY_TITLE = "新北市政府訴願決定書"
+_BLANK = "　　　　　　"  # 全形空白,列印後承辦人可直接手寫
+_COMMITTEE_LINES = 12  # 語料每案 10~14 位委員,取中位數留行數,名單與人數都不由系統決定
+_LITIGATION_NOTICE = (
+    "如不服本決定,得於決定書送達之次日起 2 個月內向臺北高等行政法院"
+    "(地址:臺北市士林區福國路 101 號)提起行政訴訟。"
+)
 
-def _wrap_line(text: str, fontsize: float, max_width: float) -> list[str]:
+
+def _wrap_line(text: str, fontsize: float, max_width: float, measure) -> list[str]:
     """依可用寬度切成多行(逐字元累加寬度量測,中文不分詞)。"""
     lines: list[str] = []
     current = ""
     for ch in text:
         candidate = current + ch
-        if current and fitz.get_text_length(candidate, fontname=_FONT, fontsize=fontsize) > max_width:
+        if current and measure(candidate, fontsize) > max_width:
             lines.append(current)
             current = ch
         else:
@@ -36,23 +59,37 @@ class _Writer:
 
     def __init__(self, doc: fitz.Document) -> None:
         self.doc = doc
-        self.page = doc.new_page(width=_PAGE_WIDTH, height=_PAGE_HEIGHT)
+        self.fontname, self.fontfile = resolve_font()
+        # 檔案字型的寬度量測不能走 get_text_length(那只認內建字型名)
+        self._font = fitz.Font(fontfile=self.fontfile) if self.fontfile else None
+        self.page = self._new_page()
         self.y = _MARGIN
+
+    def _new_page(self) -> fitz.Page:
+        page = self.doc.new_page(width=_PAGE_WIDTH, height=_PAGE_HEIGHT)
+        if self.fontfile:
+            page.insert_font(fontname=self.fontname, fontfile=self.fontfile)
+        return page
+
+    def measure(self, text: str, fontsize: float) -> float:
+        if self._font is not None:
+            return self._font.text_length(text, fontsize)
+        return fitz.get_text_length(text, fontname=self.fontname, fontsize=fontsize)
 
     def _ensure_space(self, needed: float) -> None:
         if self.y + needed > _PAGE_HEIGHT - _MARGIN:
-            self.page = self.doc.new_page(width=_PAGE_WIDTH, height=_PAGE_HEIGHT)
+            self.page = self._new_page()
             self.y = _MARGIN
 
     def write_line(self, text: str, fontsize: float, align: str = "left") -> None:
         line_height = fontsize * _LINE_GAP
         self._ensure_space(line_height)
         if align == "center":
-            text_width = fitz.get_text_length(text, fontname=_FONT, fontsize=fontsize)
+            text_width = self.measure(text, fontsize)
             x = _MARGIN + (_BODY_WIDTH - text_width) / 2
         else:
             x = _MARGIN
-        self.page.insert_text((x, self.y + fontsize), text, fontname=_FONT, fontsize=fontsize)
+        self.page.insert_text((x, self.y + fontsize), text, fontname=self.fontname, fontsize=fontsize)
         self.y += line_height
 
     def write_paragraph(self, text: str, fontsize: float = _BODY_SIZE) -> None:
@@ -60,32 +97,84 @@ class _Writer:
             if not raw_line:
                 self.y += fontsize * _LINE_GAP
                 continue
-            for line in _wrap_line(raw_line, fontsize, _BODY_WIDTH):
+            for line in _wrap_line(raw_line, fontsize, _BODY_WIDTH, self.measure):
                 self.write_line(line, fontsize)
 
     def gap(self, amount: float) -> None:
         self.y += amount
 
 
+def build_decision_blocks(case, body_as_slots: bool = False) -> list[tuple[str, str]]:
+    """決定書草稿的版面區塊 [(kind, text)];kind ∈ title/heading/body/blank。
+    體例照語料 21 份真實決定書,系統填不出來的欄位留空給承辦人。
+    body_as_slots=True 時三段本文改回 ("slot", 欄位名),供前端塞可編輯欄位——
+    版面只有這一份定義,前端不自己再拼一次骨架。"""
+    f1 = case.f1
+    blocks: list[tuple[str, str]] = [
+        ("title", _AUTHORITY_TITLE),
+        ("blank", ""),
+        ("body", f"案　　號:{_BLANK}"),
+        ("body", f"　訴願人　{_value(f1 and f1.appellant)}"),
+        ("body", f"　原處分機關　{_value(f1 and f1.agency)}"),
+        ("blank", ""),
+        ("body", _opening_paragraph(f1)),
+        ("blank", ""),
+    ]
+
+    f4 = case.f4
+    for heading, field, body in (
+        ("主　文", "main_text", f4.main_text),
+        ("事　實", "fact", f4.fact),
+        ("理　由", "reason", f4.reason),
+    ):
+        # 不受理決定得不記載事實(訴願法§89 I(3)),語料 90 件事實欄全空,不留空標題
+        if field == "fact" and f4.draft_type == "不受理" and not (f4.fact or "").strip():
+            continue
+        blocks.append(("heading", heading))
+        blocks.append(("slot", field) if body_as_slots else ("body", body or ""))
+        blocks.append(("blank", ""))
+
+    blocks.append(("body", f"訴願審議委員會主任委員　{_BLANK}"))
+    for _ in range(_COMMITTEE_LINES):
+        blocks.append(("body", f"委員　{_BLANK}"))
+    blocks.append(("blank", ""))
+    # 語料 18 件不受理/駁回案逐字相同;3 件撤銷案全部沒有——訴願有理由就沒有要救濟的對象
+    if f4.draft_type != "原處分撤銷":
+        blocks.append(("body", _LITIGATION_NOTICE))
+        blocks.append(("blank", ""))
+    blocks.append(("body", f"中華民國　　　　年　　　月　　　日"))
+    return blocks
+
+
+def _value(text) -> str:
+    """填不出來就留下可書寫的空白,不印 None,也不留完全沒有記號的空行。"""
+    return text if text else _BLANK
+
+
+def _opening_paragraph(f1) -> str:
+    case_type = _value(f1 and f1.case_type)
+    date = _value(f1 and f1.disposition_date)
+    doc_no = _value(f1 and f1.disposition_no)
+    return (
+        f"上列訴願人因{case_type}事件,不服原處分機關民國{date}{doc_no}"
+        "所為之處分,提起訴願一案,本府依法決定如下:"
+    )
+
+
 def render_draft_pdf(case) -> bytes:
     """依 case.f4 產生決定書草稿 PDF bytes(case.f4 必須非 None)。"""
-    f4 = case.f4
     doc = fitz.open()
     w = _Writer(doc)
-
-    w.write_line("新北市政府訴願決定書(草稿)", _TITLE_SIZE, align="center")
-    w.gap(8)
-    w.write_line(f"案號　{case.case_id}", _BODY_SIZE, align="center")
-    w.gap(20)
-
-    sections = [("主　文", f4.main_text), ("事　實", f4.fact), ("理　由", f4.reason)]
-    # 只有不受理案的空事實欄整段不輸出;其餘欄位為空仍印標題,否則少一欄看不出來
-    if f4.draft_type == "不受理" and not (f4.fact or "").strip():
-        sections = [s for s in sections if s[0] != "事　實"]
-    for heading, body in sections:
-        w.write_line(heading, _HEADING_SIZE)
-        w.gap(6)
-        w.write_paragraph(body or "")
-        w.gap(16)
-
+    for kind, text in build_decision_blocks(case):
+        if kind == "blank":
+            w.gap(10)
+        elif kind == "title":
+            w.write_line(text, _TITLE_SIZE, align="center")
+            w.gap(8)
+        elif kind == "heading":
+            w.write_line(text, _HEADING_SIZE, align="center")
+            w.gap(4)
+        else:
+            w.write_paragraph(text)
+    doc.subset_fonts()  # 內嵌字型只留用到的字,否則每份 PDF 多背 5MB
     return doc.tobytes()

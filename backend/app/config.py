@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     LOCAL_VISION_MODEL: str = "qwen2.5vl:7b"  # 掃描件逐頁抽字用(app/ocr.py),與文字模型分開設
     LOCAL_EMBED_MODEL: str = "bge-m3"
     POSTGRES_URL: str = "postgresql://appeal:appeal@postgres:5432/appeal"
+    # 決定書 PDF 的內嵌字型;檔案不存在時 pdf_render 退回 fitz 內建 china-t
+    DECISION_FONT_FILE: str = "/usr/share/fonts/truetype/ukai-tw.ttf"
 
     @property
     def case_store_kind(self) -> str:

@@ -140,3 +140,38 @@
     position: static;
   }
 }
+
+/* 決定書版面:區塊由後端 decision-skeleton 給,這裡只負責排版 */
+.decision__title {
+  text-align: center;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  margin: 0 0 var(--space-lg);
+}
+
+.decision__heading {
+  display: block;
+  text-align: center;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.5em;
+  margin-bottom: var(--space-xs);
+}
+
+.decision__heading::after {
+  content: '';
+  display: block;
+  width: 3em;
+  margin: var(--space-xs) auto 0;
+  border-top: 2px solid var(--color-gold);
+}
+
+.decision__body {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.decision__gap {
+  height: var(--space-md);
+}

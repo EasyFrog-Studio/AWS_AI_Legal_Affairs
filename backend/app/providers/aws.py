@@ -22,6 +22,9 @@ _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 _DDB_BATCH_LIMIT = 100  # DynamoDB BatchGetItem 單次上限
 _ARTICLE_NO_RE = re.compile(r"^\d+(-\d+)?$")  # 如 "27"、"27-1";F1 抽不到條號時填「未載明」,不是有效條號
 _MAX_QUERY_ISSUE_CHARS = 40  # F2 查詢只取首個爭點的前 N 字,避免多爭點串成長句把語意重心稀釋掉
+_TOP_K = 3  # F2 法規 / F3 案例各自呈現的筆數上限
+# 一份決定書切成多個欄位段落 chunk,取 _TOP_K 個 chunk 可能全落在同一案號,故案例先多撈再去重
+_CASE_CHUNK_FETCH = _TOP_K * 5
 
 
 def _load_prompt(name: str) -> str:
@@ -38,6 +41,21 @@ def _valid_cited_articles(cited_articles: list[str]) -> list[str]:
     """過濾 F1 產出的假條號(如 "廢棄物清理法#未載明")——條號欄位查無明確依據時 prompt 要求填
     「未載明」,這種鍵送進精查必然查無,只會產出 text="" 的空殼卻仍被算進可引用清單。"""
     return [a for a in cited_articles if _ARTICLE_NO_RE.match(a.partition("#")[2])]
+
+
+_CHUNK_HEADER_RE = re.compile(r"^【[^】]*】[^\n]*\n")
+_SUMMARY_LIMIT = 200
+
+
+def case_summary(text: str) -> str:
+    """chunk 原文 -> 畫面上讀得懂的案例摘要:去掉【…】前綴、切在句尾。"""
+    body = _CHUNK_HEADER_RE.sub("", text or "", count=1).strip()
+    if len(body) <= _SUMMARY_LIMIT:
+        return body
+    window = body[:_SUMMARY_LIMIT]
+    cut = window.rfind("。")
+    # 整段無句號(表格、條列殘段)時仍截一段回去,空摘要會讓該筆案例看起來沒內容
+    return window[: cut + 1] if cut > 0 else window
 
 
 def _retrieval_query(info: CaseInfo) -> str:
@@ -165,7 +183,9 @@ class AWSProvider(AIProvider):
         )
 
     # ---------- bedrock-agent-runtime retrieve ----------
-    def _retrieve(self, kb_id: str, query: str, filter_: Optional[dict], num_results: int = 5) -> list[dict]:
+    def _retrieve(
+        self, kb_id: str, query: str, filter_: Optional[dict], num_results: int = _TOP_K
+    ) -> list[dict]:
         vector_search_config: dict = {"numberOfResults": num_results}
         if filter_:
             vector_search_config["filter"] = filter_
@@ -253,16 +273,18 @@ class AWSProvider(AIProvider):
                 clauses.append({"equals": {"key": "appeal_article", "value": appeal_article}})
             filter_ = {"andAll": clauses}
 
-        retrieved = self._retrieve(settings.KB_CASE_ID, query, filter_)
+        retrieved = self._retrieve(settings.KB_CASE_ID, query, filter_, _CASE_CHUNK_FETCH)
         if not retrieved:
             # 無結果則放寬 filter(僅保留 case_type)重查一次
             relaxed_filter = {"equals": {"key": "case_type", "value": info.case_type}}
-            retrieved = self._retrieve(settings.KB_CASE_ID, query, relaxed_filter)
+            retrieved = self._retrieve(
+                settings.KB_CASE_ID, query, relaxed_filter, _CASE_CHUNK_FETCH
+            )
         if not retrieved:
             # F1 的 case_type 字面可能與 KB metadata 不一致(如「廢棄物清理」vs「廢棄物清理法」),
             # 最後退為純語意檢索(不受理案件仍保留 result filter)
             last_filter = None if screening.passed else {"equals": {"key": "result", "value": "不受理"}}
-            retrieved = self._retrieve(settings.KB_CASE_ID, query, last_filter)
+            retrieved = self._retrieve(settings.KB_CASE_ID, query, last_filter, _CASE_CHUNK_FETCH)
 
         cases: dict[str, SimilarCase] = {}
         for r in retrieved:
@@ -277,11 +299,11 @@ class AWSProvider(AIProvider):
                 appeal_article=metadata.get("appeal_article", ""),
                 issue=metadata.get("issue", ""),
                 result=metadata.get("result", ""),
-                summary=r.get("content", {}).get("text", "")[:200],
+                summary=case_summary(r.get("content", {}).get("text", "")),
                 similarity_note="向量檢索命中(KB-CASE)",
                 source_key=metadata.get("source_file"),
             )
-        return list(cases.values())
+        return list(cases.values())[:_TOP_K]
 
     def generate_draft(
         self,

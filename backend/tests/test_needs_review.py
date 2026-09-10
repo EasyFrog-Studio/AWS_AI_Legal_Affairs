@@ -6,6 +6,7 @@ from app.models import (
     CaseInfo,
     DeadlineCheck,
     DocumentCheck,
+    DraftResult,
     ScreeningResult,
 )
 from app.review import needs_review
@@ -128,3 +129,34 @@ def test_case_list_exposes_needs_review():
 
     entry = next(s for s in summaries if s["case_id"] == "c-review02")
     assert entry["needs_review"] is True
+
+
+def test_an_admissible_case_whose_draft_says_inadmissible_needs_review():
+    """受理案件的草稿型別只可能是駁回或撤銷;跑出「不受理」是分流與草稿自相矛盾,
+    不受理那一側有 enforce_inadmissible_format 保證體例,這一側沒有,只能標出來給人看。"""
+    case = _case(
+        track="admissible",
+        f4=DraftResult(draft_type="不受理", fact="事實", reason="理由", main_text="訴願不受理。"),
+    )
+
+    assert needs_review(case) is True
+
+
+def test_an_admissible_case_with_a_consistent_draft_does_not_need_review():
+    for draft_type, main_text in (("駁回", "訴願駁回。"), ("原處分撤銷", "原處分撤銷。")):
+        case = _case(
+            track="admissible",
+            f4=DraftResult(draft_type=draft_type, fact="事實", reason="理由", main_text=main_text),
+        )
+
+        assert needs_review(case) is False, draft_type
+
+
+def test_an_inadmissible_case_with_an_inadmissible_draft_does_not_need_review():
+    case = _case(
+        track="inadmissible",
+        screening=ScreeningResult(passed=False, matched_clause="77條第2款", reasoning="逾期"),
+        f4=DraftResult(draft_type="不受理", fact="", reason="理由", main_text="訴願不受理。"),
+    )
+
+    assert needs_review(case) is False

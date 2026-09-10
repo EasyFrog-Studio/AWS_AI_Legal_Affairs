@@ -389,6 +389,62 @@ describe('程序審查推翻', () => {
   })
 })
 
+describe('新結果提示點', () => {
+  it('分析完成後,尚未看過的階段在左欄標一個點;正在看的那個不標', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible)
+    renderDetail()
+    await screen.findByRole('button', { name: /^F1 擷取/ })
+
+    // done 案件預設落在決定書草稿,所以草稿沒有點,其餘跑出結果的階段都有
+    expect(within(rail(/^F1 擷取/)).getByLabelText('有新結果')).toBeInTheDocument()
+    expect(within(rail(/^程序審查/)).getByLabelText('有新結果')).toBeInTheDocument()
+    expect(within(rail(/^F3 案例/)).getByLabelText('有新結果')).toBeInTheDocument()
+    expect(within(rail(/^決定書草稿/)).queryByLabelText('有新結果')).toBeNull()
+  })
+
+  it('點進去看過就不再標點', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible)
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByRole('button', { name: /^程序審查/ })
+
+    await user.click(rail(/^程序審查/))
+
+    expect(within(rail(/^程序審查/)).queryByLabelText('有新結果')).toBeNull()
+    expect(within(rail(/^F3 案例/)).getByLabelText('有新結果')).toBeInTheDocument()
+  })
+
+  it('還沒跑出結果的階段不標點——那不是「有東西可看」', async () => {
+    api.getCase.mockResolvedValue(processingAt('screening'))
+    renderDetail()
+    await screen.findByRole('button', { name: /^F3 案例/ })
+
+    expect(within(rail(/^F3 案例/)).queryByLabelText('有新結果')).toBeNull()
+  })
+})
+
+describe('決定書版面', () => {
+  it('草稿頁顯示完整決定書骨架,三段本文仍可編輯', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible)
+    renderDetail()
+
+    expect(await screen.findByText('新北市政府訴願決定書')).toBeInTheDocument()
+    expect(screen.getByText(/訴願人\s*王大明/)).toBeInTheDocument()
+    expect(screen.getByText(/訴願審議委員會主任委員/)).toBeInTheDocument()
+    expect(screen.getByText(/中華民國/)).toBeInTheDocument()
+    expect(screen.getByLabelText('事實')).toBeEnabled()
+  })
+
+  it('版面載入失敗時明說「不是完整決定書」,不讓殘缺版面看起來像正常的', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible)
+    api.getDecisionSkeleton.mockRejectedValueOnce(new Error('boom'))
+    renderDetail()
+
+    expect(await screen.findByText(/版面載入失敗/)).toBeInTheDocument()
+    expect(screen.getByLabelText('事實')).toBeEnabled() // 仍可編輯,不是整頁壞掉
+  })
+})
+
 describe('草稿版本與定稿', () => {
   it('儲存時帶 base_version,並顯示已存版本數', async () => {
     api.getCase.mockResolvedValue({ ...doneAdmissible, draft_versions: [{ saved_at: 'x', fact: '', reason: '', main_text: '' }] })

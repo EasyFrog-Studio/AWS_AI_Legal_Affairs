@@ -6,7 +6,15 @@ from typing import Optional
 
 from app.config import settings
 from app.models import CaseInfo, DraftResult, LawRef, ScreeningResult, SimilarCase, StandingAssessment
-from app.providers.aws import _clause_to_appeal_article, _load_prompt, _retrieval_query, _valid_cited_articles
+from app.providers.aws import (
+    _CASE_CHUNK_FETCH,
+    _TOP_K,
+    _clause_to_appeal_article,
+    _load_prompt,
+    _retrieval_query,
+    _valid_cited_articles,
+    case_summary,
+)
 from app.providers.base import AIProvider
 
 
@@ -172,9 +180,11 @@ class LocalProvider(AIProvider):
         rows = self._execute(
             "SELECT id, text, metadata, 1 - (embedding <=> %s::vector) AS score "
             "FROM law_chunks "
-            "WHERE metadata->>'law_type' IS DISTINCT FROM '普通法' "
+            # 函釋/釋字/裁判入庫但不供 F2:它們沒有條號,湊不出 LawRef 的「法名#條號」鍵
+            "WHERE metadata->>'doc_kind' = '法規' "
+            "AND metadata->>'law_type' IS DISTINCT FROM '普通法' "
             "ORDER BY embedding <=> %s::vector LIMIT %s",
-            (vec_lit, vec_lit, 5),
+            (vec_lit, vec_lit, _TOP_K),
         )
 
         law_refs: dict[str, LawRef] = {}
@@ -199,7 +209,9 @@ class LocalProvider(AIProvider):
             law_refs[key] = ref
         return list(law_refs.values())
 
-    def _search_cases(self, vec_lit: str, where_sql, where_params, num_results: int = 5) -> list[tuple]:
+    def _search_cases(
+        self, vec_lit: str, where_sql, where_params, num_results: int = _CASE_CHUNK_FETCH
+    ) -> list[tuple]:
         sql = "SELECT id, text, metadata, 1 - (embedding <=> %s::vector) AS score FROM case_chunks"
         params: list = [vec_lit]
         if where_sql:
@@ -249,11 +261,11 @@ class LocalProvider(AIProvider):
                 appeal_article=metadata.get("appeal_article", ""),
                 issue=metadata.get("issue", ""),
                 result=metadata.get("result", ""),
-                summary=text_[:200],
+                summary=case_summary(text_),
                 similarity_note="向量檢索命中(pgvector case_chunks)",
                 source_key=metadata.get("source_file"),
             )
-        return list(cases.values())
+        return list(cases.values())[:_TOP_K]
 
     def generate_draft(
         self,

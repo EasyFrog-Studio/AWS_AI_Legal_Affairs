@@ -211,3 +211,40 @@ def test_get_draft_pdf_missing_api_key_returns_401():
     _make_case("c-draft006", with_f4=True)
     resp = client.get("/api/cases/c-draft006/draft.pdf")
     assert resp.status_code == 401
+
+
+def test_decision_skeleton_returns_the_same_layout_as_the_pdf_with_editable_slots():
+    """網站上的決定書與 PDF 共用同一份版面定義,前端只把 slot 換成可編輯欄位。"""
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main_module.app)
+    _make_case("c-draft020", with_f4=True)
+
+    resp = client.get("/api/cases/c-draft020/decision-skeleton", headers=_headers())
+    assert resp.status_code == 200
+    blocks = resp.json()["blocks"]
+
+    kinds = [b["kind"] for b in blocks]
+    assert kinds[0] == "title"
+    assert [b["text"] for b in blocks if b["kind"] == "slot"] == ["main_text", "fact", "reason"]
+    joined = "".join(b["text"] for b in blocks)
+    assert "新北市政府訴願決定書" in joined
+    assert "訴願審議委員會主任委員" in joined
+    assert "如不服本決定" in joined
+
+
+def test_decision_skeleton_case_not_found_returns_404():
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main_module.app)
+    resp = client.get("/api/cases/c-notexist/decision-skeleton", headers=_headers())
+    assert resp.status_code == 404
+
+
+def test_decision_skeleton_without_f4_returns_409():
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main_module.app)
+    _make_case("c-draft021", with_f4=False)
+    resp = client.get("/api/cases/c-draft021/decision-skeleton", headers=_headers())
+    assert resp.status_code == 409

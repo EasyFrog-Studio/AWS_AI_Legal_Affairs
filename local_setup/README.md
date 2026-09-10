@@ -4,7 +4,7 @@
 
 ## 前置條件
 
-1. `docker/docker-compose.yml` 已啟動 `postgres` 服務(image `pgvector/pgvector:pg16`,對外 port `5432`,user/pass/db = `appeal/appeal/appeal`)。
+1. `docker/docker-compose.yml` 已啟動 `postgres` 服務(image `pgvector/pgvector:pg16`,對外 port `5433`(容器內仍是 5432;主機常見已有原生 PostgreSQL 佔用 5432),user/pass/db = `appeal/appeal/appeal`)。
 2. 主機已安裝 ollama,且已 `ollama pull bge-m3`(1024 維 embedding 模型)。
 3. Python 環境已安裝依賴:
    ```
@@ -34,7 +34,7 @@ python ingest.py
 |---|---|---|
 | `LOCAL_LLM_BASE_URL` | `http://localhost:11434` | ollama base URL(主機直連;容器內另用 `host.docker.internal`,與本腳本無關) |
 | `LOCAL_EMBED_MODEL` | `bge-m3` | embedding 模型名稱 |
-| `POSTGRES_URL` | `postgresql://appeal:appeal@localhost:5432/appeal` | Postgres 連線字串(主機直連 compose 對外 port) |
+| `POSTGRES_URL` | `postgresql://appeal:appeal@localhost:5433/appeal` | Postgres 連線字串(主機直連 compose 對外 port) |
 
 ## 預期輸出(範例)
 
@@ -60,3 +60,30 @@ python ingest.py
 ## 失敗處理
 
 腳本不含重試邏輯:ollama 呼叫失敗或 Postgres 錯誤會直接印出錯誤訊息並以非 0 狀態碼結束,需排除問題後重新執行整支腳本(已寫入的批次因 upsert 語意不會重複,可安全重跑)。
+
+## 爬蟲語料(ingest_crawl.py)
+
+`data/爬蟲集/chunk資料/` 是另一套已切好的語料(訴願決定書 49,570 chunk、法條 6,437 chunk),欄位名與 `data/output/` 不同(頂層 `片段名`/`內容`,metadata 用 `clause`/`article`/`revised_date`),故另有一支映射腳本:
+
+```
+cd local_setup
+python ingest_crawl.py       # 灌入同樣的 law_chunks / case_chunks / law_articles
+python -m pytest test_ingest_crawl.py -q   # 映射層測試
+```
+
+映射與過濾規則(全部在 `ingest_crawl.py`,有測試涵蓋):
+
+| 規則 | 行為 |
+|---|---|
+| 留出年度 | `metadata.year` 為 114 的決定書 chunk 回 `None` 不入庫(與 `parse_decisions.py`、`ingest.py` 並列第三道防線) |
+| 條款次 | `clause` `§77(2)` → `appeal_article` `77(2)`;`§79`、`§79+§81`、`未判定` 等無款次者填空字串,不造假鍵 |
+| 案型 | 來源的 `case_type` 是自由文字案由(語料共 630 種),F3 的完全相等過濾對它必然落空。改用 `決定書-{案型}.jsonl` 的檔名分桶(11 種)當 `case_type`,原始案由保留為 `case_subtype`。送進 embedding 的 `text` 表頭仍用原始案由——已入庫向量是照原表頭算的,改表頭會讓重跑結果與現有向量不一致 |
+| 爭點 | 爬蟲語料無爭點欄,`issue` 一律留空 —— F3 的第二層 filter 在這批資料上不生效 |
+| 刪除條文 | `deleted == "true"` 回 `None`,不進 F2 推薦 |
+| 官方法規 | `OFFICIAL_LAW_NAMES` 這 11 部的爬蟲版一律不收,避免同鍵覆寫已驗算過的條數與修正日期 |
+| `law_type` | 民法 → 普通法、`_PROCEDURE_LAWS` → 程序法、其餘領域法規 → 實體法(不用「其他」,否則 F2 排除普通法的過濾會失去意義) |
+| `amend_date` | `revised_date` `20251226` → `民國 114 年 12 月 26 日`;抽不出來填「未收錄」,不猜 |
+
+參考資料(司法院釋字 / 行政函釋 / 行政法院裁判)另由 `preprocessing/parse_crawl_reference.py` 先把 PDF 切成 chunk,輸出到 `data/爬蟲集/chunk資料/參考資料/`,本腳本以 `reference_rows()` 原樣載入(已是本專案 schema,不需映射)灌進 `law_chunks`。這批 `article_no` 為空,**不進 `law_articles` 精查表**(該表鍵為 `法名#條號`)。
+
+實際入庫量:決定書 36,177(排除 114 年 13,393)、法條 4,133(排除 2,304)、參考資料 11,274(釋字 3,810 + 函釋 905 + 裁判 6,559;官方重複的 29 份跳過)。

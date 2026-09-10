@@ -34,7 +34,7 @@ from app.ocr import (
     ocr_pdf,
 )
 from app.pdf_extract import extract_text_quality
-from app.pdf_render import render_draft_pdf
+from app.pdf_render import build_decision_blocks, render_draft_pdf
 from app.text_quality import is_unreadable
 from app.reference_data import reference_data_status
 from app.review import needs_review
@@ -434,6 +434,18 @@ def finalize_case(case_id: str):
     finalized_at = datetime.now(timezone.utc).isoformat()
     store.update(case_id, {"finalized_at": finalized_at})
     return {"finalized_at": finalized_at, "pdf_location": location}
+
+
+@app.get("/api/cases/{case_id}/decision-skeleton", dependencies=[Depends(require_api_key)])
+def get_decision_skeleton(case_id: str):
+    """決定書版面骨架;三段本文回 slot,由前端塞可編輯欄位。與 PDF 共用同一份定義。"""
+    case = store.get(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    if case.f4 is None:
+        raise HTTPException(status_code=409, detail="此案件尚無草稿")
+    blocks = build_decision_blocks(case, body_as_slots=True)
+    return {"blocks": [{"kind": kind, "text": text} for kind, text in blocks]}
 
 
 @app.get("/api/cases/{case_id}/draft.pdf", dependencies=[Depends(require_api_key)])

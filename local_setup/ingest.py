@@ -22,7 +22,7 @@ CASE_CHUNKS_PATH = OUTPUT_DIR / "case_chunks.jsonl"
 # --- 設定(環境變數可覆寫) ---
 LOCAL_LLM_BASE_URL = os.environ.get("LOCAL_LLM_BASE_URL", "http://localhost:11434")
 LOCAL_EMBED_MODEL = os.environ.get("LOCAL_EMBED_MODEL", "bge-m3")
-POSTGRES_URL = os.environ.get("POSTGRES_URL", "postgresql://appeal:appeal@localhost:5432/appeal")
+POSTGRES_URL = os.environ.get("POSTGRES_URL", "postgresql://appeal:appeal@localhost:5433/appeal")
 
 EMBED_BATCH_SIZE = 32
 

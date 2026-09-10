@@ -319,7 +319,8 @@ def test_find_similar_cases_admissible_filter_uses_case_type_only():
     assert "result" not in first_sql
     last_sql, last_params = calls[-1]
     assert "WHERE" not in last_sql
-    assert last_params[-1] == 5
+    # chunk 取用量要大於呈現筆數,否則同一案號的多個段落會把三件不同案例佔滿
+    assert last_params[-1] > 3
 
 
 def test_find_similar_cases_inadmissible_filter_includes_result_and_appeal_article():
@@ -352,7 +353,8 @@ def test_find_similar_cases_inadmissible_filter_includes_result_and_appeal_artic
     assert params[0] == _DEFAULT_VEC_LITERAL
     assert params[1:4] == ("社會救助", "不受理", "77(2)")
     assert params[-2] == _DEFAULT_VEC_LITERAL
-    assert params[-1] == 5
+    # chunk 取用量要大於呈現筆數,否則同一案號的多個段落會把三件不同案例佔滿
+    assert params[-1] > 3
 
     assert len(cases) == 1
     assert cases[0].case_no == "北市訴字第1號"
@@ -481,3 +483,63 @@ def test_get_law_articles_empty_keys_skips_query():
 
     assert provider.get_law_articles([]) == []
     assert calls == []
+
+
+def test_f2_retrieval_is_restricted_to_statutes():
+    """函釋/釋字/裁判已入庫但不供 F2 推薦:它們沒有條號,F2 的 LawRef 與 law_articles
+    精查都以「法名#條號」為鍵,混進來只會產出認不出來源的空殼列。"""
+    http = FakeHTTP(chat_payloads=[])
+    connect, calls = _fake_connect_factory([])
+    provider = _provider(http_client=http, connect=connect)
+
+    provider.recommend_laws(_info())
+
+    sql, params = calls[0]
+    assert "doc_kind" in sql and "法規" in sql
+    assert "law_type" in sql and "普通法" in sql  # 既有的排除普通法不能因此掉了
+
+# ---------- 推薦筆數上限 ----------
+def _case_row(case_no, section="事實"):
+    return (
+        f"{case_no}#{section}",
+        f"【{section}】{case_no} 本件訴願人不服原處分…",
+        {
+            "case_no": case_no,
+            "year": "112",
+            "case_type": "廢棄物清理",
+            "appeal_article": "",
+            "issue": "任意棄置",
+            "result": "駁回",
+            "source_file": f"{case_no}.pdf",
+        },
+        0.9,
+    )
+
+
+def test_recommend_laws_asks_db_for_three_chunks():
+    connect, calls = _fake_connect_factory([])
+    provider = _provider(connect=connect)
+
+    provider.recommend_laws(_info(cited_articles=[]))
+
+    _sql, params = calls[0]
+    assert params[-1] == 3
+
+
+def test_find_similar_cases_returns_at_most_three_distinct_cases():
+    """一份決定書切成多個 chunk,靠 SQL LIMIT 湊不出三件不同案號,須以案號去重後截斷。"""
+    rows = [
+        _case_row("112-0001", "事實"),
+        _case_row("112-0001", "理由"),
+        _case_row("112-0002"),
+        _case_row("112-0003"),
+        _case_row("112-0004"),
+    ]
+    connect, _ = _fake_connect_factory(rows)
+    provider = _provider(connect=connect)
+
+    cases = provider.find_similar_cases(
+        _info(), ScreeningResult(passed=True, matched_clause=None, reasoning="通過"), "原文"
+    )
+
+    assert [c.case_no for c in cases] == ["112-0001", "112-0002", "112-0003"]

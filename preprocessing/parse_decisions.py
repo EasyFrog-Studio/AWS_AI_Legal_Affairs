@@ -32,13 +32,21 @@ SECTION_RE = re.compile(r"^[ \t]*(主[ \t]+文|事[ \t]+實|理[ \t]+由)[ \t]*$
 SIGNATURE_RE = re.compile(r"訴願審議委員會主任委員")
 
 
+# 同一部法在來源檔名有三種寫法,F3 以 case_type 完全相等硬過濾,不對齊就查不到彼此
+CASE_TYPE_ALIASES = {
+    "空氣汙染防制法": "空氣污染防制法",
+    "空氣汙染管制法": "空氣污染防制法",
+    "空氣污染防治法": "空氣污染防制法",
+}
+
+
 def clean_case_type(raw: str) -> str:
     s = raw
     if s.startswith("違反"):
         s = s[len("違反"):]
     if s.endswith("事件"):
         s = s[: -len("事件")]
-    return s
+    return CASE_TYPE_ALIASES.get(s, s)
 
 
 def parse_filename(pdf_path: Path):

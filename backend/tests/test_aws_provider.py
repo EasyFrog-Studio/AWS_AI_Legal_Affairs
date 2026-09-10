@@ -491,3 +491,90 @@ def test_clause_to_appeal_article_accepts_chinese_numeral():
     """模型回中文數字時,F3 的 appeal_article filter 不能跟著失效。"""
     assert _clause_to_appeal_article("77條第二款") == "77(2)"
     assert _clause_to_appeal_article("77條第八款") == "77(8)"
+
+
+def test_case_summary_drops_the_chunk_header_that_duplicates_the_listed_fields():
+    """chunk 的【年度-案類-條款-結果】前綴是為了向量品質而加的,畫面上那幾欄已各自顯示,
+    留在摘要裡只是重複又難讀。"""
+    from app.providers.aws import case_summary
+
+    crawled = "【113年-停車場法-§79-駁回】理由欄\n四、綜上論結,本件訴願為無理由,決定如主文。"
+    official = "【110年-廢棄物清理法-77(2)-訴願逾期-不受理】主文欄\n訴願不受理。"
+
+    assert case_summary(crawled) == "四、綜上論結,本件訴願為無理由,決定如主文。"
+    assert case_summary(official) == "訴願不受理。"
+
+
+def test_case_summary_cuts_on_a_sentence_boundary_not_mid_word():
+    from app.providers.aws import case_summary
+
+    text = "一、按訴願法第14條第1項規定。" + "二、本件訴願人不服原處分機關所為之處分。" * 20
+
+    summary = case_summary(text)
+
+    assert len(summary) <= 200
+    assert summary.endswith("。")
+
+
+def test_case_summary_without_any_sentence_end_still_returns_something_bounded():
+    """整段沒有句號的 chunk(表格、條列殘段)不能因此變成空摘要——那會讓該筆案例看起來沒內容。"""
+    from app.providers.aws import case_summary
+
+    text = "甲" * 500
+
+    summary = case_summary(text)
+
+    assert 0 < len(summary) <= 200
+
+# ---------- 推薦筆數上限 ----------
+def _vector_config(bart, call_index):
+    kwargs = bart.retrieve.call_args_list[call_index].kwargs
+    return kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]
+
+
+def test_recommend_laws_retrieves_three_results():
+    bart = MagicMock()
+    bart.retrieve.return_value = {"retrievalResults": []}
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=MagicMock())
+    provider.recommend_laws(_info(cited_articles=[]))
+
+    assert _vector_config(bart, 0)["numberOfResults"] == 3
+
+
+def test_find_similar_cases_returns_at_most_three_distinct_cases():
+    """一份決定書切成多個 chunk,靠 numberOfResults 湊不出三件不同案號,須以案號去重後截斷。"""
+
+    def _result(case_no, section="事實"):
+        return {
+            "content": {"text": f"【{section}】{case_no} 本件訴願人不服原處分…"},
+            "metadata": {
+                "case_no": case_no,
+                "year": "112",
+                "case_type": "廢棄物清理",
+                "appeal_article": "",
+                "issue": "任意棄置",
+                "result": "駁回",
+                "source_file": f"{case_no}.pdf",
+            },
+        }
+
+    bart = MagicMock()
+    bart.retrieve.return_value = {
+        "retrievalResults": [
+            _result("112-0001", "事實"),
+            _result("112-0001", "理由"),
+            _result("112-0002"),
+            _result("112-0003"),
+            _result("112-0004"),
+        ]
+    }
+    provider = _provider(bedrock_agent_runtime=bart)
+
+    cases = provider.find_similar_cases(
+        _info(), ScreeningResult(passed=True, matched_clause=None, reasoning="通過"), "原文"
+    )
+
+    assert [c.case_no for c in cases] == ["112-0001", "112-0002", "112-0003"]
+    # chunk 取用量要大於呈現筆數,否則同一案號的多個段落會把三件不同案例佔滿
+    assert _vector_config(bart, 0)["numberOfResults"] > 3

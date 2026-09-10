@@ -64,6 +64,10 @@ export function getCase(id) {
   return request(`/cases/${id}`)
 }
 
+export function getDecisionSkeleton(id) {
+  return request(`/cases/${id}/decision-skeleton`)
+}
+
 export function getSource(key) {
   return request(`/source?key=${encodeURIComponent(key)}`)
 }

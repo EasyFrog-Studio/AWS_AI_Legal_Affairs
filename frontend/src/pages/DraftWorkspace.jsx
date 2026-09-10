@@ -1,7 +1,34 @@
 import { useEffect, useRef, useState } from 'react'
-import { updateDraft, downloadDraftPdf, finalizeCase } from '../api'
+import { updateDraft, downloadDraftPdf, finalizeCase, getDecisionSkeleton } from '../api'
 import { useNavGuard } from '../navGuard.js'
 import './DraftWorkspace.css'
+
+
+// 三段本文的欄位名 -> 可編輯欄位;其餘區塊照 kind 直接排版,版面定義只在後端一份
+const FALLBACK_BLOCKS = [
+  { kind: 'heading', text: '主　文' },
+  { kind: 'slot', text: 'main_text' },
+  { kind: 'heading', text: '事　實' },
+  { kind: 'slot', text: 'fact' },
+  { kind: 'heading', text: '理　由' },
+  { kind: 'slot', text: 'reason' },
+]
+
+function DecisionBlock({ block, labelFor, fields }) {
+  if (block.kind === 'blank') return <div className="decision__gap" />
+  if (block.kind === 'title') return <h3 className="decision__title">{block.text}</h3>
+  if (block.kind === 'heading') {
+    return labelFor ? (
+      <label htmlFor={`draft-${labelFor}`} className="decision__heading">
+        {block.text}
+      </label>
+    ) : (
+      <div className="decision__heading">{block.text}</div>
+    )
+  }
+  if (block.kind === 'slot') return fields[block.text] ?? null
+  return <p className="decision__body">{block.text}</p>
+}
 
 function BasisPanel({ laws, cases, track, onViewSource }) {
   return (
@@ -98,6 +125,7 @@ export default function DraftWorkspace({
   const [reason, setReason] = useState(draft.reason || '')
   const [mainText, setMainText] = useState(draft.main_text || '')
   const [state, setState] = useState('idle') // idle | saving | saved | error
+  const [skeleton, setSkeleton] = useState(null) // null=載入中, []=載入失敗, 其餘=版面區塊
   const [message, setMessage] = useState('')
   const prevCaseIdRef = useRef(caseId)
   const mainTextRef = useRef(null)
@@ -117,6 +145,19 @@ export default function DraftWorkspace({
       setMessage('')
     }
   }, [caseId, draft])
+
+  useEffect(() => {
+    let cancelled = false
+    setSkeleton(null)
+    getDecisionSkeleton(caseId).then(
+      (data) => !cancelled && setSkeleton(data.blocks),
+      // 版面載不到就只顯示可編輯欄位,並在畫面上說明——不能讓它看起來像「決定書本來就長這樣」
+      () => !cancelled && setSkeleton([]),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [caseId])
 
   const dirty =
     fact !== (draft.fact || '') ||
@@ -173,54 +214,61 @@ export default function DraftWorkspace({
     }
   }
 
+  const fields = {
+    main_text: (
+      <textarea
+        id="draft-main_text"
+        aria-label="主文"
+        ref={mainTextRef}
+        className="textarea"
+        value={mainText}
+        onChange={(e) => setMainText(e.target.value)}
+        rows={2}
+      />
+    ),
+    fact: (
+      <textarea
+        id="draft-fact"
+        aria-label="事實"
+        ref={factRef}
+        className="textarea"
+        value={fact}
+        onChange={(e) => setFact(e.target.value)}
+        rows={8}
+      />
+    ),
+    reason: (
+      <textarea
+        id="draft-reason"
+        aria-label="理由"
+        ref={reasonRef}
+        className="textarea"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        rows={10}
+      />
+    ),
+  }
+
   return (
     <div className="draft-workspace" hidden={hidden}>
       <div className="draft-paper">
-        <h3 className="draft-paper__title">{draft.draft_type}</h3>
-        <div className="draft-field">
-          <label htmlFor="draft-main-text" className="draft-paper__section-title">
-            主文
-          </label>
-          <textarea
-            id="draft-main-text"
-            ref={mainTextRef}
-            className="textarea"
-            value={mainText}
-            onChange={(e) => setMainText(e.target.value)}
-            rows={2}
+        {skeleton === null && <p className="state-message state-message--pending">版面載入中…</p>}
+        {skeleton !== null && skeleton.length === 0 && (
+          <p className="state-message state-message--error">
+            決定書版面載入失敗,以下僅為可編輯欄位,不是完整決定書。
+          </p>
+        )}
+        {/* 版面未到位時不先畫欄位:區塊數一變,textarea 的位置就變,React 會把它重新掛載,
+            使用者正在打的字會消失 */}
+        {(skeleton === null ? [] : skeleton.length === 0 ? FALLBACK_BLOCKS : skeleton).map((block, i, all) => (
+          <DecisionBlock
+            key={i}
+            block={block}
+            labelFor={all[i + 1]?.kind === 'slot' ? all[i + 1].text : null}
+            fields={fields}
           />
-        </div>
-        <div className="draft-field">
-          <label htmlFor="draft-fact" className="draft-paper__section-title">
-            事實
-          </label>
-          <textarea
-            id="draft-fact"
-            ref={factRef}
-            className="textarea"
-            value={fact}
-            placeholder={
-              track === 'inadmissible'
-                ? '不受理決定依訴願法第 89 條第 1 項第 3 款得不記載事實;如需記載請於此輸入。'
-                : undefined
-            }
-            onChange={(e) => setFact(e.target.value)}
-            rows={8}
-          />
-        </div>
-        <div className="draft-field">
-          <label htmlFor="draft-reason" className="draft-paper__section-title">
-            理由
-          </label>
-          <textarea
-            id="draft-reason"
-            ref={reasonRef}
-            className="textarea"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            rows={10}
-          />
-        </div>
+        ))}
         {draft.cited_laws?.length > 0 && (
           <div className="draft-field">
             <span className="draft-paper__section-title">引用法條</span>
