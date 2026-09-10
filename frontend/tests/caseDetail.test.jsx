@@ -149,6 +149,37 @@ describe('待確認階段(collecting)', () => {
     expect(screen.getAllByText(/確認為此文件/).length).toBe(3)
   })
 
+  it('選填的訴願答辯書留空時標「未提供」,不擋開始分析', async () => {
+    api.getCase.mockResolvedValue(collectingAllMatched)
+    renderDetail('c-5')
+
+    await screen.findByRole('button', { name: '開始分析' })
+    const slot = screen.getByText('訴願答辯書').closest('.doc-slot')
+    // 沒送來跟送來但看不懂是兩件事,不能都顯示「無法自動確認」
+    expect(within(slot).getByText(/未提供/)).toBeInTheDocument()
+    expect(within(slot).queryByText(/無法自動確認/)).toBeNull()
+    expect(screen.getByRole('button', { name: '開始分析' })).toBeEnabled()
+  })
+
+  it('答辯書有內容但判斷不符時,一樣擋住開始分析', async () => {
+    api.getCase.mockResolvedValue({
+      ...collectingAllMatched,
+      documents: {
+        ...collectingAllMatched.documents,
+        answer: {
+          slot: 'answer',
+          source: 'text',
+          text: '原處分書全文',
+          check: { matched: false, method: 'rule', note: '文字特徵更接近原處分書,不是訴願答辯書' },
+        },
+      },
+    })
+    renderDetail('c-5')
+
+    await screen.findByText(/不是訴願答辯書/)
+    expect(screen.getByRole('button', { name: '開始分析' })).toBeDisabled()
+  })
+
   it('有文件判斷不符時,開始分析被停用,並標示不符原因', async () => {
     api.getCase.mockResolvedValue(collectingWithMismatch)
     renderDetail('c-6')

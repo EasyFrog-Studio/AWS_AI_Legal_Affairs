@@ -1,6 +1,6 @@
 """讀三個 chunk JSONL,經 ollama embedding 灌入本地 Postgres(pgvector)。
 手動執行(不隨容器啟動):law+interp -> law_chunks 表,case -> case_chunks 表,
-law_chunks.jsonl 另整份寫入 law_articles 表(取代 DynamoDB 法條精查表)。
+answer -> answer_chunks 表,law_chunks.jsonl 另整份寫入 law_articles 表(取代 DynamoDB 法條精查表)。
 可重跑:所有寫入皆 ON CONFLICT DO UPDATE。
 
 依賴: pip install psycopg[binary] httpx
@@ -18,6 +18,7 @@ OUTPUT_DIR = Path(__file__).resolve().parents[2] / "data" / "output"
 LAW_CHUNKS_PATH = OUTPUT_DIR / "law_chunks.jsonl"
 INTERP_CHUNKS_PATH = OUTPUT_DIR / "interp_chunks.jsonl"
 CASE_CHUNKS_PATH = OUTPUT_DIR / "case_chunks.jsonl"
+ANSWER_CHUNKS_PATH = OUTPUT_DIR / "answer_chunks.jsonl"
 
 # --- 設定(環境變數可覆寫) ---
 LOCAL_LLM_BASE_URL = os.environ.get("LOCAL_LLM_BASE_URL", "http://localhost:11434")
@@ -39,6 +40,12 @@ CREATE TABLE IF NOT EXISTS law_chunks (
   embedding vector(1024)
 );
 CREATE TABLE IF NOT EXISTS case_chunks (
+  id TEXT PRIMARY KEY,
+  text TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  embedding vector(1024)
+);
+CREATE TABLE IF NOT EXISTS answer_chunks (
   id TEXT PRIMARY KEY,
   text TEXT NOT NULL,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -148,6 +155,7 @@ def main():
     law_rows = load_jsonl(LAW_CHUNKS_PATH)
     interp_rows = load_jsonl(INTERP_CHUNKS_PATH)
     case_rows = drop_holdout_years(load_jsonl(CASE_CHUNKS_PATH))
+    answer_rows = load_jsonl(ANSWER_CHUNKS_PATH)
 
     conn = psycopg.connect(POSTGRES_URL)
     try:
@@ -163,6 +171,9 @@ def main():
             print(f"開始匯入 case_chunks: {len(case_rows)} 筆")
             ingest_chunks(conn, http_client, "case_chunks", case_rows, "case_chunks")
 
+            print(f"開始匯入 answer_chunks: {len(answer_rows)} 筆")
+            ingest_chunks(conn, http_client, "answer_chunks", answer_rows, "answer_chunks")
+
         print(f"開始匯入 law_articles(law_chunks.jsonl): {len(law_rows)} 筆")
         ingest_law_articles(conn, law_rows)
 
@@ -170,6 +181,7 @@ def main():
             "[DONE] "
             f"law_chunks={table_count(conn, 'law_chunks')} "
             f"case_chunks={table_count(conn, 'case_chunks')} "
+            f"answer_chunks={table_count(conn, 'answer_chunks')} "
             f"law_articles={table_count(conn, 'law_articles')}"
         )
     finally:

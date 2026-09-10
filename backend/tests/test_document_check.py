@@ -224,3 +224,40 @@ def test_disposition_issued_as_a_plain_official_letter_is_recognised():
 
     assert check.matched is True
     assert check.method == "rule"
+
+
+# ---------- 第四槽:訴願答辯書 ----------
+
+_ANSWER_BRIEF = """新北市政府環境保護局 訴願答辯書
+訴 願 人：洪淑惠
+原處分機關：新北市政府環境保護局
+    訴願人因違反廢棄物清理法事件，不服本局中華民國112年1月10日新北環稽字第41-112-010273號
+裁處書，提起訴願，謹依法答辯如下：
+答 辯 聲 明
+    本件訴願不受理。
+事    實
+一、訴願人於水溝棄置雜物，經稽查人員拍照採證，處罰鍰新臺幣1,200元。
+理    由
+一、程序答辯：本件訴願人提起訴願已逾法定期間。
+二、實體答辯：違規事證明確。
+三、檢附原卷1宗，敬請察核。又本件訴願答辯書副本已逕送訴願人。
+"""
+
+
+def test_rule_matches_answer_brief_by_strong_keyword():
+    check = check_document("answer", _ANSWER_BRIEF)
+    assert check.matched is True
+    assert check.method == "rule"
+
+
+def test_rule_rejects_answer_brief_uploaded_as_disposition():
+    """答辯書必然引述它所答辯的那份裁處書,原處分書的特徵一定會命中;
+    要靠答辯獨有的字面(答辯聲明/程序答辯/檢附原卷)把分數壓過去,否則整份會被收成原處分書。"""
+    check = check_document("disposition", _ANSWER_BRIEF)
+    assert check.matched is False
+    assert "訴願答辯書" in check.note
+
+
+def test_rule_still_matches_disposition_after_the_answer_slot_exists():
+    text = "裁處書\n主旨：違反廢棄物清理法，處罰鍰6000元。\n事實：...\n理由：...\n教示條款：..."
+    assert check_document("disposition", text).matched is True

@@ -109,6 +109,8 @@ export const collectingAllMatched = {
     appeal: { slot: 'appeal', source: 'text', text: '訴願書全文', check: { matched: true, method: 'rule', note: '符合訴願書的文字特徵' } },
     service: { slot: 'service', source: 'text', text: '送達證書全文', check: { matched: true, method: 'rule', note: '符合送達證書的文字特徵' } },
     disposition: { slot: 'disposition', source: 'text', text: '原處分書全文', check: { matched: true, method: 'rule', note: '符合原處分書的文字特徵' } },
+    // 選填槽,這件收案時機關還沒送答辯書
+    answer: { slot: 'answer', source: 'text', text: '', check: { matched: null, method: 'none', note: '文件內容為空,無法確認' } },
   },
   f1: null,
   screening: null,

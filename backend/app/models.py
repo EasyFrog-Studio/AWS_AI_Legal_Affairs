@@ -145,13 +145,14 @@ Stage = Literal["f1", "screening", "f2", "f3", "f4", "done"]
 Status = Literal["collecting", "processing", "done", "error"]
 Track = Literal["admissible", "inadmissible"]
 Source = Literal["pdf", "text"]
-DocumentSlot = Literal["appeal", "service", "disposition"]
+DocumentSlot = Literal["appeal", "service", "disposition", "answer"]
 
 # 各槽對應的中文名,錯誤訊息與前端顯示共用同一份,不分別寫兩次
 DOCUMENT_SLOT_LABELS: dict[DocumentSlot, str] = {
     "appeal": "訴願書",
     "service": "送達證書",
     "disposition": "原處分書",
+    "answer": "訴願答辯書",
 }
 
 
@@ -193,7 +194,7 @@ def build_input_text(documents: dict[DocumentSlot, CaseDocument]) -> str:
     完全看不出來(見實作計畫 Ticket 3a/3b)。缺槽時該段留空,不省略標頭。"""
     return "\n\n".join(
         f"【{DOCUMENT_SLOT_LABELS[slot]}】\n{documents[slot].text if slot in documents else ''}"
-        for slot in ("appeal", "service", "disposition")
+        for slot in ("appeal", "service", "disposition", "answer")
     )
 
 

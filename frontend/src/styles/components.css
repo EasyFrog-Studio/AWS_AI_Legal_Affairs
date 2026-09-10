@@ -148,6 +148,16 @@
   color: var(--color-gold);
 }
 
+/* 有新結果尚未看過:訊號層的金點,只在左欄階段名旁邊出現,點進去就消失 */
+.rail-item__dot {
+  width: 6px;
+  height: 6px;
+  margin-left: var(--space-xs);
+  border-radius: 50%;
+  background: var(--color-gold);
+  flex: none;
+}
+
 .rail-item__note {
   margin-left: auto;
   font-family: var(--font-ui);
@@ -514,6 +524,14 @@ table.list-table {
   color: var(--color-ink-soft);
 }
 
+.doc-slot__optional {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+  border: 1px solid var(--color-rule-soft);
+  padding-inline: var(--space-xs);
+}
+
 .doc-slot--review {
   display: flex;
   align-items: center;
@@ -543,6 +561,11 @@ table.list-table {
 
 .doc-check--unknown {
   color: var(--color-processing);
+}
+
+/* 選填槽沒送來:是「依流程還沒到」而不是判斷失敗,用中性的墨色,不佔任何狀態色 */
+.doc-check--na {
+  color: var(--color-ink-soft);
 }
 
 /* 按鈕列排版與 DraftWorkspace 的 .draft-actions 一致,此處供 NewCase / CaseDetail 待確認階段共用 */

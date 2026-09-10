@@ -11,6 +11,12 @@ CREATE TABLE IF NOT EXISTS case_chunks (
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   embedding vector(1024)
 );
+CREATE TABLE IF NOT EXISTS answer_chunks (
+  id TEXT PRIMARY KEY,
+  text TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  embedding vector(1024)
+);
 CREATE TABLE IF NOT EXISTS law_articles (
   law_article TEXT PRIMARY KEY,
   text TEXT NOT NULL,

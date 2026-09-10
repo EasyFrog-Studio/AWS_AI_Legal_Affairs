@@ -171,20 +171,29 @@ async def create_case(
     service_text: Optional[str] = Form(None),
     disposition_file: Optional[UploadFile] = File(None),
     disposition_text: Optional[str] = Form(None),
+    answer_file: Optional[UploadFile] = File(None),
+    answer_text: Optional[str] = Form(None),
 ):
-    """三份文件各自上傳並確認型態;不在此觸發分析,見 /analyze。
-    送達證書選填:觀念通知等案件本無此文書,擋在收案就測不到後續;缺槽由期間計算標記人工確認。"""
+    """四份文件各自上傳並確認型態;不在此觸發分析,見 /analyze。
+    送達證書選填:觀念通知等案件本無此文書,擋在收案就測不到後續;缺槽由期間計算標記人工確認。
+    訴願答辯書同為選填,理由不同:它是原處分機關受理後才送來的,收案當下本來就不會有。"""
     appeal = await _read_document_input("appeal", appeal_file, appeal_text)
     service = await _read_document_input("service", service_file, service_text, required=False)
     disposition = await _read_document_input("disposition", disposition_file, disposition_text)
+    answer = await _read_document_input("answer", answer_file, answer_text, required=False)
 
     documents = {
         "appeal": _build_document("appeal", appeal),
         "service": _build_document("service", service),
         "disposition": _build_document("disposition", disposition),
+        "answer": _build_document("answer", answer),
     }
     input_text = build_input_text(documents)
-    source = "pdf" if "pdf" in (appeal.source, service.source, disposition.source) else "text"
+    source = (
+        "pdf"
+        if "pdf" in (appeal.source, service.source, disposition.source, answer.source)
+        else "text"
+    )
     appellant_title = appeal.text.strip()[:30] if appeal.source == "text" else (appeal_file.filename or "訴願案件")
 
     case_id = f"c-{uuid.uuid4().hex[:8]}"

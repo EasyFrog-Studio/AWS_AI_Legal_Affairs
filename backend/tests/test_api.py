@@ -32,8 +32,20 @@ def _headers():
     return {"X-API-Key": settings.API_KEY}
 
 
-def _create_case_form(appeal_text=_APPEAL_TEXT, service_text=_SERVICE_TEXT, disposition_text=_DISPOSITION_TEXT):
-    return {"appeal_text": appeal_text, "service_text": service_text, "disposition_text": disposition_text}
+def _create_case_form(
+    appeal_text=_APPEAL_TEXT,
+    service_text=_SERVICE_TEXT,
+    disposition_text=_DISPOSITION_TEXT,
+    answer_text=None,
+):
+    form = {
+        "appeal_text": appeal_text,
+        "service_text": service_text,
+        "disposition_text": disposition_text,
+    }
+    if answer_text is not None:  # 選填槽:不帶這個 key 才是「這件沒有答辯書」
+        form["answer_text"] = answer_text
+    return form
 
 
 def test_health_no_api_key_required():
@@ -69,11 +81,14 @@ def test_create_case_with_all_three_documents_returns_case_id_and_checks(monkeyp
     assert resp.status_code == 200
     body = resp.json()
     assert body["case_id"].startswith("c-")
-    assert set(body["documents"].keys()) == {"appeal", "service", "disposition"}
+    assert set(body["documents"].keys()) == {"appeal", "service", "disposition", "answer"}
     # 三槽文字皆內嵌各自的強特徵字面,規則層應能直接判斷,不必落到 Gemini 備援
-    for slot, check in body["documents"].items():
+    for slot in ("appeal", "service", "disposition"):
+        check = body["documents"][slot]
         assert check["matched"] is True, f"{slot} 應能被規則判斷命中:{check}"
         assert check["method"] == "rule"
+    # 這件沒附答辯書:空槽誠實回「無法確認」,不得混成已確認
+    assert body["documents"]["answer"]["matched"] is None
 
 
 def test_create_case_missing_any_document_returns_400():
@@ -418,3 +433,72 @@ def test_analyze_is_not_blocked_by_an_absent_optional_slot(monkeypatch):
     resp = client.post(f"/api/cases/{case_id}/analyze", headers=_headers())
 
     assert resp.status_code == 200
+
+
+# ---------- 第四槽:訴願答辯書(選填) ----------
+
+_ANSWER_TEXT = (
+    "訴願答辯書\n原處分機關：彰化縣環境保護局\n"
+    "訴願人因違反廢棄物清理法事件，不服本局裁處書，提起訴願，謹依法答辯如下：\n"
+    "答辯聲明：本件訴願駁回。\n"
+    "理由：一、程序答辯：本件訴願為合法。二、實體答辯：違規事證明確。\n"
+    "三、檢附原卷1宗，敬請察核。"
+)
+
+
+def test_create_case_accepts_the_optional_answer_brief(monkeypatch):
+    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+    client = TestClient(main_module.app)
+
+    resp = client.post(
+        "/api/cases", data=_create_case_form(answer_text=_ANSWER_TEXT), headers=_headers()
+    )
+
+    assert resp.status_code == 200
+    documents = resp.json()["documents"]
+    assert set(documents.keys()) == {"appeal", "service", "disposition", "answer"}
+    assert documents["answer"]["matched"] is True
+    assert documents["answer"]["method"] == "rule"
+
+
+def test_answer_brief_text_reaches_the_analysis_input():
+    """input_text 是 F1 與程序審查唯一讀得到的東西,答辯書沒接進去等於只是存了一份檔案。"""
+    client = TestClient(main_module.app)
+    case_id = client.post(
+        "/api/cases", data=_create_case_form(answer_text=_ANSWER_TEXT), headers=_headers()
+    ).json()["case_id"]
+
+    input_text = client.get(f"/api/cases/{case_id}", headers=_headers()).json()["input_text"]
+
+    assert "【訴願答辯書】" in input_text
+    assert "答辯聲明：本件訴願駁回。" in input_text
+    assert input_text.index("【訴願書】") < input_text.index("【訴願答辯書】")
+
+
+def test_case_without_answer_brief_still_starts_analysis():
+    """答辯書是機關事後才送來的,收案時多半沒有;空的選填槽不得擋住開始分析。"""
+    client = TestClient(main_module.app)
+    case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
+
+    documents = client.get(f"/api/cases/{case_id}", headers=_headers()).json()["documents"]
+    assert documents["answer"]["text"] == ""
+    assert documents["answer"]["check"]["matched"] is None
+
+    resp = client.post(f"/api/cases/{case_id}/analyze", headers=_headers())
+    assert resp.status_code == 200
+
+
+def test_answer_brief_can_be_replaced_after_the_case_is_created(monkeypatch):
+    """機關的答辯書晚幾天才到,收案當下沒有的那一槽必須補得上去。"""
+    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+    client = TestClient(main_module.app)
+    case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
+
+    resp = client.patch(
+        f"/api/cases/{case_id}/documents/answer", data={"text": _ANSWER_TEXT}, headers=_headers()
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["documents"]["answer"]["matched"] is True
+    case = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
+    assert "答辯聲明：本件訴願駁回。" in case["input_text"]

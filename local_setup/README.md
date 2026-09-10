@@ -22,11 +22,12 @@ python ingest.py
 
 腳本會依序:
 
-1. 對 Postgres 執行契約 DDL(`CREATE EXTENSION IF NOT EXISTS vector` + 四張表 `IF NOT EXISTS`),對全新 DB 也能獨立跑。
+1. 對 Postgres 執行契約 DDL(`CREATE EXTENSION IF NOT EXISTS vector` + 五張表 `IF NOT EXISTS`),對全新 DB 也能獨立跑。
 2. 讀 `data/output/law_chunks.jsonl` + `interp_chunks.jsonl`,以 32 筆為一批呼叫 ollama `/api/embed` 取得向量,寫入 `law_chunks` 表。
 3. 讀 `data/output/case_chunks.jsonl`,同樣方式寫入 `case_chunks` 表。
-4. 讀 `data/output/law_chunks.jsonl`(不需 embedding),整份寫入 `law_articles` 表(法條精查表,取代 DynamoDB;key 為 `法名#條號`)。
-5. 印出各表最終筆數(`SELECT count(*)`)。
+4. 讀 `data/output/answer_chunks.jsonl`,同樣方式寫入 `answer_chunks` 表(訴願答辯書;`source_kind="測資"` 的列是合成卷證,取用前要自行排除)。
+5. 讀 `data/output/law_chunks.jsonl`(不需 embedding),整份寫入 `law_articles` 表(法條精查表,取代 DynamoDB;key 為 `法名#條號`)。
+6. 印出各表最終筆數(`SELECT count(*)`)。
 
 ## 環境變數(皆可覆寫預設值)
 
@@ -48,14 +49,16 @@ python ingest.py
   [PROGRESS] case_chunks: 32/233
   ...
   [PROGRESS] case_chunks: 233/233
+開始匯入 answer_chunks: 78 筆
+  [PROGRESS] answer_chunks: 78/78
 開始匯入 law_articles(law_chunks.jsonl): 2214 筆
   [PROGRESS] law_articles: 2214/2214
-[DONE] law_chunks=2362 case_chunks=233 law_articles=2214
+[DONE] law_chunks=2362 case_chunks=233 answer_chunks=78 law_articles=2214
 ```
 
 ## 重跑說明
 
-所有寫入皆為 `ON CONFLICT ... DO UPDATE`(law_chunks/case_chunks 以 `id` 為衝突鍵,law_articles 以 `law_article` 為衝突鍵),因此可重複執行整支腳本以更新資料(例如前處理重新產出 JSONL 後),不會產生重複列,也不需要先清空資料表。
+所有寫入皆為 `ON CONFLICT ... DO UPDATE`(law_chunks/case_chunks/answer_chunks 以 `id` 為衝突鍵,law_articles 以 `law_article` 為衝突鍵),因此可重複執行整支腳本以更新資料(例如前處理重新產出 JSONL 後),不會產生重複列,也不需要先清空資料表。
 
 ## 失敗處理
 

@@ -12,6 +12,7 @@ function DocumentSlotField({ slot, value, onChange, disabled }) {
     <div className="doc-slot">
       <div className="doc-slot__head">
         <span className="doc-slot__label">{slot.label}</span>
+        {slot.optional && <span className="doc-slot__optional">選填</span>}
         <span className="doc-slot__hint">{slot.hint}</span>
       </div>
       <div className="tabs tabs--sm">
@@ -69,7 +70,8 @@ export default function NewCase() {
   const [errorMsg, setErrorMsg] = useState('')
   const navigate = useNavigate()
 
-  const canSubmit = SLOTS.every((s) => {
+  // 選填槽不列入送出條件:機關的答辯書多半晚幾天才到,收案時逼人補件等於卡住整個流程
+  const canSubmit = SLOTS.filter((s) => !s.optional).every((s) => {
     const v = values[s.key]
     return v.tab === 'pdf' ? Boolean(v.file) : v.text.trim().length > 0
   })
@@ -87,6 +89,9 @@ export default function NewCase() {
       const formData = new FormData()
       for (const slot of SLOTS) {
         const v = values[slot.key]
+        const filled = v.tab === 'pdf' ? Boolean(v.file) : v.text.trim().length > 0
+        // 空的選填槽整個不送:送一個空字串進去,後端會把它當「使用者貼了空白文字」
+        if (!filled) continue
         if (v.tab === 'pdf') {
           formData.append(`${slot.key}_file`, v.file)
         } else {
@@ -109,8 +114,8 @@ export default function NewCase() {
 
       <div className="newcase">
         <p className="newcase__intro">
-          請分別提供訴願書、送達證書、原處分書三份文件(PDF 或貼上全文皆可),系統會先確認每份文件的類型,
-          確認無誤後再依訴願法第 77 條進行程序審查並生成草稿。
+          請分別提供訴願書、送達證書、原處分書三份文件(PDF 或貼上全文皆可);原處分機關的訴願答辯書若已送到,
+          可一併附上,沒有也能先送出。系統會先確認每份文件的類型,確認無誤後再依訴願法第 77 條進行程序審查並生成草稿。
         </p>
 
         <form onSubmit={handleSubmit}>

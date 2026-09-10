@@ -84,7 +84,11 @@ function CollectingSection({ caseData, onReplaced, onAnalyzed }) {
   const [error, setError] = useState('')
 
   const documents = caseData.documents || {}
-  const allMatched = DOCUMENT_SLOTS.every((s) => documents[s.key]?.check?.matched === true)
+  // 選填槽沒送來就沒有東西可確認,不能讓它永遠擋著開始分析;送來了就照樣要通過型態確認
+  const isEmptyOptional = (slot) => slot.optional && !documents[slot.key]?.text?.trim()
+  const allMatched = DOCUMENT_SLOTS.every(
+    (s) => documents[s.key]?.check?.matched === true || isEmptyOptional(s),
+  )
 
   async function handleReplaceSubmit(slotKey) {
     setBusy(true)
@@ -125,7 +129,7 @@ function CollectingSection({ caseData, onReplaced, onAnalyzed }) {
     <div className="card">
       <p className="newcase__intro">
         {allMatched
-          ? '三份文件皆已確認無誤,可以開始分析。'
+          ? '文件皆已確認無誤,可以開始分析。'
           : '有文件無法確認或判斷不符,請重新上傳該份文件。'}
       </p>
       {DOCUMENT_SLOTS.map((slot) => {
@@ -134,7 +138,11 @@ function CollectingSection({ caseData, onReplaced, onAnalyzed }) {
         return (
           <div className="doc-slot doc-slot--review" key={slot.key}>
             <span className="doc-slot__label">{slot.label}</span>
-            <DocumentCheckBadge check={doc?.check} />
+            {isEmptyOptional(slot) ? (
+              <span className="doc-check doc-check--na">— 未提供(選填,可事後補上)</span>
+            ) : (
+              <DocumentCheckBadge check={doc?.check} />
+            )}
             {!isReplacing && (
               <button
                 type="button"
@@ -598,6 +606,7 @@ export default function CaseDetail() {
   const [reanalyzing, setReanalyzing] = useState(false)
   const [overlayContent, setOverlayContent] = useState(null)
   const [selected, setSelected] = useState(null)
+  const [seen, setSeen] = useState(() => new Set())
   const manualRef = useRef(false)
   const timerRef = useRef(null)
 
@@ -656,6 +665,22 @@ export default function CaseDetail() {
     : 'f1'
   const reviewReasons = caseData ? reviewNotes(caseData) : []
 
+  useEffect(() => {
+    setSeen(new Set())
+  }, [id])
+
+  useEffect(() => {
+    // caseData 還是上一個案件的時候不能記:那會把新案件沒看過的階段記成已看過
+    if (!caseData || caseData.case_id !== id) return
+    setSeen((prev) => (prev.has(effectiveSelected) ? prev : new Set(prev).add(effectiveSelected)))
+  }, [caseData, effectiveSelected, id])
+
+  /** 這一階段跑出結果了、而且使用者還沒點進去看過。文件確認不算——那是輸入,不是分析結果。 */
+  const hasNewResult = (key) => {
+    if (!caseData || seen.has(key)) return false
+    return Boolean(key === 'draft' ? caseData.f4 : caseData[key])
+  }
+
   const railSlot = caseData && (
     <nav aria-label="審理歷程">
       <div className="rail-section">
@@ -696,6 +721,9 @@ export default function CaseDetail() {
                 <Icon name={marker.icon} />
               </span>
               {stage.label}
+              {hasNewResult(stage.key) && (
+                <span className="rail-item__dot" role="img" aria-label="有新結果" />
+              )}
               {marker.note && <span className="rail-item__note">{marker.note}</span>}
             </button>
           )
@@ -715,6 +743,9 @@ export default function CaseDetail() {
                 <Icon name={marker.icon} />
               </span>
               決定書草稿
+              {hasNewResult('draft') && (
+                <span className="rail-item__dot" role="img" aria-label="有新結果" />
+              )}
               {marker.note && <span className="rail-item__note">{marker.note}</span>}
             </button>
           )
