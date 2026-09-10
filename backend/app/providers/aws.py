@@ -11,6 +11,7 @@ from app.models import (
     CaseInfo,
     DraftResult,
     LawRef,
+    ReferenceRef,
     ScreeningResult,
     SimilarCase,
     StandingAssessment,
@@ -25,6 +26,10 @@ _MAX_QUERY_ISSUE_CHARS = 40  # F2 查詢只取首個爭點的前 N 字,避免多
 _TOP_K = 3  # F2 法規 / F3 案例各自呈現的筆數上限
 # 一份決定書切成多個欄位段落 chunk,取 _TOP_K 個 chunk 可能全落在同一案號,故案例先多撈再去重
 _CASE_CHUNK_FETCH = _TOP_K * 5
+_REF_TOP_K = 3  # F2+ 參考見解呈現的筆數上限
+# 一份長判決/釋字同樣切成多筆 chunk,理由同 _CASE_CHUNK_FETCH
+_REF_CHUNK_FETCH = _REF_TOP_K * 5
+_MARKDOWN_PREFIX = "markdown"  # /api/source 在 local/mock 模式的可服務範圍
 
 
 def _load_prompt(name: str) -> str:
@@ -47,6 +52,20 @@ _CHUNK_HEADER_RE = re.compile(r"^【[^】]*】[^\n]*\n")
 _SUMMARY_LIMIT = 200
 
 
+def _cap_law_refs(law_refs: dict[str, LawRef], cited_keys: list[str]) -> list[LawRef]:
+    """F2 呈現上限 _TOP_K:超額時先砍檢索結果,保留案件自己引用的條號——引用條號被擠掉的
+    代價不只是少一條推薦,F4 的可引用清單也是從這份結果組出來的。顯示順序維持不變。"""
+    if len(law_refs) <= _TOP_K:
+        return list(law_refs.values())
+    cited = set(cited_keys)
+    keep = {key for key in law_refs if key in cited}
+    for key in law_refs:  # 依原順序補滿名額
+        if len(keep) >= _TOP_K:
+            break
+        keep.add(key)
+    return [ref for key, ref in law_refs.items() if key in keep][:_TOP_K]
+
+
 def case_summary(text: str) -> str:
     """chunk 原文 -> 畫面上讀得懂的案例摘要:去掉【…】前綴、切在句尾。"""
     body = _CHUNK_HEADER_RE.sub("", text or "", count=1).strip()
@@ -56,6 +75,35 @@ def case_summary(text: str) -> str:
     cut = window.rfind("。")
     # 整段無句號(表格、條列殘段)時仍截一段回去,空摘要會讓該筆案例看起來沒內容
     return window[: cut + 1] if cut > 0 else window
+
+
+def viewable_source_key(metadata: dict) -> Optional[str]:
+    """chunk metadata -> 取原文端點服務得到的鍵,服務不到就回 None。
+    只有前處理產出的 markdown 兩邊都拿得到(S3 有上傳、local 在 data/output/);爬蟲語料的
+    source_file 是 PDF 檔名或內部編號,照收會畫出一個按下去必定回「找不到」的按鈕。"""
+    source_file = metadata.get("source_file") or ""
+    return source_file if source_file.startswith(f"{_MARKDOWN_PREFIX}/") else None
+
+
+def build_references(rows: list[tuple[str, str, dict]], relevance: str) -> list[ReferenceRef]:
+    """(name, text, metadata) 列 -> 去重且截上限的 ReferenceRef;aws 與 local 共用同一份對應。
+    name 為空的列直接跳過:認不出是哪一份文件的參考見解,給了也沒有用。"""
+    refs: dict[str, ReferenceRef] = {}
+    for name, text, metadata in rows:
+        if not name or name in refs:
+            continue
+        refs[name] = ReferenceRef(
+            doc_kind=metadata.get("doc_kind", ""),
+            name=name,
+            issuer=metadata.get("issuer") or "",
+            # 一律來自檢索 metadata,查無填死值,禁止由 LLM 生成
+            issued_date=metadata.get("amend_date") or "未收錄",
+            topic=metadata.get("topic") or "",
+            text=text,
+            source_key=viewable_source_key(metadata),
+            relevance=relevance,
+        )
+    return list(refs.values())[:_REF_TOP_K]
 
 
 def _retrieval_query(info: CaseInfo) -> str:
@@ -230,7 +278,13 @@ class AWSProvider(AIProvider):
         return refs
 
     def recommend_laws(self, info: CaseInfo) -> list[LawRef]:
-        filter_ = {"notEquals": {"key": "law_type", "value": "普通法"}}
+        # 只撈法規:KB-LAW 同時裝著函釋/判解,它們沒有條號,湊不出「法名#條號」鍵
+        filter_ = {
+            "andAll": [
+                {"equals": {"key": "doc_kind", "value": "法規"}},
+                {"notEquals": {"key": "law_type", "value": "普通法"}},
+            ]
+        }
         retrieved = self._retrieve(settings.KB_LAW_ID, _retrieval_query(info), filter_)
 
         law_refs: dict[str, LawRef] = {}
@@ -244,17 +298,36 @@ class AWSProvider(AIProvider):
                 article_no=article_no,
                 text=r.get("content", {}).get("text", ""),
                 amend_date=metadata.get("amend_date") or "未收錄",  # 一律來自 KB metadata,LLM 不生成
-                source_key=metadata.get("source_file"),
+                source_key=viewable_source_key(metadata),
                 relevance="向量檢索命中(KB-LAW)",
             )
 
         # F1 cited_articles 走 DynamoDB 精查,補齊 KB 檢索未涵蓋的引用法條;先濾掉「未載明」等假條號
-        missing_keys = [a for a in _valid_cited_articles(info.cited_articles) if a not in law_refs]
+        cited_keys = _valid_cited_articles(info.cited_articles)
+        missing_keys = [a for a in cited_keys if a not in law_refs]
         # 以請求的 key 落位,不用回傳值重組:DB 的 law_name/article_no 與 key 不一致時,
         # 重組出的 key 會撞掉檢索結果
         for key, ref in zip(missing_keys, self.get_law_articles(missing_keys)):
             law_refs[key] = ref
-        return list(law_refs.values())
+        return _cap_law_refs(law_refs, cited_keys)
+
+
+    def find_references(self, info: CaseInfo) -> list[ReferenceRef]:
+        filter_ = {"notEquals": {"key": "doc_kind", "value": "法規"}}
+        retrieved = self._retrieve(
+            settings.KB_LAW_ID, _retrieval_query(info), filter_, _REF_CHUNK_FETCH
+        )
+        return build_references(
+            [
+                (
+                    r.get("metadata", {}).get("law_name", ""),
+                    r.get("content", {}).get("text", ""),
+                    r.get("metadata", {}),
+                )
+                for r in retrieved
+            ],
+            "向量檢索命中(KB-LAW,非法規)",
+        )
 
     def find_similar_cases(
         self, info: CaseInfo, screening: ScreeningResult, text: str
@@ -301,7 +374,7 @@ class AWSProvider(AIProvider):
                 result=metadata.get("result", ""),
                 summary=case_summary(r.get("content", {}).get("text", "")),
                 similarity_note="向量檢索命中(KB-CASE)",
-                source_key=metadata.get("source_file"),
+                source_key=viewable_source_key(metadata),
             )
         return list(cases.values())[:_TOP_K]
 

@@ -294,11 +294,14 @@ def _retrieval_and_draft(
     if screening.passed:
         store.update(case_id, {"track": "admissible", "current_stage": "f2"})
         laws = provider.recommend_laws(info)
-        store.update(case_id, {"f2": laws, "current_stage": "f3"})
+        store.update(case_id, {"f2": laws, "current_stage": "f2_refs"})
     else:
         # 不通過:跳過 F2,直接找同款不受理案例;法源精查後只供草稿引用,不寫進 f2
-        store.update(case_id, {"track": "inadmissible", "current_stage": "f3"})
+        store.update(case_id, {"track": "inadmissible", "current_stage": "f2_refs"})
         laws = provider.get_law_articles(inadmissible_law_keys(screening.matched_clause))
+
+    # F2+ 參考見解:兩條 track 都跑,但不進 laws——它們沒有條號,湊不出 F4 的引用格式
+    store.update(case_id, {"f2_refs": provider.find_references(info), "current_stage": "f3"})
 
     similar_cases = provider.find_similar_cases(info, screening, case_text)
     store.update(case_id, {"f3": similar_cases, "current_stage": "f4"})
@@ -317,15 +320,50 @@ def rerun_case(case_id: str, store: CaseStore, provider: AIProvider) -> None:
         raise ValueError(f"case not found: {case_id}")
 
     overridden = case.screening_system is not None and case.f1 is not None and case.screening is not None
-    if not overridden:
+    if not overridden and not (case.f1_edited and case.f1 is not None):
         run_case(case_id, store, provider)
         return
 
     try:
-        store.update(case_id, {"current_stage": "f2" if case.screening.passed else "f3"})
+        if not overridden:
+            # f1 被人工改過但程序審查沒被推翻:保留人改的 f1,程序審查以下全部重算
+            store.update(case_id, {"current_stage": "screening"})
+            _screen_and_draft(case_id, store, provider, case, case.f1)
+            return
+        store.update(case_id, {"current_stage": "f2" if case.screening.passed else "f2_refs"})
         _retrieval_and_draft(case_id, store, provider, case.f1, case.screening, case.input_text)
     except Exception as exc:  # noqa: BLE001 - 背景任務不得中斷,錯誤要落庫讓畫面看得到
         store.update(case_id, {"status": "error", "error": str(exc)})
+
+
+def _screen_and_draft(
+    case_id: str, store: CaseStore, provider: AIProvider, case: Case, info: CaseInfo
+) -> None:
+    """程序審查 → F2/F3/F4。抽出來是為了讓「f1 已被人工修改」的案件能從這裡起跑:
+    那種案件重跑時不得再呼叫 extract_case_info,否則人剛改的欄位會被模型改回去。
+    例外不在此處理,由呼叫端統一落 status=error。"""
+    screening = provider.screen_admissibility(info, case.input_text)
+    # §77(1) 必要記載檢核在期間計算之前:期間逾期是最能客觀算出的事實,若兩者都成立,
+    # 讓 reconcile_deadline 的覆寫有最終發言權(與既有的期間覆寫優先順序一致)。
+    # notice 目前一律傳 None——補正通知抽取尚未建立(見 procedural_checks.py 註解),
+    # 這代表「查無補正通知」是誠實的預設值,不是假裝已檢查過。
+    screening = apply_article_77_1(screening, check_required_fields(info), None)
+    standing_check = check_standing(info)
+    # 只有欄位不一致時才需要 LLM 判斷利害關係——一致或欄位空白時 check_standing
+    # 已經給出結論(consistent=True 或 None),呼叫 provider 只會是白跑一趟。
+    has_standing = (
+        resolve_standing_assessment(provider.assess_standing(info, case.input_text))
+        if standing_check.consistent is False
+        else None
+    )
+    screening = apply_article_77_3(screening, standing_check.model_copy(update={"has_standing": has_standing}))
+    # info 顯式傳入:run_case 手上的 case 是 F1 之前的快照,case.f1 仍為 None,
+    # 教示條款(§98)會整段漏掉
+    screening, deadline = reconcile_deadline(screening, check_deadline_from_case(case, info))
+    screening = guard_unsupported_clause(screening)
+    store.update(case_id, {"screening": screening, "deadline": deadline})
+
+    _retrieval_and_draft(case_id, store, provider, info, screening, case.input_text)
 
 
 def run_case(case_id: str, store: CaseStore, provider: AIProvider) -> None:
@@ -336,28 +374,6 @@ def run_case(case_id: str, store: CaseStore, provider: AIProvider) -> None:
     try:
         info = provider.extract_case_info(case.input_text)
         store.update(case_id, {"f1": info, "current_stage": "screening"})
-
-        screening = provider.screen_admissibility(info, case.input_text)
-        # §77(1) 必要記載檢核在期間計算之前:期間逾期是最能客觀算出的事實,若兩者都成立,
-        # 讓 reconcile_deadline 的覆寫有最終發言權(與既有的期間覆寫優先順序一致)。
-        # notice 目前一律傳 None——補正通知抽取尚未建立(見 procedural_checks.py 註解),
-        # 這代表「查無補正通知」是誠實的預設值,不是假裝已檢查過。
-        screening = apply_article_77_1(screening, check_required_fields(info), None)
-        standing_check = check_standing(info)
-        # 只有欄位不一致時才需要 LLM 判斷利害關係——一致或欄位空白時 check_standing
-        # 已經給出結論(consistent=True 或 None),呼叫 provider 只會是白跑一趟。
-        has_standing = (
-            resolve_standing_assessment(provider.assess_standing(info, case.input_text))
-            if standing_check.consistent is False
-            else None
-        )
-        screening = apply_article_77_3(screening, standing_check.model_copy(update={"has_standing": has_standing}))
-        # info 顯式傳入:case 是 F1 之前的快照,case.f1 仍為 None,教示條款(§98)會整段漏掉
-        screening, deadline = reconcile_deadline(screening, check_deadline_from_case(case, info))
-        screening = guard_unsupported_clause(screening)
-        store.update(case_id, {"screening": screening, "deadline": deadline})
-
-        _retrieval_and_draft(case_id, store, provider, info, screening, case.input_text)
-
+        _screen_and_draft(case_id, store, provider, case, info)
     except Exception as exc:  # noqa: BLE001 - pipeline 需捕捉任何例外落庫,不中斷背景任務
         store.update(case_id, {"status": "error", "error": str(exc)})

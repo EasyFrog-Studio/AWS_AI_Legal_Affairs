@@ -21,8 +21,14 @@ const STAGES = [
   { key: 'f1', label: 'F1 擷取' },
   { key: 'screening', label: '程序審查' },
   { key: 'f2', label: 'F2 法規' },
+  { key: 'f2_refs', label: 'F2+ 參考見解' },
   { key: 'f3', label: 'F3 案例' },
 ]
+
+/** 這一階段此刻正在跑。與程序審查那兩處的判準同一個,不另立一套。 */
+function isRunning(key, caseData) {
+  return caseData.status === 'processing' && key === caseData.current_stage
+}
 
 /** collecting → 待確認;processing → 跟隨 current_stage(f4/done 視為 draft);done → draft;error → current_stage。 */
 function autoTarget(caseData) {
@@ -464,7 +470,16 @@ function DeadlineSection({ deadline }) {
   )
 }
 
-function F2Section({ laws, track, screening, onViewSource }) {
+/** 沒有結果時,「正在跑」與「這件從沒跑過這一段」必須分得出來(已審結的舊案件屬後者)。 */
+function PendingOrNotRun({ running }) {
+  return (
+    <div className={`state-message state-message--${running ? 'pending' : 'empty'}`}>
+      {running ? '檢索中…' : '尚未執行'}
+    </div>
+  )
+}
+
+function F2Section({ laws, track, screening, running, onViewSource }) {
   if (track === 'inadmissible') {
     const clause = parseClause(screening?.matched_clause)
     return (
@@ -474,7 +489,7 @@ function F2Section({ laws, track, screening, onViewSource }) {
     )
   }
   if (laws === null) {
-    return <div className="state-message state-message--pending">檢索中…</div>
+    return <PendingOrNotRun running={running} />
   }
   if (laws.length === 0) {
     return <div className="state-message state-message--empty">未檢索到相關法規。</div>
@@ -499,9 +514,38 @@ function F2Section({ laws, track, screening, onViewSource }) {
   )
 }
 
-function F3Section({ cases, onViewSource }) {
+function F2RefsSection({ refs, running, onViewSource }) {
+  // 兩條 track 都跑,故沒有「依流程不適用」這一態
+  if (refs === null || refs === undefined) {
+    return <PendingOrNotRun running={running} />
+  }
+  if (refs.length === 0) {
+    return <div className="state-message state-message--empty">未檢索到相關參考見解。</div>
+  }
+  return (
+    <div className="card">
+      {refs.map((ref, i) => (
+        <div className="reference-ref" key={i}>
+          <span className="reference-ref__kind">{ref.doc_kind}</span>
+          <span className="reference-ref__name">{ref.name}</span>
+          {ref.issuer && <span className="reference-ref__issuer">{ref.issuer}</span>}
+          <span className="reference-ref__date mono">{ref.issued_date}</span>
+          {ref.topic && <p className="reference-ref__topic">爭點:{ref.topic}</p>}
+          <p className="reference-ref__text">{ref.text}</p>
+          {ref.source_key && (
+            <button type="button" className="btn-link" onClick={() => onViewSource(ref.source_key)}>
+              原文
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function F3Section({ cases, running, onViewSource }) {
   if (cases === null) {
-    return <div className="state-message state-message--pending">檢索中…</div>
+    return <PendingOrNotRun running={running} />
   }
   if (cases.length === 0) {
     return <div className="state-message state-message--empty">未檢索到相似案例。</div>
@@ -575,12 +619,24 @@ function stageContent(key, caseData, onViewSource, onDocumentsChanged) {
         laws={caseData.f2}
         track={caseData.track}
         screening={caseData.screening}
+        running={isRunning(key, caseData)}
+        onViewSource={onViewSource}
+      />
+    )
+  }
+  if (key === 'f2_refs') {
+    return (
+      <F2RefsSection
+        refs={caseData.f2_refs}
+        running={isRunning(key, caseData)}
         onViewSource={onViewSource}
       />
     )
   }
   if (key === 'f3') {
-    return <F3Section cases={caseData.f3} onViewSource={onViewSource} />
+    return (
+      <F3Section cases={caseData.f3} running={isRunning(key, caseData)} onViewSource={onViewSource} />
+    )
   }
   return null
 }

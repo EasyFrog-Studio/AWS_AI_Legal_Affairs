@@ -425,6 +425,8 @@ describe('新結果提示點', () => {
     api.getCase.mockResolvedValue(doneAdmissible)
     renderDetail()
     await screen.findByRole('button', { name: /^F1 擷取/ })
+    // 預設落點要先落定:seen 是在 effect 裡才記的,搶在它之前斷言會看到尚未消失的點
+    await waitFor(() => expect(isCurrent(/^決定書草稿/)).toBe(true))
 
     // done 案件預設落在決定書草稿,所以草稿沒有點,其餘跑出結果的階段都有
     expect(within(rail(/^F1 擷取/)).getByLabelText('有新結果')).toBeInTheDocument()
@@ -528,5 +530,85 @@ describe('草稿版本與定稿', () => {
     renderDetail('c-2')
 
     expect(await screen.findByText('訴願法#77、訴願法#14')).toBeInTheDocument()
+  })
+})
+
+describe('F2+ 參考見解', () => {
+  it('兩種異質見解都畫得出來:釋字無發文機關無原文鈕,函釋有發文機關可開原文', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible)
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByRole('button', { name: /^F2\+ 參考見解/ })
+
+    await user.click(rail(/^F2\+ 參考見解/))
+
+    const yizi = screen.getByText('釋字第469號').closest('.reference-ref')
+    expect(within(yizi).getByText('司法院釋字')).toBeInTheDocument()
+    expect(within(yizi).getByText(/怠於執行職務之國家賠償責任/)).toBeInTheDocument()
+    expect(within(yizi).getByText(/未收錄/)).toBeInTheDocument()
+    expect(within(yizi).queryByRole('button', { name: '原文' })).toBeNull()
+
+    const hanshi = screen.getByText('法務部 法律字第0930014628號').closest('.reference-ref')
+    expect(within(hanshi).getByText('法務部')).toBeInTheDocument() // 發文機關獨立一欄,非名稱的一部分
+    expect(within(hanshi).getByText('民國 93 年 04 月 13 日')).toBeInTheDocument()
+    await user.click(within(hanshi).getByRole('button', { name: '原文' }))
+    expect(api.getSource).toHaveBeenCalledWith(
+      'markdown/行政函釋/法務部93年4月13日法律字0930014628號函-寄存送達.md',
+    )
+  })
+
+  it('左欄節點排在 F2 法規與 F3 案例之間', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible)
+    renderDetail()
+    await screen.findByRole('button', { name: /^F2\+ 參考見解/ })
+
+    const labels = screen
+      .getAllByRole('button')
+      .map((b) => b.textContent)
+      .filter((t) => /^(F2 法規|F2\+ 參考見解|F3 案例)/.test(t))
+    expect(labels.map((t) => t.slice(0, 2))).toEqual(['F2', 'F2', 'F3'])
+    expect(labels[0]).toMatch(/^F2 法規/)
+    expect(labels[1]).toMatch(/^F2\+ 參考見解/)
+  })
+
+  it('不受理案件一樣有參考見解,不出現「不適用」', async () => {
+    api.getCase.mockResolvedValue(doneInadmissible)
+    const user = userEvent.setup()
+    renderDetail('c-2')
+    await screen.findByRole('button', { name: /^F2\+ 參考見解/ })
+
+    expect(rail(/^F2\+ 參考見解/)).not.toHaveTextContent('不適用')
+    await user.click(rail(/^F2\+ 參考見解/))
+    expect(screen.getByText('釋字第469號')).toBeInTheDocument()
+  })
+
+  it('三態可區分:正在跑才說檢索中,沒跑過說尚未執行,跑完沒結果說未檢索到', async () => {
+    // 已審結的舊案件沒有這一段結果,不能一直說「檢索中…」——那與正在跑分不出來
+    api.getCase.mockResolvedValue({ ...doneAdmissible, f2_refs: null })
+    const user = userEvent.setup()
+    let view = renderDetail()
+    await screen.findByRole('button', { name: /^F2\+ 參考見解/ })
+    await user.click(rail(/^F2\+ 參考見解/))
+    expect(screen.getByText('尚未執行')).toBeInTheDocument()
+    expect(screen.queryByText('檢索中…')).toBeNull()
+    view.unmount()
+
+    api.getCase.mockResolvedValue({
+      ...doneAdmissible,
+      status: 'processing',
+      current_stage: 'f2_refs',
+      f2_refs: null,
+    })
+    view = renderDetail()
+    await screen.findByRole('button', { name: /^F2\+ 參考見解/ })
+    await user.click(rail(/^F2\+ 參考見解/))
+    expect(screen.getByText('檢索中…')).toBeInTheDocument()
+    view.unmount()
+
+    api.getCase.mockResolvedValue({ ...doneAdmissible, f2_refs: [] })
+    renderDetail()
+    await screen.findByRole('button', { name: /^F2\+ 參考見解/ })
+    await user.click(rail(/^F2\+ 參考見解/))
+    expect(screen.getByText('未檢索到相關參考見解。')).toBeInTheDocument()
   })
 })

@@ -5,17 +5,32 @@ import json
 from typing import Optional
 
 from app.config import settings
-from app.models import CaseInfo, DraftResult, LawRef, ScreeningResult, SimilarCase, StandingAssessment
+from app.models import (
+    CaseInfo,
+    DraftResult,
+    LawRef,
+    ReferenceRef,
+    ScreeningResult,
+    SimilarCase,
+    StandingAssessment,
+)
 from app.providers.aws import (
     _CASE_CHUNK_FETCH,
+    _REF_CHUNK_FETCH,
     _TOP_K,
+    _cap_law_refs,
     _clause_to_appeal_article,
     _load_prompt,
     _retrieval_query,
     _valid_cited_articles,
+    build_references,
+    viewable_source_key,
     case_summary,
 )
 from app.providers.base import AIProvider
+
+
+_MAX_OUTPUT_TOKENS = 2048  # 語料實測最長 f4 為 879 字,留兩倍餘裕;調小會攔腰砍掉正常草稿
 
 
 def _vector_literal(vec: list[float]) -> str:
@@ -58,13 +73,24 @@ class LocalProvider(AIProvider):
                 ],
                 "stream": False,
                 "format": schema,
-                # num_ctx:ollama 預設 4096,F4 輸入(案件+法規+案例 JSON)會超過而被靜默截斷
-                "options": {"temperature": 0, "num_ctx": 16384},
+                # num_ctx:ollama 預設 4096,F4 輸入(案件+法規+案例 JSON)會超過而被靜默截斷。
+                # num_predict/repeat_penalty 是失控生成的煞車:模型曾在 schema 約束下無限重複,
+                # 拖到 client 300 秒逾時而伺服器端還在算。2048 取自語料實測(最長 f4 為 879 字)
+                "options": {
+                    "temperature": 0,
+                    "num_ctx": 16384,
+                    "num_predict": _MAX_OUTPUT_TOKENS,
+                    "repeat_penalty": 1.1,
+                },
             },
         )
         resp.raise_for_status()
-        content = resp.json()["message"]["content"]
-        return json.loads(content)
+        body = resp.json()
+        if body.get("done_reason") == "length":
+            raise RuntimeError(
+                f"模型輸出觸及生成長度上限({_MAX_OUTPUT_TOKENS} token)而被截斷,結果不完整"
+            )
+        return json.loads(body["message"]["content"])
 
     # ---------- ollama /api/embed ----------
     def _embed(self, text: str) -> list[float]:
@@ -197,17 +223,33 @@ class LocalProvider(AIProvider):
                 article_no=article_no,
                 text=text,
                 amend_date=metadata.get("amend_date") or "未收錄",  # 一律來自檢索 metadata,LLM 不生成
-                source_key=metadata.get("source_file"),
+                source_key=viewable_source_key(metadata),
                 relevance="向量檢索命中(pgvector law_chunks)",
             )
 
         # F1 cited_articles 走 law_articles 精查,補齊向量檢索未涵蓋的引用法條;先濾掉「未載明」等假條號
-        missing_keys = [a for a in _valid_cited_articles(info.cited_articles) if a not in law_refs]
+        cited_keys = _valid_cited_articles(info.cited_articles)
+        missing_keys = [a for a in cited_keys if a not in law_refs]
         # 以請求的 key 落位,不用回傳值重組:metadata 的 law_name/article_no 與 key 不一致時,
         # 重組出的 key 會撞掉檢索結果
         for key, ref in zip(missing_keys, self.get_law_articles(missing_keys)):
             law_refs[key] = ref
-        return list(law_refs.values())
+        return _cap_law_refs(law_refs, cited_keys)
+
+
+    def find_references(self, info: CaseInfo) -> list[ReferenceRef]:
+        vec_lit = _vector_literal(self._embed(_retrieval_query(info)))
+        rows = self._execute(
+            "SELECT text, metadata FROM law_chunks "
+            # 對映 KB-LAW 的 notEquals doc_kind=法規:法規走 F2,參考見解走這裡
+            "WHERE metadata->>'doc_kind' IS DISTINCT FROM '法規' "
+            "ORDER BY embedding <=> %s::vector LIMIT %s",
+            (vec_lit, _REF_CHUNK_FETCH),
+        )
+        return build_references(
+            [((metadata or {}).get("law_name", ""), text, metadata or {}) for text, metadata in rows],
+            "向量檢索命中(pgvector law_chunks,非法規)",
+        )
 
     def _search_cases(
         self, vec_lit: str, where_sql, where_params, num_results: int = _CASE_CHUNK_FETCH
@@ -263,7 +305,7 @@ class LocalProvider(AIProvider):
                 result=metadata.get("result", ""),
                 summary=case_summary(text_),
                 similarity_note="向量檢索命中(pgvector case_chunks)",
-                source_key=metadata.get("source_file"),
+                source_key=viewable_source_key(metadata),
             )
         return list(cases.values())[:_TOP_K]
 

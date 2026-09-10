@@ -1,5 +1,5 @@
 """解析 行政函釋(10 檔) 與 司法院釋字及行政判解(19 檔) PDF,
-輸出 data/output/interp_chunks.jsonl + data/output/markdown/{行政函釋,判解}/*.md。
+輸出 data/output/interp_chunks.jsonl + data/output/markdown/{行政函釋,司法院釋字,行政法院裁判}/*.md。
 """
 import re
 
@@ -29,35 +29,55 @@ JUDGMENT_RE = re.compile(
 YIZI_RE = re.compile(r"^釋字第(?P<no>\d+)號(?P<doc_type>解釋)-(?P<topic>.+)$")
 
 
-def parse_interp_filename(stem: str) -> dict:
-    m = INTERP_RE.match(stem)
+# 民國年月日 -> 與爬蟲語料 amend_date 同格式
+_ROC_DATE_RE = re.compile(r"^(\d+)年(\d+)月(\d+)日$")
+
+
+def roc_date_label(date_str: str) -> str:
+    m = _ROC_DATE_RE.match(date_str)
     if not m:
-        return {}
-    d = m.groupdict()
-    return {
-        "issuer": d["issuer"],
-        "date": d["date"],
-        "doc_no": d["doc_no"],
-        "topic": d["topic"],
-    }
+        return ""
+    year, month, day = m.groups()
+    return f"民國 {int(year)} 年 {int(month):02d} 月 {int(day):02d} 日"
 
 
-def parse_panjie_filename(stem: str) -> dict:
-    m = JUDGMENT_RE.match(stem)
+def parse_filename(stem: str) -> dict:
+    """檔名 -> metadata 附加欄位(含 doc_kind);解析不出來回空 dict。
+    欄位名與 parse_crawl_reference.build_rows 一致,兩批語料才是同一份契約。"""
+    m = INTERP_RE.match(stem)
     if m:
         d = m.groupdict()
-        return {
+        parsed = {
+            "doc_kind": "行政函釋",
+            "law_name": f"{d['issuer']} {d['doc_no']}",
             "issuer": d["issuer"],
-            "doc_no": f"{d['year']}年度{d['case_no']}",
             "topic": d["topic"],
         }
+        # 官方釋字與裁判的檔名不帶日期,缺就是缺,由檢索端填「未收錄」
+        amend_date = roc_date_label(d["date"])
+        if amend_date:
+            parsed["amend_date"] = amend_date
+        return parsed
+
     m = YIZI_RE.match(stem)
     if m:
         d = m.groupdict()
         return {
-            "doc_no": f"釋字第{d['no']}號",
+            "doc_kind": "司法院釋字",
+            "law_name": f"釋字第{int(d['no'])}號",
             "topic": d["topic"],
         }
+
+    m = JUDGMENT_RE.match(stem)
+    if m:
+        d = m.groupdict()
+        return {
+            "doc_kind": "行政法院裁判",
+            "law_name": f"{d['issuer']} {d['year']}年度{d['case_no']}",
+            "issuer": d["issuer"],
+            "topic": d["topic"],
+        }
+
     return {}
 
 
@@ -92,82 +112,90 @@ def chunk_text(text: str) -> list[str]:
     return chunks
 
 
+# ---- 一份文件 -> chunk 列 ----
+
+def build_rows(stem: str, full_text: str) -> list[dict]:
+    """一份文件的檔名與全文 -> chunk 列;檔名解析不出來回空列表(由主流程計數)。"""
+    parsed = parse_filename(stem)
+    if not parsed:
+        return []
+    doc_kind = parsed["doc_kind"]
+
+    metadata = {
+        "law_type": "其他",
+        "article_no": "",  # 參考見解沒有條號,但欄位要在,契約才與法規 chunk 對得起來
+        "title": stem,
+        # 指向前處理產出的 markdown:取原文的端點只在 data/output/ 下找,填 PDF 檔名一律查無
+        "source_file": f"markdown/{doc_kind}/{stem}.md",
+    }
+    metadata.update(parsed)
+
+    pieces = chunk_text(full_text)
+    base_id = stem[:ID_MAX_LEN]
+    rows = []
+    for i, piece in enumerate(pieces, start=1):
+        chunk_id = base_id if len(pieces) == 1 else f"{base_id}#p{i}"
+        rows.append(
+            {"id": chunk_id, "text": f"【{doc_kind}】{stem}\n{piece}", "metadata": metadata}
+        )
+    return rows
+
+
 # ---- 主流程 ----
 
-def process_folder(folder_name: str, doc_kind: str, markdown_category: str, filename_parser):
-    folder = DATASET_DIR / folder_name
-    pdf_files = sorted(folder.glob("*.pdf"))
-
+def process_folder(folder_name: str):
+    """一個來源資料夾 -> (chunk 列, 統計)。doc_kind 由各檔檔名決定,不再是資料夾層級的固定值。"""
     rows = []
-    stats = {
-        "file_count": 0,
-        "chunk_count": 0,
-        "field_hits": {"issuer": 0, "date": 0, "doc_no": 0, "topic": 0},
-        "unparsed_files": [],
-    }
+    stats = {"file_count": 0, "chunk_count": 0, "by_doc_kind": {}, "unparsed_files": []}
 
-    for pdf_path in pdf_files:
+    for pdf_path in sorted((DATASET_DIR / folder_name).glob("*.pdf")):
         cleaned = clean_filename(pdf_path.name)
-        title = cleaned[:-4] if cleaned.lower().endswith(".pdf") else cleaned
-        source_file = pdf_path.name
-
-        extra = filename_parser(title)
-        if not extra:
-            stats["unparsed_files"].append(source_file)
-        for k in stats["field_hits"]:
-            if extra.get(k):
-                stats["field_hits"][k] += 1
+        stem = cleaned[:-4] if cleaned.lower().endswith(".pdf") else cleaned
 
         full_text = extract_text(pdf_path)
+        built = build_rows(stem, full_text)
+        if not built:
+            stats["unparsed_files"].append(pdf_path.name)
+            continue
 
-        metadata = {
-            "doc_kind": doc_kind,
-            "law_type": "其他",
-            "title": title,
-            "source_file": source_file,
-        }
-        metadata.update(extra)
-
-        pieces = chunk_text(full_text)
-        base_id = title[:ID_MAX_LEN]
-        for i, piece in enumerate(pieces, start=1):
-            chunk_id = base_id if len(pieces) == 1 else f"{base_id}#p{i}"
-            text = f"【{doc_kind}】{title}\n{piece}"
-            rows.append({"id": chunk_id, "text": text, "metadata": metadata})
-
+        rows.extend(built)
+        metadata = built[0]["metadata"]
+        doc_kind = metadata["doc_kind"]
         stats["file_count"] += 1
-        stats["chunk_count"] += len(pieces)
+        stats["chunk_count"] += len(built)
+        stats["by_doc_kind"][doc_kind] = stats["by_doc_kind"].get(doc_kind, 0) + len(built)
 
-        md_content = f"# {title}\n\n" + "\n".join(f"- {k}: {v}" for k, v in metadata.items()) + f"\n\n---\n\n{full_text}"
-        write_markdown(markdown_category, title, md_content)
+        md_content = (
+            f"# {stem}\n\n"
+            + "\n".join(f"- {k}: {v}" for k, v in metadata.items())
+            + f"\n\n---\n\n{full_text}"
+        )
+        # 目錄名必須與 metadata.source_file 的第二段一致,取原文的端點才找得到
+        write_markdown(doc_kind, stem, md_content)
 
     return rows, stats
 
 
 def main():
-    interp_rows, interp_stats = process_folder(
-        "行政函釋", "行政函釋", "行政函釋", parse_interp_filename
-    )
-    panjie_rows, panjie_stats = process_folder(
-        "司法院釋字及行政判解", "判解", "判解", parse_panjie_filename
-    )
+    all_rows, all_stats = [], []
+    for folder_name in ("行政函釋", "司法院釋字及行政判解"):
+        rows, stats = process_folder(folder_name)
+        all_rows.extend(rows)
+        all_stats.append((folder_name, stats))
 
-    all_rows = interp_rows + panjie_rows
     write_jsonl(OUTPUT_DIR / "interp_chunks.jsonl", all_rows)
 
-    def print_stats(name, stats):
-        n = stats["file_count"]
-        print(f"[{name}] 檔數={n} chunk數={stats['chunk_count']}")
-        for field, hits in stats["field_hits"].items():
-            pct = (hits / n * 100) if n else 0
-            print(f"  {field} 覆蓋率: {hits}/{n} ({pct:.0f}%)")
+    for folder_name, stats in all_stats:
+        print(f"[{folder_name}] 檔數={stats['file_count']} chunk數={stats['chunk_count']}")
+        for doc_kind, count in sorted(stats["by_doc_kind"].items()):
+            print(f"  {doc_kind}: {count} chunk")
         if stats["unparsed_files"]:
-            print(f"  無法解析檔名的檔案: {stats['unparsed_files']}")
+            # 解析不出檔名的檔案整份不入列,不能只是印個覆蓋率了事
+            print(f"  [警告] 檔名無法解析、未入列: {stats['unparsed_files']}")
 
-    print_stats("行政函釋", interp_stats)
-    print_stats("判解", panjie_stats)
-    print(f"[總計] 檔數={interp_stats['file_count'] + panjie_stats['file_count']} "
-          f"chunk數={interp_stats['chunk_count'] + panjie_stats['chunk_count']}")
+    missing = sum(len(s["unparsed_files"]) for _, s in all_stats)
+    print(f"[總計] 檔數={sum(s['file_count'] for _, s in all_stats)} "
+          f"chunk數={len(all_rows)} 未入列={missing}")
 
 
 if __name__ == "__main__":

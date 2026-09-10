@@ -91,6 +91,20 @@ class LawRef(BaseModel):
     relevance: str
 
 
+class ReferenceRef(BaseModel):
+    """F2+ 參考見解。與 LawRef 平行而非共用:函釋/釋字/裁判填不出 law_name#article_no,
+    塞進 LawRef 會讓那個鍵帶著空值流進 F4 可引用清單與 law_articles 精查。"""
+
+    doc_kind: str
+    name: str
+    issuer: str = ""
+    issued_date: str
+    topic: str = ""
+    text: str
+    source_key: Optional[str] = None
+    relevance: str
+
+
 class SimilarCase(BaseModel):
     case_no: str
     year: str
@@ -109,6 +123,18 @@ class DraftResult(BaseModel):
     reason: str
     main_text: str
     cited_laws: list[str] = []
+
+
+class DecisionHeader(BaseModel):
+    """決定書上系統填不出來、由承辦人自己填的欄位。空字串代表維持留白給手寫。
+    訴願人/原處分機關填了就蓋過 f1——改決定書上的字不該連帶改動程序審查與檢索所依據的 f1。"""
+
+    case_no: str = ""
+    appellant: str = ""
+    agency: str = ""
+    chairman: str = ""
+    committee: str = ""  # 一行一位委員;留空則維持 12 行空白
+    decided_date: str = ""
 
 
 class DraftVersion(BaseModel):
@@ -141,7 +167,7 @@ class ScreeningOverride(BaseModel):
     reasoning: str
 
 
-Stage = Literal["f1", "screening", "f2", "f3", "f4", "done"]
+Stage = Literal["f1", "screening", "f2", "f2_refs", "f3", "f4", "done"]
 Status = Literal["collecting", "processing", "done", "error"]
 Track = Literal["admissible", "inadmissible"]
 Source = Literal["pdf", "text"]
@@ -214,14 +240,20 @@ class Case(BaseModel):
     input_text: str
     documents: dict[DocumentSlot, CaseDocument] = {}
     f1: Optional[CaseInfo] = None
+    # 承辦人改過 f1 之後重跑,不得再呼叫 extract_case_info——人剛改的欄位會被模型改回去,
+    # 與 screening_system 擋的是同一種失效
+    f1_edited: bool = False
     screening: Optional[ScreeningResult] = None
     # 第一次被人工推翻時把系統原判搬進來,screening 留現行(人工)結論。事後看得出「系統判什麼、
     # 人改成什麼」,而且「有沒有被推翻過」變成可判斷的事實(非 None 即是),不必另立旗標。
     screening_system: Optional[ScreeningResult] = None
     deadline: Optional[DeadlineCheck] = None
     f2: Optional[list[LawRef]] = None
+    # F2+ 參考見解。與 f2 不同,兩條 track 都會有:不受理決定書的理由欄一樣要論證
+    f2_refs: Optional[list[ReferenceRef]] = None
     f3: Optional[list[SimilarCase]] = None
     f4: Optional[DraftResult] = None
+    decision_header: DecisionHeader = DecisionHeader()
     draft_versions: list[DraftVersion] = []
     draft_versions_truncated: bool = False  # 有版本被丟掉這件事要看得見,不是靜默消失
     finalized_at: Optional[str] = None  # 定稿只是標記,不鎖;定稿後仍可 PATCH,改了再存一版

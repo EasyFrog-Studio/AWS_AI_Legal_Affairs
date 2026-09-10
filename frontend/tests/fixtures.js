@@ -53,6 +53,29 @@ const f3 = [
   },
 ]
 
+const f2Refs = [
+  {
+    doc_kind: '司法院釋字',
+    name: '釋字第469號',
+    issuer: '',
+    issued_date: '未收錄',
+    topic: '怠於執行職務之國家賠償責任',
+    text: '法律規定之內容非僅屬授予國家機關推行公共事務之權限…',
+    source_key: null,
+    relevance: '向量檢索命中(KB-LAW,非法規)',
+  },
+  {
+    doc_kind: '行政函釋',
+    name: '法務部 法律字第0930014628號',
+    issuer: '法務部',
+    issued_date: '民國 93 年 04 月 13 日',
+    topic: '',
+    text: '關於寄存送達自寄存之日起經十日發生效力…',
+    source_key: 'markdown/行政函釋/法務部93年4月13日法律字0930014628號函-寄存送達.md',
+    relevance: '向量檢索命中(KB-LAW,非法規)',
+  },
+]
+
 export const doneAdmissible = {
   case_id: 'c-1',
   created_at: '2026-08-27T03:00:00+00:00',
@@ -73,6 +96,7 @@ export const doneAdmissible = {
     review_note: '期間未計算,送達日無法認定:抽到 0 個',
   },
   f2,
+  f2_refs: f2Refs,
   f3,
   f4: { draft_type: '駁回', fact: '事實原文', reason: '理由原文', main_text: '訴願駁回。' },
   error: null,
@@ -93,6 +117,7 @@ export const doneInadmissible = {
     review_note: '',
   },
   f2: null,
+  f2_refs: f2Refs,
   f4: { draft_type: '不受理', fact: '事實原文B', reason: '理由原文B', main_text: '訴願不受理。' },
 }
 

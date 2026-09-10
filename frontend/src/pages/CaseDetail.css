@@ -78,6 +78,48 @@
   margin-block: var(--space-xs);
 }
 
+/* ---------- F2+ 參考見解 ---------- */
+
+.reference-ref {
+  padding-block: var(--space-md);
+  border-bottom: 1px solid var(--color-rule-soft);
+}
+
+.reference-ref:last-child {
+  border-bottom: none;
+}
+
+.reference-ref__kind {
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+  margin-right: var(--space-sm);
+}
+
+.reference-ref__name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-lg);
+}
+
+.reference-ref__issuer,
+.reference-ref__date {
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+  margin-left: var(--space-sm);
+}
+
+.reference-ref__topic {
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+  margin-block: var(--space-xs) 0;
+}
+
+.reference-ref__text {
+  font-family: var(--font-body);
+  max-width: var(--measure);
+  margin-block: var(--space-xs);
+}
+
 /* ---------- F3 相似案例 ---------- */
 
 .similar-case {

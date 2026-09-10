@@ -10,6 +10,8 @@ from pathlib import Path
 
 from common import DATASET_DIR, OUTPUT_DIR, clean_filename, extract_text, write_jsonl, write_markdown
 
+_MARKDOWN_CATEGORY = "markdown/歷史訴願決定書"
+
 CASE_DIR = DATASET_DIR / "歷史訴願決定書"
 
 # 留出法測試集年度:這些年度的決定書不得產成 chunk 進檢索庫,否則評測等於洩題
@@ -181,7 +183,9 @@ def main():
                 "result": info["result"],
                 "section": section_name,
                 "case_no": case_no,
-                "source_file": clean_name,
+                # 指向本檔產出的 markdown:取原文的端點(S3 與 local 皆然)只服務得到 markdown,
+                # 填 PDF 檔名會讓前端畫出一個按下去必定「找不到」的按鈕
+                "source_file": f"{_MARKDOWN_CATEGORY}/{stem}.md",
             }
             rows.append({"id": chunk_id, "text": chunk_text, "metadata": metadata})
             section_counter[section_name] += 1

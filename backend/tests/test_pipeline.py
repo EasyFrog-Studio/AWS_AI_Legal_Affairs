@@ -1,6 +1,6 @@
 from datetime import date
 
-from app.models import CaseInfo, DraftResult, LawRef, ScreeningResult, SimilarCase, StandingAssessment, Case
+from app.models import CaseInfo, DraftResult, LawRef, ReferenceRef, ScreeningResult, SimilarCase, StandingAssessment, Case
 from app.pipeline import (
     check_deadline,
     check_deadline_from_case,
@@ -46,6 +46,20 @@ class StubAdmissibleProvider(AIProvider):
                 amend_date="民國106年01月18日",
                 source_key=None,
                 relevance="相關",
+            )
+        ]
+
+    def find_references(self, info):
+        return [
+            ReferenceRef(
+                doc_kind="司法院釋字",
+                name="釋字第469號",
+                issuer="",
+                issued_date="未收錄",
+                topic="怠於執行職務之國家賠償責任",
+                text="保護規範理論之判準…",
+                source_key=None,
+                relevance="向量檢索命中(KB-LAW,非法規)",
             )
         ]
 
@@ -102,6 +116,20 @@ class StubInadmissibleProvider(AIProvider):
     def recommend_laws(self, info):
         raise AssertionError("inadmissible track 不應呼叫 recommend_laws(F2)")
 
+    def find_references(self, info):
+        return [
+            ReferenceRef(
+                doc_kind="司法院釋字",
+                name="釋字第469號",
+                issuer="",
+                issued_date="未收錄",
+                topic="怠於執行職務之國家賠償責任",
+                text="保護規範理論之判準…",
+                source_key=None,
+                relevance="向量檢索命中(KB-LAW,非法規)",
+            )
+        ]
+
     def get_law_articles(self, keys: list[str]) -> list[LawRef]:
         self.requested_keys = keys
         return [_APPEAL_ACT_77] + [
@@ -141,6 +169,20 @@ class StubErrorProvider(AIProvider):
 
     def recommend_laws(self, info):
         raise AssertionError("不應執行到此")
+
+    def find_references(self, info):
+        return [
+            ReferenceRef(
+                doc_kind="司法院釋字",
+                name="釋字第469號",
+                issuer="",
+                issued_date="未收錄",
+                topic="怠於執行職務之國家賠償責任",
+                text="保護規範理論之判準…",
+                source_key=None,
+                relevance="向量檢索命中(KB-LAW,非法規)",
+            )
+        ]
 
     def get_law_articles(self, keys):
         raise AssertionError("不應執行到此")
@@ -437,6 +479,20 @@ def test_run_case_auto_overrides_to_77_1_when_appellant_and_agency_both_missing(
         def recommend_laws(self, info):
             raise AssertionError("§77(1)不受理應跳過F2")
 
+        def find_references(self, info):
+            return [
+                ReferenceRef(
+                    doc_kind="司法院釋字",
+                    name="釋字第469號",
+                    issuer="",
+                    issued_date="未收錄",
+                    topic="怠於執行職務之國家賠償責任",
+                    text="保護規範理論之判準…",
+                    source_key=None,
+                    relevance="向量檢索命中(KB-LAW,非法規)",
+                )
+            ]
+
         def get_law_articles(self, keys):
             return [_APPEAL_ACT_77]
 
@@ -486,6 +542,20 @@ def test_run_case_calls_assess_standing_only_when_recipient_inconsistent():
 
         def recommend_laws(self, info):
             raise AssertionError("§77(3)不受理應跳過F2")
+
+        def find_references(self, info):
+            return [
+                ReferenceRef(
+                    doc_kind="司法院釋字",
+                    name="釋字第469號",
+                    issuer="",
+                    issued_date="未收錄",
+                    topic="怠於執行職務之國家賠償責任",
+                    text="保護規範理論之判準…",
+                    source_key=None,
+                    relevance="向量檢索命中(KB-LAW,非法規)",
+                )
+            ]
 
         def get_law_articles(self, keys):
             return [_APPEAL_ACT_77]
@@ -539,6 +609,20 @@ def test_run_case_does_not_override_when_model_cites_no_protective_norm():
                     amend_date="民國106年01月18日",
                     source_key=None,
                     relevance="相關",
+                )
+            ]
+
+        def find_references(self, info):
+            return [
+                ReferenceRef(
+                    doc_kind="司法院釋字",
+                    name="釋字第469號",
+                    issuer="",
+                    issued_date="未收錄",
+                    topic="怠於執行職務之國家賠償責任",
+                    text="保護規範理論之判準…",
+                    source_key=None,
+                    relevance="向量檢索命中(KB-LAW,非法規)",
                 )
             ]
 
@@ -926,3 +1010,126 @@ def test_run_case_applies_the_notice_clause_from_this_round_of_f1():
     assert "第98條第3項" in stored.deadline.review_note
     assert "與程序審查認定之第2款不符" in stored.deadline.review_note
     assert stored.screening.matched_clause == "77條第2款"  # 未偷改模型結論
+
+
+# ---------- F2+ 參考見解階段 ----------
+
+
+class _StageRecordingStore(MemoryStore):
+    """記錄每次 update 帶進來的 current_stage,用來觀察階段推進順序。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.stages: list[str] = []
+
+    def update(self, case_id: str, fields: dict) -> Case:
+        if "current_stage" in fields:
+            self.stages.append(fields["current_stage"])
+        return super().update(case_id, fields)
+
+
+class _CallOrderProvider(StubAdmissibleProvider):
+    """記錄檢索三段的實際呼叫順序。只看 current_stage 標籤不夠——F2 那次 update 本身就把
+    階段標成 f2_refs,即使檢索被移到 F3 之後,標籤的先後仍然看起來是對的。"""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def recommend_laws(self, info):
+        self.calls.append("f2")
+        return super().recommend_laws(info)
+
+    def find_references(self, info):
+        self.calls.append("f2_refs")
+        return super().find_references(info)
+
+    def find_similar_cases(self, info, screening, text):
+        self.calls.append("f3")
+        return super().find_similar_cases(info, screening, text)
+
+
+def test_run_case_admissible_records_reference_opinions_between_f2_and_f3():
+    store = _StageRecordingStore()
+    _new_case(store)
+    provider = _CallOrderProvider()
+
+    run_case("c-11111111", store, provider)
+
+    case = store.get("c-11111111")
+    assert [r.name for r in case.f2_refs] == ["釋字第469號"]
+    assert case.f2_refs[0].doc_kind == "司法院釋字"
+    assert provider.calls == ["f2", "f2_refs", "f3"]
+    # 資料要在階段往前推進的同一次寫入落庫,前端輪詢才不會看到「已到 F3 但參考見解還是空的」
+    assert store.stages.index("f2") < store.stages.index("f3")
+
+
+def test_run_case_inadmissible_still_gets_reference_opinions_though_f2_is_skipped():
+    """不受理決定書的理由欄一樣要論證非行政處分/當事人不適格,釋字與裁判正是那種論證的材料。
+    F2 跳過的理由(法規推薦是給實體審理用的)在參考見解上不成立。"""
+    store = _StageRecordingStore()
+    _new_case(store, "c-22222222")
+
+    run_case("c-22222222", store, StubInadmissibleProvider())
+
+    case = store.get("c-22222222")
+    assert case.f2 is None
+    assert case.f2_refs is not None and len(case.f2_refs) == 1
+    assert "f2" not in store.stages
+    assert store.stages.index("f2_refs") < store.stages.index("f3")
+
+
+def test_reference_opinions_never_reach_the_f4_citable_law_list():
+    """參考見解沒有條號,進了可引用清單就會讓 F4 產出湊不出格式的引用。"""
+    captured = {}
+
+    class _CapturingProvider(StubAdmissibleProvider):
+        def generate_draft(self, info, screening, laws, cases):
+            captured["laws"] = laws
+            return super().generate_draft(info, screening, laws, cases)
+
+    store = MemoryStore()
+    _new_case(store)
+
+    run_case("c-11111111", store, _CapturingProvider())
+
+    assert [l.law_name for l in captured["laws"]] == ["廢棄物清理法"]
+    assert all(isinstance(l, LawRef) for l in captured["laws"])
+
+
+def test_run_case_reference_retrieval_failure_surfaces_as_error_status():
+    """檢索爆掉要看得見,不能靜默跳過讓案件看起來只是沒撈到東西。"""
+
+    class _ExplodingProvider(StubAdmissibleProvider):
+        def find_references(self, info):
+            raise RuntimeError("KB retrieve 失敗")
+
+    store = MemoryStore()
+    _new_case(store)
+
+    run_case("c-11111111", store, _ExplodingProvider())
+
+    case = store.get("c-11111111")
+    assert case.status == "error"
+    assert "KB retrieve 失敗" in (case.error or "")
+
+
+def test_rerun_after_screening_override_recomputes_reference_opinions():
+    """程序審查被人工推翻的案件自 F2/F3 起跑,參考見解要跟著重算,不是留著上一輪的。"""
+    from app.pipeline import rerun_case
+
+    store = _StageRecordingStore()
+    _new_case(store)
+    run_case("c-11111111", store, StubAdmissibleProvider())
+
+    original = store.get("c-11111111")
+    store.update(
+        "c-11111111",
+        {"screening_system": original.screening, "f2_refs": None, "status": "processing"},
+    )
+    store.stages.clear()
+
+    rerun_case("c-11111111", store, StubAdmissibleProvider())
+
+    case = store.get("c-11111111")
+    assert case.f2_refs is not None and [r.name for r in case.f2_refs] == ["釋字第469號"]
+    assert "f2_refs" in store.stages

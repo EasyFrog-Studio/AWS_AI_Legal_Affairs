@@ -141,7 +141,8 @@ def test_extract_case_info_calls_chat_with_json_schema_and_model():
     assert path == "/api/chat"
     assert "model" in body
     assert body["stream"] is False
-    assert body["options"] == {"temperature": 0, "num_ctx": 16384}
+    assert body["options"]["temperature"] == 0
+    assert body["options"]["num_ctx"] == 16384
     assert body["format"]["type"] == "object"
     assert "appellant" in body["format"]["properties"]
 
@@ -543,3 +544,167 @@ def test_find_similar_cases_returns_at_most_three_distinct_cases():
     )
 
     assert [c.case_no for c in cases] == ["112-0001", "112-0002", "112-0003"]
+
+
+# ---------- 生成上限:失控生成不得拖到 client timeout ----------
+def test_chat_json_caps_generation_length_and_repetition():
+    """沒有煞車時,模型在 schema 約束下可以一路重複生成到 client 300 秒逾時,
+    而伺服器端還在算——現場只會看到「卡住」,看不出原因。"""
+    http = FakeHTTP(chat_payloads=[{"appellant": "王大明", "agency": "彰化縣環境保護局",
+                                    "disposition_date": "110年3月5日", "disposition_no": "彰環廢字第1號",
+                                    "disposition_summary": "裁處罰鍰", "case_type": "廢棄物清理"}])
+    provider = _provider(http_client=http)
+
+    provider.extract_case_info("訴願書原文")
+
+    options = http.calls[0][1]["options"]
+    assert options["num_predict"] > 0
+    assert options["repeat_penalty"] > 1
+
+
+def test_chat_json_rejects_a_response_truncated_by_the_length_cap():
+    """ollama 觸到 num_predict 會回 done_reason="length" 並交出半截 JSON。
+    那是失敗,不是結果——必須拋出說得出原因的例外,不能讓它爛在 json.loads。"""
+    import json as json_mod
+    import pytest
+
+    class TruncatedHTTP(FakeHTTP):
+        def post(self, path, json=None):
+            self.calls.append((path, json))
+            if path == "/api/chat":
+                return FakeResponse(
+                    {"done_reason": "length", "message": {"content": '{"appellant": "王大'}}
+                )
+            return FakeResponse({"embeddings": [_DEFAULT_EMBED_VEC]})
+
+    provider = _provider(http_client=TruncatedHTTP())
+
+    with pytest.raises(RuntimeError, match="生成長度上限"):
+        provider.extract_case_info("訴願書原文")
+
+
+def _law_row(article_no="27", score=0.9):
+    return (
+        f"廢棄物清理法#{article_no}",
+        f"廢棄物清理法第{article_no}條全文",
+        {
+            "law_name": "廢棄物清理法",
+            "article_no": article_no,
+            "amend_date": "民國106年01月18日",
+            "law_type": "實體法",
+            "source_file": "markdown/相關法規/廢棄物清理法.md",
+        },
+        score,
+    )
+
+
+def test_recommend_laws_returns_at_most_three_entries():
+    """降到三條是呈現上限,不是只管檢索那一段:精查補進來的引用條號也算在內。"""
+    rows = [_law_row("27"), _law_row("50"), _law_row("12")]
+    article_row = ("訴願法#77", "訴願事件有左列各款情形之一者…",
+                   {"law_name": "訴願法", "article_no": "77", "amend_date": "民國101年06月27日"})
+    connect, _ = _fake_connect_factory(rows, [article_row])
+    provider = _provider(connect=connect)
+
+    laws = provider.recommend_laws(_info(cited_articles=["訴願法#77"]))
+
+    assert len(laws) == 3
+    # 引用條號掉了等於 F4 不能引訴願人自己援引的那一條,比少一條推薦嚴重
+    assert "訴願法#77" in [f"{l.law_name}#{l.article_no}" for l in laws]
+
+
+# ---------- F2+ 參考見解(find_references) ----------
+
+_YIZI_ROW = (
+    "【司法院釋字】釋字第469號解釋文…",
+    {
+        "doc_kind": "司法院釋字",
+        "law_name": "釋字第469號",
+        "article_no": "",
+        "law_type": "其他",
+        "topic": "怠於執行職務之國家賠償責任",
+        "source_file": "markdown/司法院釋字/釋字第469號解釋-國家賠償請求權.md",
+    },
+)
+_HANSHI_ROW = (
+    "【行政函釋】法務部 法律字第1000002151號…",
+    {
+        "doc_kind": "行政函釋",
+        "law_name": "法務部 法律字第1000002151號",
+        "article_no": "",
+        "law_type": "其他",
+        "issuer": "法務部",
+        "amend_date": "民國 100 年 03 月 30 日",
+    },
+)
+
+
+def test_find_references_sql_excludes_statutes_and_overfetches():
+    connect, calls = _fake_connect_factory([])
+    http = FakeHTTP(chat_payloads=[])
+    provider = _provider(http_client=http, connect=connect)
+
+    provider.find_references(_info())
+
+    sql, params = calls[0]
+    assert "doc_kind" in sql and "法規" in sql
+    assert params[-1] == 15  # 上限 3,先多撈再去重,理由同 F3 的 _CASE_CHUNK_FETCH
+    assert not any(path == "/api/chat" for path, _ in http.calls)  # F2+ 純檢索,不經 LLM
+
+
+def test_find_references_maps_heterogeneous_kinds():
+    """釋字有題旨無發文機關無日期,函釋有發文機關有日期無題旨。"""
+    connect, _ = _fake_connect_factory([_YIZI_ROW, _HANSHI_ROW])
+    provider = _provider(connect=connect)
+
+    yizi, hanshi = provider.find_references(_info())
+
+    assert yizi.doc_kind == "司法院釋字"
+    assert yizi.name == "釋字第469號"
+    assert yizi.topic == "怠於執行職務之國家賠償責任"
+    assert yizi.issuer == ""
+    assert yizi.issued_date == "未收錄"  # metadata 無日期,不得由 LLM 補
+    assert yizi.source_key == "markdown/司法院釋字/釋字第469號解釋-國家賠償請求權.md"
+
+    assert hanshi.issuer == "法務部"
+    assert hanshi.issued_date == "民國 100 年 03 月 30 日"
+    assert hanshi.topic == ""
+    assert hanshi.source_key is None
+
+
+def test_find_references_propagates_db_failure_instead_of_returning_empty():
+    """查爆了不能吞成空清單,否則畫面上與「查了沒有」長得一模一樣。"""
+
+    class ExplodingConnect:
+        def __call__(self):
+            raise RuntimeError("connection refused")
+
+    provider = _provider(connect=ExplodingConnect())
+    try:
+        provider.find_references(_info())
+    except RuntimeError:
+        return
+    raise AssertionError("Postgres 失敗必須往外傳,不得回空清單")
+
+
+def test_retrieval_paths_drop_source_keys_the_source_endpoint_cannot_serve():
+    """local 的判斷要與 aws 一致:爬蟲法規/決定書的 source_file 是取原文端點服務不到的值。"""
+    law_row = ("某法#5", "某法第5條", {"law_name": "某法", "article_no": "5", "doc_kind": "法規",
+                                      "source_file": "法條-某法.jsonl"}, 0.9)
+    connect, _ = _fake_connect_factory([law_row])
+    (law,) = _provider(connect=connect).recommend_laws(_info(cited_articles=[]))
+    assert law.source_key is None
+
+    crawl_case = _case_row("NTPC-1131090247")
+    official_case = (
+        "彰府訴字第9號#事實",
+        "【事實】另一件…",
+        {**_case_row("彰府訴字第9號")[2],
+         "source_file": "markdown/歷史訴願決定書/02.112年-違反廢棄物清理法事件.md"},
+        0.8,
+    )
+    connect2, _ = _fake_connect_factory([crawl_case, official_case])
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
+    crawl, official = _provider(connect=connect2).find_similar_cases(_info(), screening, "原文")
+    assert crawl.source_key is None
+    assert official.source_key == "markdown/歷史訴願決定書/02.112年-違反廢棄物清理法事件.md"

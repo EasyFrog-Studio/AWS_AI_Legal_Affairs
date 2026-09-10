@@ -13,6 +13,28 @@ def _provider(**clients) -> AWSProvider:
     )
 
 
+def _filtering_retrieve(rows: list[dict]):
+    """假 KB:真的套用 retrieve 帶進來的 metadata filter。回 MagicMock 固定清單問不出
+    「filter 有沒有擋掉東西」——那種假 client 在 filter 被改壞時照樣綠。"""
+
+    def _matches(cond: dict, meta: dict) -> bool:
+        if "andAll" in cond:
+            return all(_matches(c, meta) for c in cond["andAll"])
+        if "equals" in cond:
+            return meta.get(cond["equals"]["key"]) == cond["equals"]["value"]
+        if "notEquals" in cond:
+            return meta.get(cond["notEquals"]["key"]) != cond["notEquals"]["value"]
+        raise AssertionError(f"假 KB 未支援的 filter 形狀: {cond}")
+
+    def _retrieve(**kwargs):
+        config = kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]
+        cond = config.get("filter")
+        kept = [r for r in rows if _matches(cond, r["metadata"])]
+        return {"retrievalResults": kept[: config["numberOfResults"]]}
+
+    return _retrieve
+
+
 def _toolUse_response(tool_name: str, input_data: dict) -> dict:
     return {
         "output": {
@@ -201,6 +223,48 @@ def test_screening_prompt_embeds_full_article_77_text():
     assert "對於非行政處分或其他依法不屬訴願救濟範圍內之事項提起訴願者" in text
 
 
+def test_recommend_laws_retrieves_statutes_only_never_empty_shell_refs():
+    """KB-LAW 同時裝著法規與官方函釋/判解,後者沒有 law_name/article_no。F2 的 filter 若
+    只排除普通法,那些 chunk 會一起被撈出來,鍵全組成 "#" 互相覆蓋,承辦人看到「 第  條」。"""
+    rows = [
+        {
+            "content": {"text": "廢棄物清理法第27條全文"},
+            "metadata": {
+                "law_name": "廢棄物清理法",
+                "article_no": "27",
+                "amend_date": "民國106年01月18日",
+                "law_type": "實體法",
+                "doc_kind": "法規",
+            },
+        },
+        {
+            "content": {"text": "民法第148條全文"},
+            "metadata": {
+                "law_name": "民法",
+                "article_no": "148",
+                "amend_date": "民國110年01月20日",
+                "law_type": "普通法",
+                "doc_kind": "法規",
+            },
+        },
+        {
+            "content": {"text": "內政部函釋全文"},
+            "metadata": {"law_type": "其他", "doc_kind": "行政函釋"},
+        },
+        {
+            "content": {"text": "釋字第469號解釋全文"},
+            "metadata": {"law_type": "其他", "doc_kind": "判解"},
+        },
+    ]
+    bart = MagicMock()
+    bart.retrieve.side_effect = _filtering_retrieve(rows)
+
+    provider = _provider(bedrock_agent_runtime=bart)
+    laws = provider.recommend_laws(_info(cited_articles=[]))
+
+    assert [(l.law_name, l.article_no) for l in laws] == [("廢棄物清理法", "27")]
+
+
 def test_recommend_laws_filter_excludes_general_law_and_does_not_call_llm():
     bart = MagicMock()
     bart.retrieve.return_value = {
@@ -226,7 +290,10 @@ def test_recommend_laws_filter_excludes_general_law_and_does_not_call_llm():
 
     _, kwargs = bart.retrieve.call_args
     filter_ = kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]["filter"]
-    assert filter_ == {"notEquals": {"key": "law_type", "value": "普通法"}}
+    assert filter_["andAll"] == [
+        {"equals": {"key": "doc_kind", "value": "法規"}},
+        {"notEquals": {"key": "law_type", "value": "普通法"}},
+    ]
 
     assert len(laws) == 1
     assert laws[0].amend_date == "民國106年01月18日"
@@ -578,3 +645,308 @@ def test_find_similar_cases_returns_at_most_three_distinct_cases():
     assert [c.case_no for c in cases] == ["112-0001", "112-0002", "112-0003"]
     # chunk 取用量要大於呈現筆數,否則同一案號的多個段落會把三件不同案例佔滿
     assert _vector_config(bart, 0)["numberOfResults"] > 3
+
+
+def _kb_law_result(article_no="27"):
+    return {
+        "content": {"text": f"廢棄物清理法第{article_no}條全文"},
+        "metadata": {
+            "law_name": "廢棄物清理法",
+            "article_no": article_no,
+            "amend_date": "民國106年01月18日",
+            "law_type": "實體法",
+            "source_file": "markdown/相關法規/廢棄物清理法.md",
+        },
+    }
+
+
+def test_recommend_laws_returns_at_most_three_entries():
+    """降到三條是呈現上限,不是只管檢索那一段:精查補進來的引用條號也算在內。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {
+        "retrievalResults": [_kb_law_result("27"), _kb_law_result("50"), _kb_law_result("12")]
+    }
+    ddb = MagicMock()
+    ddb.batch_get_item.return_value = {"Responses": {"appeal_law_articles": []}}
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb)
+    laws = provider.recommend_laws(_info(cited_articles=["行政罰法#7", "訴願法#77"]))
+
+    assert len(laws) == 3
+
+
+def test_the_article_the_appeal_itself_cites_survives_the_cap():
+    """引用條號被擠掉的代價不只是少一條推薦——F4 的可引用清單是從這裡組出來的,
+    掉了就等於決定書不能引訴願人自己援引的那一條。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {
+        "retrievalResults": [_kb_law_result("27"), _kb_law_result("50"), _kb_law_result("12")]
+    }
+    ddb = MagicMock()
+    ddb.batch_get_item.return_value = {
+        "Responses": {
+            "appeal_law_articles": [
+                {"law_article": "訴願法#77", "law_name": "訴願法", "article_no": "77",
+                 "text": "訴願事件有左列各款情形之一者…", "amend_date": "民國101年06月27日"}
+            ]
+        }
+    }
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb)
+    laws = provider.recommend_laws(_info(cited_articles=["訴願法#77"]))
+
+    assert len(laws) == 3
+    assert "訴願法#77" in [f"{l.law_name}#{l.article_no}" for l in laws]
+
+
+# ---------- F2+ 參考見解(find_references) ----------
+
+_REF_ROWS = [
+    {
+        "content": {"text": "廢棄物清理法第27條全文"},
+        "metadata": {
+            "law_name": "廢棄物清理法",
+            "article_no": "27",
+            "amend_date": "民國106年01月18日",
+            "law_type": "實體法",
+            "doc_kind": "法規",
+        },
+    },
+    {
+        "content": {"text": "釋字第469號解釋文…"},
+        "metadata": {
+            "law_name": "釋字第469號",
+            "article_no": "",
+            "law_type": "其他",
+            "doc_kind": "司法院釋字",
+            "topic": "怠於執行職務之國家賠償責任",
+            "source_file": "markdown/司法院釋字/釋字第469號解釋-國家賠償請求權.md",
+        },
+    },
+    {
+        "content": {"text": "法務部函釋說明…"},
+        "metadata": {
+            "law_name": "法務部 法律字第1000002151號",
+            "article_no": "",
+            "law_type": "其他",
+            "doc_kind": "行政函釋",
+            "issuer": "法務部",
+            "amend_date": "民國 100 年 03 月 30 日",
+        },
+    },
+]
+
+
+def test_find_references_excludes_statutes_and_maps_heterogeneous_kinds():
+    """釋字有題旨無發文機關無日期,函釋有發文機關有日期無題旨——同一組欄位對應要兩種都撐得住。"""
+    bart = MagicMock()
+    bart.retrieve.side_effect = _filtering_retrieve(_REF_ROWS)
+    brt = MagicMock()
+
+    refs = _provider(bedrock_agent_runtime=bart, bedrock_runtime=brt).find_references(_info())
+
+    assert [r.doc_kind for r in refs] == ["司法院釋字", "行政函釋"]
+
+    yizi, hanshi = refs
+    assert yizi.name == "釋字第469號"
+    assert yizi.topic == "怠於執行職務之國家賠償責任"
+    assert yizi.issuer == ""
+    assert yizi.issued_date == "未收錄"  # metadata 無日期,不得由 LLM 補
+    assert yizi.source_key == "markdown/司法院釋字/釋字第469號解釋-國家賠償請求權.md"
+
+    assert hanshi.name == "法務部 法律字第1000002151號"
+    assert hanshi.issuer == "法務部"
+    assert hanshi.issued_date == "民國 100 年 03 月 30 日"
+    assert hanshi.topic == ""
+    assert hanshi.source_key is None  # 爬蟲來源沒有 markdown,前端據此不畫「原文」鈕
+
+    brt.converse.assert_not_called()  # F2+ 純檢索,不經 LLM
+
+
+def test_find_references_dedupes_chunks_of_the_same_document():
+    """一份長判決被切成多筆 chunk,畫面上只該出現一則。"""
+    chunks = [
+        {
+            "content": {"text": f"判決全文第{i}段"},
+            "metadata": {
+                "law_name": "最高行政法院 102年度判字第147號",
+                "doc_kind": "行政法院裁判",
+                "issuer": "最高行政法院",
+                "law_type": "其他",
+            },
+        }
+        for i in (1, 2, 3)
+    ]
+    bart = MagicMock()
+    bart.retrieve.side_effect = _filtering_retrieve(chunks)
+
+    refs = _provider(bedrock_agent_runtime=bart).find_references(_info())
+
+    assert len(refs) == 1
+    assert refs[0].name == "最高行政法院 102年度判字第147號"
+
+
+def test_find_references_skips_rows_without_a_name():
+    """認不出是哪一份文件的列,寧可不給——比照相似案例檢索缺案號時的處置。"""
+    rows = [
+        {"content": {"text": "來源不明"}, "metadata": {"doc_kind": "行政函釋", "law_type": "其他"}},
+        _REF_ROWS[1],
+    ]
+    bart = MagicMock()
+    bart.retrieve.side_effect = _filtering_retrieve(rows)
+
+    refs = _provider(bedrock_agent_runtime=bart).find_references(_info())
+
+    assert [r.name for r in refs] == ["釋字第469號"]
+
+
+def test_find_references_caps_at_three():
+    rows = [
+        {
+            "content": {"text": f"釋字第{n}號解釋文"},
+            "metadata": {"law_name": f"釋字第{n}號", "doc_kind": "司法院釋字", "law_type": "其他"},
+        }
+        for n in range(400, 410)
+    ]
+    bart = MagicMock()
+    bart.retrieve.side_effect = _filtering_retrieve(rows)
+
+    assert len(_provider(bedrock_agent_runtime=bart).find_references(_info())) == 3
+
+
+def test_find_references_propagates_retrieval_failure_instead_of_returning_empty():
+    """檢索爆掉不能吞成空清單:畫面上的「未檢索到相關參考見解」會同時代表查了沒有與查爆了。"""
+    from botocore.exceptions import ClientError
+
+    bart = MagicMock()
+    bart.retrieve.side_effect = ClientError(
+        {"Error": {"Code": "ThrottlingException", "Message": "rate exceeded"}}, "Retrieve"
+    )
+
+    try:
+        _provider(bedrock_agent_runtime=bart).find_references(_info())
+    except ClientError:
+        return
+    raise AssertionError("檢索失敗必須往外傳,不得回空清單")
+
+
+def test_find_references_overfetches_so_one_long_document_cannot_starve_the_list():
+    """一份長判決切成多筆 chunk,若只撈 3 筆就去重,畫面上只會剩一則——與 F3 同一種失效。"""
+    rows = [
+        {
+            "content": {"text": f"最高行政法院判決第{i}段"},
+            "metadata": {
+                "law_name": "最高行政法院 102年度判字第147號",
+                "doc_kind": "行政法院裁判",
+                "law_type": "其他",
+            },
+        }
+        for i in (1, 2, 3)
+    ] + [
+        {
+            "content": {"text": "釋字第469號解釋文"},
+            "metadata": {"law_name": "釋字第469號", "doc_kind": "司法院釋字", "law_type": "其他"},
+        },
+        {
+            "content": {"text": "法務部函釋"},
+            "metadata": {
+                "law_name": "法務部 法律字第1000002151號",
+                "doc_kind": "行政函釋",
+                "law_type": "其他",
+            },
+        },
+    ]
+    bart = MagicMock()
+    bart.retrieve.side_effect = _filtering_retrieve(rows)
+
+    refs = _provider(bedrock_agent_runtime=bart).find_references(_info())
+
+    assert [r.name for r in refs] == [
+        "最高行政法院 102年度判字第147號",
+        "釋字第469號",
+        "法務部 法律字第1000002151號",
+    ]
+
+
+def test_find_references_treats_non_markdown_source_as_no_viewable_original():
+    """爬蟲語料的 source_file 存的是 PDF 檔名,而取原文的端點只找得到前處理產出的 markdown。
+    照收會畫出一個按下去必定回「找不到檔案」的按鈕。"""
+    rows = [
+        {
+            "content": {"text": "釋字第718號解釋文"},
+            "metadata": {
+                "law_name": "釋字第718號",
+                "doc_kind": "司法院釋字",
+                "law_type": "其他",
+                "source_file": "釋字第0718號_103-03-21_集會遊行法申請許可規定.pdf",
+            },
+        },
+        {
+            "content": {"text": "內政部函釋"},
+            "metadata": {
+                "law_name": "內政部 內授營建管字第1000810874號",
+                "doc_kind": "行政函釋",
+                "law_type": "其他",
+                "source_file": "markdown/行政函釋/內政部100年12月9日內授營建管字第1000810874號函釋-場所區隔方式.md",
+            },
+        },
+    ]
+    bart = MagicMock()
+    bart.retrieve.side_effect = _filtering_retrieve(rows)
+
+    yizi, hanshi = _provider(bedrock_agent_runtime=bart).find_references(_info())
+
+    assert yizi.source_key is None
+    assert hanshi.source_key == rows[1]["metadata"]["source_file"]
+
+
+def test_retrieval_paths_drop_source_keys_the_source_endpoint_cannot_serve():
+    """F2 法規與 F3 案例的 source_file 同樣混著取原文端點服務不到的值(爬蟲法規 4,133 筆、
+    爬蟲決定書的內部編號),與參考見解是同一個問題,判斷要一致。"""
+    law_rows = [
+        {
+            "content": {"text": "某法第5條"},
+            "metadata": {
+                "law_name": "某法",
+                "article_no": "5",
+                "doc_kind": "法規",
+                "law_type": "實體法",
+                "source_file": "法條-某法.jsonl",
+            },
+        }
+    ]
+    bart = MagicMock()
+    bart.retrieve.side_effect = _filtering_retrieve(law_rows)
+    (law,) = _provider(bedrock_agent_runtime=bart).recommend_laws(_info(cited_articles=[]))
+    assert law.source_key is None
+
+    case_rows = [
+        {
+            "content": {"text": "【事實】本件訴願人不服原處分…"},
+            "metadata": {
+                "case_no": "NTPC-1131090247",
+                "year": "113",
+                "case_type": "廢棄物清理",
+                "result": "駁回",
+                "source_file": "NTPC-1131090247",
+            },
+        },
+        {
+            "content": {"text": "【事實】另一件…"},
+            "metadata": {
+                "case_no": "彰府訴字第9號",
+                "year": "112",
+                "case_type": "廢棄物清理",
+                "result": "駁回",
+                "source_file": "markdown/歷史訴願決定書/02.112年-違反廢棄物清理法事件.md",
+            },
+        },
+    ]
+    bart2 = MagicMock()
+    bart2.retrieve.side_effect = _filtering_retrieve(case_rows)
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
+    crawl, official = _provider(bedrock_agent_runtime=bart2).find_similar_cases(
+        _info(), screening, "原文"
+    )
+    assert crawl.source_key is None
+    assert official.source_key == "markdown/歷史訴願決定書/02.112年-違反廢棄物清理法事件.md"

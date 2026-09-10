@@ -191,3 +191,61 @@ def test_slot_mode_still_omits_the_fact_slot_for_an_inadmissible_decision():
     slots = [t for k, t in build_decision_blocks(case, body_as_slots=True) if k == "slot"]
 
     assert slots == ["main_text", "reason"]
+
+
+# ---------- 承辦人自填欄位(decision_header)----------
+def test_the_officer_supplied_case_number_replaces_the_blank():
+    """案號、日期、委員名單是機關收文後才定的,系統填不出來;承辦人填了就要印上去,
+    不能只在畫面上看得到而下載的 PDF 還是空白——版面只有 build_decision_blocks 這一份定義。"""
+    from app.models import DecisionHeader
+
+    case = _case(
+        f1=_info(),
+        f4=_f4(),
+        decision_header=DecisionHeader(case_no="1140700123", decided_date="114年10月15日"),
+    )
+    texts = _texts(build_decision_blocks(case))
+
+    assert any("1140700123" in t for t in texts)
+    assert any(t.startswith("中華民國") and "114年10月15日" in t for t in texts)
+
+
+def test_the_officer_supplied_committee_replaces_the_blank_lines():
+    """語料每案 10~14 位委員,系統只留空行;填了名單就照名單印,不再多留空行。"""
+    from app.models import DecisionHeader
+
+    case = _case(
+        f1=_info(),
+        f4=_f4(),
+        decision_header=DecisionHeader(chairman="王主委", committee="李委員\n張委員"),
+    )
+    texts = _texts(build_decision_blocks(case))
+
+    assert any(t.startswith("訴願審議委員會主任委員") and "王主委" in t for t in texts)
+    member_lines = [t for t in texts if t.startswith("委員")]
+    assert len(member_lines) == 2
+    assert "李委員" in member_lines[0] and "張委員" in member_lines[1]
+
+
+def test_the_parties_can_be_corrected_without_touching_f1():
+    """訴願人姓名在卷內與擷取結果不一致時,承辦人直接改決定書上的字,
+    不必為了印對一個名字而去改 F1(那會連帶影響程序審查與檢索)。"""
+    from app.models import DecisionHeader
+
+    case = _case(f1=_info(), f4=_f4(), decision_header=DecisionHeader(appellant="鄭○芳"))
+    texts = _texts(build_decision_blocks(case))
+
+    assert any(t.startswith("　訴願人") and "鄭○芳" in t for t in texts)
+    assert not any(t.startswith("　訴願人") and "鄭婉芳" in t for t in texts)
+
+
+def test_an_empty_header_field_keeps_the_blank_for_handwriting():
+    """沒填就維持可書寫的空白,不得因為多了這個欄位而變成印出空字串的光禿一行。"""
+    from app.models import DecisionHeader
+
+    case = _case(f1=_info(), f4=_f4(), decision_header=DecisionHeader())
+    texts = _texts(build_decision_blocks(case))
+
+    case_no_line = next(t for t in texts if t.startswith("案"))
+    assert case_no_line.strip("案號:： 　") == ""
+    assert sum(1 for t in texts if t.startswith("委員")) == 12

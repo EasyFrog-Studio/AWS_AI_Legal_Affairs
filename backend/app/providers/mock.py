@@ -5,7 +5,16 @@ from pathlib import Path
 from typing import Optional
 
 from app.config import settings
-from app.models import CaseInfo, DraftResult, LawRef, ScreeningResult, SimilarCase, StandingAssessment
+from app.models import (
+    CaseInfo,
+    DraftResult,
+    LawRef,
+    ReferenceRef,
+    ScreeningResult,
+    SimilarCase,
+    StandingAssessment,
+)
+from app.providers.aws import _REF_TOP_K, _TOP_K
 from app.providers.base import AIProvider
 
 _FALLBACK_NAME = "_fallback"
@@ -80,7 +89,8 @@ class MockProvider(AIProvider):
 
     def recommend_laws(self, info: CaseInfo) -> list[LawRef]:
         time.sleep(1)
-        return [LawRef(**item) for item in self._match_by_info(info)["f2"]]
+        # 樣本手寫五條,截到與真實 provider 同一個上限,否則兩種模式看到的筆數不一樣
+        return [LawRef(**item) for item in self._match_by_info(info)["f2"]][:_TOP_K]
 
     def get_law_articles(self, keys: list[str]) -> list[LawRef]:
         """從所有樣本的 f2 彙整成條號索引;查無者比照真實 provider 回「未收錄」。"""
@@ -108,6 +118,12 @@ class MockProvider(AIProvider):
                     )
                 )
         return refs
+
+
+    def find_references(self, info: CaseInfo) -> list[ReferenceRef]:
+        time.sleep(1)
+        # 直接索引:樣本缺鍵要大聲壞掉,靜默回空清單會與「檢索後無結果」混為一談
+        return [ReferenceRef(**item) for item in self._match_by_info(info)["f2_refs"]][:_REF_TOP_K]
 
     def find_similar_cases(
         self, info: CaseInfo, screening: ScreeningResult, text: str

@@ -2,7 +2,15 @@
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from app.models import CaseInfo, DraftResult, LawRef, ScreeningResult, SimilarCase, StandingAssessment
+from app.models import (
+    CaseInfo,
+    DraftResult,
+    LawRef,
+    ReferenceRef,
+    ScreeningResult,
+    SimilarCase,
+    StandingAssessment,
+)
 
 
 class AIProvider(ABC):
@@ -25,6 +33,12 @@ class AIProvider(ABC):
 
     @abstractmethod
     def recommend_laws(self, info: CaseInfo) -> list[LawRef]: ...  # F2
+
+    @abstractmethod
+    def find_references(self, info: CaseInfo) -> list[ReferenceRef]:
+        """F2+ 參考見解:行政函釋/司法院釋字/行政法院裁判。與法規同一個檢索庫,以 doc_kind 區分。
+        供承辦人論理時參考,不進 F4 的可引用清單——它們沒有條號,引用格式湊不出來。"""
+        ...
 
     @abstractmethod
     def get_law_articles(self, keys: list[str]) -> list[LawRef]: ...  # 依「法規#條號」精查

@@ -160,3 +160,41 @@ def test_an_inadmissible_case_with_an_inadmissible_draft_does_not_need_review():
     )
 
     assert needs_review(case) is False
+
+
+# ---------- 第七個來源:草稿有欄位是空的 ----------
+def test_an_admissible_draft_with_an_empty_fact_needs_review():
+    """模型交出空字串照樣存成草稿,畫面與 PDF 都是一份事實欄空白的決定書,系統卻一聲不吭。"""
+    case = _case(
+        track="admissible",
+        f4=DraftResult(draft_type="駁回", fact="   ", reason="理由內容", main_text="訴願駁回。"),
+    )
+
+    assert needs_review(case) is True
+
+
+def test_an_inadmissible_draft_with_an_empty_fact_is_the_lawful_form():
+    """不受理決定得不記載事實(訴願法§89 I③),語料 90 件事實欄全空;標成待複核就是誤報。"""
+    case = _case(
+        track="inadmissible",
+        screening=ScreeningResult(passed=False, matched_clause="77條第2款", reasoning="逾期"),
+        f4=DraftResult(draft_type="不受理", fact="", reason="理由內容", main_text="訴願不受理。"),
+    )
+
+    assert needs_review(case) is False
+
+
+def test_an_empty_reason_needs_review_on_either_track():
+    """理由欄是決定書的本體,不論哪一種決定類型,空的就是失效。"""
+    admissible = _case(
+        track="admissible",
+        f4=DraftResult(draft_type="駁回", fact="事實內容", reason="", main_text="訴願駁回。"),
+    )
+    inadmissible = _case(
+        track="inadmissible",
+        screening=ScreeningResult(passed=False, matched_clause="77條第2款", reasoning="逾期"),
+        f4=DraftResult(draft_type="不受理", fact="", reason="", main_text="訴願不受理。"),
+    )
+
+    assert needs_review(admissible) is True
+    assert needs_review(inadmissible) is True

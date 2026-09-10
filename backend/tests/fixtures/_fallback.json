@@ -7,9 +7,13 @@
       "disposition_date": "未收錄",
       "disposition_no": "未收錄",
       "disposition_summary": "系統無法自來文內容擷取足夠資訊,以下為泛用佔位內容,請人工複核。",
-      "appeal_reasons": ["請人工複核訴願書內容"],
+      "appeal_reasons": [
+        "請人工複核訴願書內容"
+      ],
       "case_type": "未分類",
-      "issues": ["需人工確認爭點"],
+      "issues": [
+        "需人工確認爭點"
+      ],
       "cited_articles": []
     },
     "screening": {
@@ -25,6 +29,48 @@
       "reason": "系統無法自輸入內容比對出足夠資訊,不確定是否符合受理要件,建議人工複核後另行處理。",
       "main_text": "本案尚待人工複核,暫列不受理草稿。",
       "cited_laws": []
-    }
+    },
+    "f2_refs": [
+      {
+        "doc_kind": "司法院釋字",
+        "name": "釋字第423號",
+        "issuer": "",
+        "issued_date": "未收錄",
+        "topic": "行政處分之認定",
+        "text": "行政機關行使公權力,就特定具體之公法事件所為對外發生法律上效果之單方行政行為,皆屬行政處分…",
+        "source_key": null,
+        "relevance": "向量檢索命中(KB-LAW,非法規)"
+      },
+      {
+        "doc_kind": "行政法院裁判",
+        "name": "最高行政法院 109年度上字第817號",
+        "issuer": "最高行政法院",
+        "issued_date": "未收錄",
+        "topic": "政府資訊公開法18條2項",
+        "text": "政府資訊含有限制公開之事項者,應僅就該部分不予公開…",
+        "source_key": null,
+        "relevance": "向量檢索命中(KB-LAW,非法規)"
+      },
+      {
+        "doc_kind": "行政函釋",
+        "name": "法務部 法律字第0930014628號",
+        "issuer": "法務部",
+        "issued_date": "民國 93 年 04 月 13 日",
+        "topic": "",
+        "text": "關於寄存送達自寄存之日起經十日發生效力…",
+        "source_key": null,
+        "relevance": "向量檢索命中(KB-LAW,非法規)"
+      },
+      {
+        "doc_kind": "司法院釋字",
+        "name": "釋字第667號",
+        "issuer": "",
+        "issued_date": "未收錄",
+        "topic": "訴願書送達",
+        "text": "訴願文書之送達,應向訴願人本人為之…",
+        "source_key": null,
+        "relevance": "向量檢索命中(KB-LAW,非法規)"
+      }
+    ]
   }
 }

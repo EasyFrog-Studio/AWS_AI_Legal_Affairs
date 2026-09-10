@@ -110,12 +110,13 @@ def build_decision_blocks(case, body_as_slots: bool = False) -> list[tuple[str, 
     body_as_slots=True 時三段本文改回 ("slot", 欄位名),供前端塞可編輯欄位——
     版面只有這一份定義,前端不自己再拼一次骨架。"""
     f1 = case.f1
+    header = case.decision_header
     blocks: list[tuple[str, str]] = [
         ("title", _AUTHORITY_TITLE),
         ("blank", ""),
-        ("body", f"案　　號:{_BLANK}"),
-        ("body", f"　訴願人　{_value(f1 and f1.appellant)}"),
-        ("body", f"　原處分機關　{_value(f1 and f1.agency)}"),
+        ("body", f"案　　號:{_value(header.case_no)}"),
+        ("body", f"　訴願人　{_value(header.appellant or (f1 and f1.appellant))}"),
+        ("body", f"　原處分機關　{_value(header.agency or (f1 and f1.agency))}"),
         ("blank", ""),
         ("body", _opening_paragraph(f1)),
         ("blank", ""),
@@ -134,15 +135,17 @@ def build_decision_blocks(case, body_as_slots: bool = False) -> list[tuple[str, 
         blocks.append(("slot", field) if body_as_slots else ("body", body or ""))
         blocks.append(("blank", ""))
 
-    blocks.append(("body", f"訴願審議委員會主任委員　{_BLANK}"))
-    for _ in range(_COMMITTEE_LINES):
-        blocks.append(("body", f"委員　{_BLANK}"))
+    blocks.append(("body", f"訴願審議委員會主任委員　{_value(header.chairman)}"))
+    # 填了名單就照名單印,沒填才留 _COMMITTEE_LINES 行空白——人數不由系統決定
+    members = [line.strip() for line in header.committee.splitlines() if line.strip()]
+    for member in members or [_BLANK] * _COMMITTEE_LINES:
+        blocks.append(("body", f"委員　{member}"))
     blocks.append(("blank", ""))
     # 語料 18 件不受理/駁回案逐字相同;3 件撤銷案全部沒有——訴願有理由就沒有要救濟的對象
     if f4.draft_type != "原處分撤銷":
         blocks.append(("body", _LITIGATION_NOTICE))
         blocks.append(("blank", ""))
-    blocks.append(("body", f"中華民國　　　　年　　　月　　　日"))
+    blocks.append(("body", f"中華民國{header.decided_date or '　　　　年　　　月　　　日'}"))
     return blocks
 
 

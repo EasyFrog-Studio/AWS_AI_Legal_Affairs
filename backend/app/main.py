@@ -15,7 +15,9 @@ from app.document_check import check_document
 from app.models import (
     Case,
     CaseDocument,
+    CaseInfo,
     CaseSummary,
+    DecisionHeader,
     DOCUMENT_SLOT_LABELS,
     DocumentSlot,
     DraftPatch,
@@ -38,7 +40,7 @@ from app.pdf_render import build_decision_blocks, render_draft_pdf
 from app.text_quality import is_unreadable
 from app.reference_data import reference_data_status
 from app.review import needs_review
-from app.pipeline import rerun_case, run_case
+from app.pipeline import check_deadline_from_case, rerun_case, run_case
 from app.providers.aws import AWSProvider
 from app.providers.base import AIProvider
 from app.providers.mock import MockProvider
@@ -355,6 +357,51 @@ def update_draft(case_id: str, patch: DraftPatch):
     fields = {"f4": updated_f4, **_appended_versions(case, _version_of(updated_f4))}
     store.update(case_id, fields)
     return {"ok": True, "version": len(fields["draft_versions"])}
+
+
+_STALE_SCREENING_NOTE = "案件資訊經人工修改,程序審查結論尚未依修改後的資料重跑"
+
+
+@app.patch("/api/cases/{case_id}/f1", dependencies=[Depends(require_api_key)])
+def update_case_info(case_id: str, info: CaseInfo) -> Case:
+    """承辦人更正 F1 擷取結果。改完不自動重跑程序審查(那要呼叫 LLM,且會蓋掉人工推翻的結論),
+    只重算期間並在 screening 標一句「尚未依修改後的資料重跑」——不標的話,畫面上就是一份
+    「已審結」但依據已經被改掉的案件。要讓結論跟上,呼叫 /reanalyze。
+
+    期間只有教示條款那一項讀 f1;送達日與提起日仍從文件原文抽取,改 f1 的日期欄不會改變算式。
+    """
+    case = store.get(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    if case.status == "processing":
+        raise HTTPException(status_code=409, detail="案件分析中,無法修改案件資訊")
+    if case.f1 is None:
+        raise HTTPException(status_code=409, detail="案件尚未擷取案件資訊,無可修改的內容")
+
+    fields = {
+        "f1": info,
+        "f1_edited": True,
+        "deadline": check_deadline_from_case(case, info),
+    }
+    if case.screening is not None and _STALE_SCREENING_NOTE not in case.screening.review_note:
+        merged = ";".join(n for n in (case.screening.review_note, _STALE_SCREENING_NOTE) if n)
+        fields["screening"] = case.screening.model_copy(update={"review_note": merged})
+    store.update(case_id, fields)
+    return store.get(case_id)
+
+
+@app.patch("/api/cases/{case_id}/decision-header", dependencies=[Depends(require_api_key)])
+def update_decision_header(case_id: str, header: DecisionHeader) -> Case:
+    """承辦人自填決定書上系統填不出來的欄位(案號、主任委員與委員名單、決定日期…)。
+    整份取代而不逐欄合併:前端送的是整張表單,部分更新會讓「清空某欄」與「沒送某欄」無法區分。"""
+    case = store.get(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    if case.f4 is None:
+        raise HTTPException(status_code=409, detail="案件尚未產出草稿,沒有可填的決定書")
+
+    store.update(case_id, {"decision_header": header})
+    return store.get(case_id)
 
 
 @app.patch("/api/cases/{case_id}/screening", dependencies=[Depends(require_api_key)])

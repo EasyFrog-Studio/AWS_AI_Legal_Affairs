@@ -15,7 +15,7 @@
 
 ## 說明
 
-- 每份樣本檔案為 `{代號}.json`，結構：`{"name","source_decision","appeal_text","expected":{"f1","screening","f2","f3","f4"}}`，欄位名逐字對齊 `backend/app/models.py`（CaseInfo/ScreeningResult/LawRef/SimilarCase/DraftResult）。
+- 每份樣本檔案為 `{代號}.json`，結構：`{"name","source_decision","appeal_text","expected":{"f1","screening","f2","f2_refs","f3","f4"}}`，欄位名逐字對齊 `backend/app/models.py`（CaseInfo/ScreeningResult/LawRef/ReferenceRef/SimilarCase/DraftResult）。`f2_refs` 為 F2+ 參考見解，引用的是 `data/資料集/` 內真實存在的函釋／釋字／裁判；MockProvider 直接以 `["f2_refs"]` 取值，樣本缺這個鍵會拋 KeyError 而不是靜默回空清單。
 - `appeal_text` 為反推撰寫之第一人稱訴願書全文（繁體中文），個資沿用原決定書之遮罩姓名（如「劉○誼」）。
 - 不受理三案(a/b/c) 的 `expected.screening.passed = false`；駁回二案(d/e) 為程序審查通過後實體審理無理由，`passed = true`。
 - `f_overdue_77_2_dated` 的 `appeal_text` 於附註載明送達日（本人簽收）與原處分機關收文日，供 `check_deadline` 以卷內日期實際算出末日（111/8/24 送達 → 111/9/23 屆滿 → 111/9/30 提起，逾期）；其餘樣本未載日期，期間認定會回報「未計算」。

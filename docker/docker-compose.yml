@@ -11,6 +11,9 @@ services:
     # Windows 下 ${USERPROFILE} 會展開;mock 模式掛了也無妨
     volumes:
       - ${USERPROFILE:-~}/.aws:/root/.aws:ro
+      # local/mock 模式「原文」讀的是前處理產出的 markdown;image 不含 data/(過大且會過期),
+      # 容器內解析出的路徑是 /data/output,掛不上就每個原文都回「找不到檔案」
+      - ../../data/output:/data/output:ro
     depends_on:
       postgres:
         condition: service_healthy

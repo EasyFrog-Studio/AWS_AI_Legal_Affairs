@@ -502,3 +502,159 @@ def test_answer_brief_can_be_replaced_after_the_case_is_created(monkeypatch):
     assert resp.json()["documents"]["answer"]["matched"] is True
     case = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
     assert "答辯聲明：本件訴願駁回。" in case["input_text"]
+
+
+# ---------- PATCH /f1:承辦人修改擷取結果 ----------
+def _analyzed_case(client, monkeypatch) -> str:
+    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+    case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
+    client.post(f"/api/cases/{case_id}/analyze", headers=_headers())
+    return case_id
+
+
+def _edited_info(case: dict, **overrides) -> dict:
+    info = dict(case["f1"])
+    info.update(overrides)
+    return info
+
+
+def test_patch_f1_stores_the_correction(monkeypatch):
+    client = TestClient(main_module.app)
+    case_id = _analyzed_case(client, monkeypatch)
+    case = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
+
+    resp = client.patch(
+        f"/api/cases/{case_id}/f1",
+        json=_edited_info(case, appellant="王大明(更正)", disposition_no="彰環廢字第9號"),
+        headers=_headers(),
+    )
+
+    assert resp.status_code == 200
+    stored = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
+    assert stored["f1"]["appellant"] == "王大明(更正)"
+    assert stored["f1"]["disposition_no"] == "彰環廢字第9號"
+
+
+def test_patch_f1_marks_the_screening_as_not_yet_rerun(monkeypatch):
+    """程序審查是從修改前的 f1 算出來的。不講,畫面上就是一份「已審結」但依據已經被改掉的案件。"""
+    client = TestClient(main_module.app)
+    case_id = _analyzed_case(client, monkeypatch)
+    case = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
+
+    client.patch(
+        f"/api/cases/{case_id}/f1",
+        json=_edited_info(case, appellant="王大明(更正)"),
+        headers=_headers(),
+    )
+
+    stored = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
+    assert "尚未依修改後的資料重跑" in stored["screening"]["review_note"]
+    row = next(r for r in client.get("/api/cases", headers=_headers()).json() if r["case_id"] == case_id)
+    assert row["needs_review"] is True
+
+
+def test_a_manual_correction_to_f1_survives_a_rerun(monkeypatch):
+    """重跑會重新呼叫 extract_case_info,人剛改的欄位會被模型改回去——
+    這正是程序審查被推翻時已經處理過的同一種失效,f1 必須比照。"""
+    client = TestClient(main_module.app)
+    case_id = _analyzed_case(client, monkeypatch)
+    case = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
+    client.patch(
+        f"/api/cases/{case_id}/f1",
+        json=_edited_info(case, appellant="王大明(更正)"),
+        headers=_headers(),
+    )
+
+    assert client.post(f"/api/cases/{case_id}/reanalyze", headers=_headers()).status_code == 200
+
+    after = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
+    assert after["f1"]["appellant"] == "王大明(更正)"
+    assert after["status"] == "done"
+    assert after["f4"] is not None  # 重跑仍要重新產出草稿,不是只保住 f1 就停在原地
+
+
+def test_patch_f1_rejects_a_case_that_has_not_been_analysed(monkeypatch):
+    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+    client = TestClient(main_module.app)
+    case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
+
+    resp = client.patch(
+        f"/api/cases/{case_id}/f1",
+        json={
+            "appellant": "王大明",
+            "agency": "彰化縣環境保護局",
+            "disposition_date": "110年3月5日",
+            "disposition_no": "彰環廢字第1號",
+            "disposition_summary": "裁處罰鍰",
+            "case_type": "廢棄物清理",
+        },
+        headers=_headers(),
+    )
+
+    assert resp.status_code == 409
+
+
+def test_patch_f1_on_an_unknown_case_returns_404():
+    client = TestClient(main_module.app)
+    resp = client.patch(
+        "/api/cases/c-nope/f1",
+        json={
+            "appellant": "王大明",
+            "agency": "彰化縣環境保護局",
+            "disposition_date": "110年3月5日",
+            "disposition_no": "彰環廢字第1號",
+            "disposition_summary": "裁處罰鍰",
+            "case_type": "廢棄物清理",
+        },
+        headers=_headers(),
+    )
+
+    assert resp.status_code == 404
+
+
+# ---------- PATCH /decision-header:承辦人自填決定書欄位 ----------
+def test_decision_header_shows_up_in_the_skeleton(monkeypatch):
+    """網頁上的版面與下載的 PDF 共用 build_decision_blocks;填了案號兩邊就都要有,
+    不能出現「畫面上改了、PDF 沒改」。"""
+    client = TestClient(main_module.app)
+    case_id = _analyzed_case(client, monkeypatch)
+
+    resp = client.patch(
+        f"/api/cases/{case_id}/decision-header",
+        json={"case_no": "1140700123", "chairman": "王主委", "committee": "李委員\n張委員"},
+        headers=_headers(),
+    )
+    assert resp.status_code == 200
+
+    blocks = client.get(f"/api/cases/{case_id}/decision-skeleton", headers=_headers()).json()["blocks"]
+    texts = [b["text"] for b in blocks]
+    assert any("1140700123" in t for t in texts)
+    assert any("王主委" in t for t in texts)
+    assert len([t for t in texts if t.startswith("委員")]) == 2
+
+
+def test_decision_header_survives_a_reload(monkeypatch):
+    client = TestClient(main_module.app)
+    case_id = _analyzed_case(client, monkeypatch)
+    client.patch(
+        f"/api/cases/{case_id}/decision-header",
+        json={"case_no": "1140700123"},
+        headers=_headers(),
+    )
+
+    case = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
+
+    assert case["decision_header"]["case_no"] == "1140700123"
+    assert case["decision_header"]["chairman"] == ""  # 沒填的欄位維持空白,不是 None
+
+
+def test_decision_header_rejects_a_case_without_a_draft(monkeypatch):
+    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+    client = TestClient(main_module.app)
+    case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
+
+    resp = client.patch(
+        f"/api/cases/{case_id}/decision-header", json={"case_no": "1140700123"}, headers=_headers()
+    )
+
+    assert resp.status_code == 409

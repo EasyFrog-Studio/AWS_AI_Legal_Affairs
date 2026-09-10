@@ -116,3 +116,76 @@ def test_get_law_articles_unknown_key_falls_back_to_placeholder():
     assert refs[0].law_name == "訴願法"
     assert refs[0].article_no == "77"
     assert refs[0].amend_date == "未收錄"  # 比照真實 provider,查無不得省略該筆
+
+
+def test_recommend_laws_is_capped_at_three_like_the_real_providers():
+    """出貨用的 data_show 樣本每件手寫五條;不在這裡截斷,mock 模式看到的筆數就與真實模式不同。
+    刻意讀真正出貨的那份樣本而不是 tests/fixtures——fixtures 只有兩條,截不截斷都會過。"""
+    shipped = Path(__file__).resolve().parents[2] / "data_show" / "sample_appeals"
+    provider = MockProvider(data_dir=str(shipped))
+    # d_dismiss_waste 樣本手寫五條;三個欄位都對上才會命中它而不是退到 _fallback
+    info = CaseInfo(
+        appellant="陳○瑤",
+        agency="新北市政府環境保護局",
+        case_type="廢棄物清理法",
+        disposition_date="112年1月10日",
+        disposition_no="新北環稽字第1號",
+        disposition_summary="裁處罰鍰",
+    )
+
+    assert len(provider.recommend_laws(info)) <= 3
+
+
+# ---------- F2+ 參考見解 ----------
+
+
+def test_find_references_matches_sample_by_info():
+    provider = _provider()
+    text = "訴願人王大明不服彰化縣環境保護局裁處罰鍰,提起廢棄物清理訴願。"
+    info = provider.extract_case_info(text)
+
+    refs = provider.find_references(info)
+
+    assert [r.doc_kind for r in refs] == ["行政法院裁判", "行政函釋"]
+    assert refs[0].name == "最高行政法院 102年度判字第147號"
+    assert refs[1].issuer == "內政部"
+    assert refs[1].topic == ""  # 函釋樣本無題旨,與釋字樣本形狀不同
+
+
+def test_find_references_second_sample_has_a_different_shape():
+    provider = _provider()
+    text = "訴願人李小華對臺北市政府社會局不服,逾期提起社會救助訴願。"
+    info = provider.extract_case_info(text)
+
+    (ref,) = provider.find_references(info)
+
+    assert ref.doc_kind == "司法院釋字"
+    assert ref.issuer == ""  # 釋字無發文機關
+    assert ref.issued_date == "未收錄"
+    assert ref.source_key is None
+
+
+def test_find_references_caps_at_three():
+    provider = _provider()
+    info = provider.extract_case_info("完全無關的隨機輸入文字,不含任何樣本關鍵詞")
+
+    assert len(provider.find_references(info)) == 3
+
+
+def test_find_references_raises_when_sample_lacks_the_key(tmp_path):
+    """樣本缺鍵要大聲壞掉,不能靜默回空清單——那會與「檢索後無結果」混為一談。"""
+    import json
+    import shutil
+
+    for name in ("_fallback.json", "sample_a.json"):
+        data = json.loads((FIXTURES_DIR / name).read_text(encoding="utf-8"))
+        data["expected"].pop("f2_refs", None)
+        (tmp_path / name).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    provider = MockProvider(data_dir=str(tmp_path))
+    info = provider.extract_case_info("完全無關的隨機輸入文字")
+    try:
+        provider.find_references(info)
+    except KeyError:
+        return
+    raise AssertionError("樣本缺 f2_refs 應該拋錯,而不是回空清單")

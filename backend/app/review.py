@@ -20,6 +20,13 @@ def needs_review(case: Case) -> bool:
     # 模型仍可能吐出「不受理」草稿;不臆測正確的決定類型,只把矛盾標出來。
     if case.track == "admissible" and case.f4 is not None and case.f4.draft_type == "不受理":
         return True
+    # 模型交出空欄位時系統原本一聲不吭,畫面與 PDF 就是一份欄位空白的決定書。
+    # 例外只有不受理案的事實欄——訴願法§89 I③ 得不記載,語料 90 件全空,標了就是誤報。
+    if case.f4 is not None:
+        if not case.f4.reason.strip() or not case.f4.main_text.strip():
+            return True
+        if case.f4.draft_type != "不受理" and not case.f4.fact.strip():
+            return True
     if case.f1 is not None:
         if check_required_fields(case.f1).missing:
             return True
