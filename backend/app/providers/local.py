@@ -131,7 +131,7 @@ class LocalProvider(AIProvider):
 
     def assess_standing(self, info: CaseInfo, text: str) -> StandingAssessment:
         """_chat_json 的 options 已固定 temperature=0(見上),同一卷證跑兩次得到同一結果
-        (實作計畫 §Ticket 6 約束3)不需要在這裡額外處理。"""
+        不需要在這裡額外處理。"""
         schema = {
             "type": "object",
             "properties": {

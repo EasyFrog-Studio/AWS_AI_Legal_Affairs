@@ -1,4 +1,4 @@
-"""needs_review 貫穿:清單上要一眼看出哪幾件不能直接送,見實作計畫 Ticket 11。
+"""needs_review 貫穿:清單上要一眼看出哪幾件不能直接送。
 要複核的案子與正常案子長得一模一樣,是這套系統最糟的失效樣態。"""
 from app.models import (
     Case,

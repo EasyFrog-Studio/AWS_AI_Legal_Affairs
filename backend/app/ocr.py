@@ -2,7 +2,7 @@
 
 不用 Amazon Textract:官方 quota 文件(docs.aws.amazon.com/textract/latest/dg/limits-document.html)
 明載文字偵測支援的語言只有英法德義葡西六種,不含中文,亦不支援中日文常見的直書排列——
-繁體中文卷宗它讀不出來,做非同步 job 流程也一樣讀不出來(見實作計畫 Ticket 4a)。
+繁體中文卷宗它讀不出來,做非同步 job 流程也一樣讀不出來。
 
 逐頁同步呼叫,不需要 job 輪詢也不需要 SNS/SQS,POST /analyze 的請求-回應流程不必改。
 """

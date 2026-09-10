@@ -1,4 +1,4 @@
-"""教示條款 -> 行政程序法§98 分支的認定(Ticket 8)。"""
+"""教示條款 -> 行政程序法§98 分支的認定。"""
 from datetime import date
 
 from app.notice_clause import classify_notice_clause

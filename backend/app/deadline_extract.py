@@ -104,7 +104,7 @@ class DeadlineFacts(BaseModel):
     disputed_receipt_date: Optional[date] = None
     # 退用自述日的原因,三態各自的 review_note 文字不同(見 pipeline._caveats),不可共用一句:
     # "missing_field"=送達證書有文字但抽不到送達時間欄;"unreadable"=送達證書文字無法辨識
-    # (可讀字元比例過低,與 Ticket 4 的 OCR 門檻共用同一套判準);"absent_slot"=槽內確實沒有這份文書。
+    # (可讀字元比例過低,與 OCR 的可讀性門檻共用同一套判準);"absent_slot"=槽內確實沒有這份文書。
     # None 代表 service_date_self_reported=False,不適用。
     service_fallback_reason: Optional[Literal["missing_field", "unreadable", "absent_slot"]] = None
 

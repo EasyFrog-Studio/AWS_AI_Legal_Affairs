@@ -28,7 +28,7 @@ _JSON_FIELDS = (
 _EMPTY_ON_READ = {"documents": dict, "draft_versions": list}
 
 # DynamoDB 單筆項目上限 400KB;留 buffer 擋在 350KB,超過就在寫入前 raise 帶中文訊息的例外,
-# 不讓 boto3 的 ValidationException 在背景任務裡把案件打成 status=error(見實作計畫 Ticket 3c)
+# 不讓 boto3 的 ValidationException 在背景任務裡把案件打成 status=error
 MAX_ITEM_BYTES = 350 * 1024
 
 

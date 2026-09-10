@@ -377,7 +377,7 @@ def test_inadmissible_law_keys_has_no_duplicates():
         assert len(keys) == len(set(keys))
 
 
-# ---------- guard_unsupported_clause:款次白名單守門(Ticket 7) ----------
+# ---------- guard_unsupported_clause:款次白名單守門 ----------
 
 
 def test_guard_unsupported_clause_leaves_supported_clauses_untouched():
@@ -455,7 +455,7 @@ def test_run_case_flags_unsupported_clause_but_still_produces_a_draft():
     assert case.f4 is not None
 
 
-# ---------- run_case 串接§77(1)自動判(Ticket 5) ----------
+# ---------- run_case 串接§77(1)自動判 ----------
 
 
 def test_run_case_auto_overrides_to_77_1_when_appellant_and_agency_both_missing():
@@ -504,7 +504,7 @@ def test_run_case_auto_overrides_to_77_1_when_appellant_and_agency_both_missing(
     assert case.track == "inadmissible"
 
 
-# ---------- run_case 串接§77(3)自動判(Ticket 6) ----------
+# ---------- run_case 串接§77(3)自動判 ----------
 
 
 def test_run_case_calls_assess_standing_only_when_recipient_inconsistent():
@@ -555,7 +555,7 @@ def test_run_case_calls_assess_standing_only_when_recipient_inconsistent():
 
 def test_run_case_does_not_override_when_model_cites_no_protective_norm():
     """模型指不出具體保護規範(referenced_norm 空)時,即使 has_standing=False,
-    也不得覆寫為第3款不受理——這是實作計畫§Ticket 6 約束2 的端到端驗證。"""
+    也不得覆寫為第3款不受理。"""
     store = MemoryStore()
     _new_case(store, "c-88888888")
 
@@ -643,7 +643,7 @@ _OVERDUE_TEXT = (
 )
 
 
-# 完整教示條款(法定 30 日):不放這句的原處分書會被 Ticket 8 判為未告知救濟期間而改算一年,
+# 完整教示條款(法定 30 日):不放這句的原處分書會被教示條款分支判為未告知救濟期間而改算一年,
 # 那是正確行為,但會蓋掉本組測試真正要驗的分槽讀法,故 fixture 一律附上完整教示。
 _FULL_NOTICE_CLAUSE = "如不服本處分,得於本處分書送達之次日起三十日內,繕具訴願書向本府提起訴願。"
 
@@ -733,7 +733,7 @@ _MASKED_RESIDENCE_TEXT = (
 
 def test_check_deadline_computes_with_a_masked_district_when_both_groups_agree():
     """住居所被遮罩成「臺中市○○區」不必整筆棄權:附表臺中市(一)(二)對新北市都是 5 日,
-    之分一天都不差(見實作計畫 Ticket 13)。"""
+    之分一天都不差。"""
     check = check_deadline(_MASKED_RESIDENCE_TEXT)
 
     assert "在途5日" in check.detail
@@ -780,7 +780,7 @@ def test_reconcile_deadline_records_conflict_instead_of_flipping_silently():
 
 def test_dates_from_an_ocr_slot_never_override_the_screening():
     """經 OCR 取得文字的槽,日期一律不得據以覆寫程序審查:模型抽字會編字,而這套系統的
-    正確性建立在日期上(見實作計畫 Ticket 4)。算得出逾期也只能標待人工。"""
+    正確性建立在日期上。算得出逾期也只能標待人工。"""
     documents = _overdue_documents()
     documents["service"] = documents["service"].model_copy(
         update={"ocr": True, "review_note": "本槽文字由 OCR 取得,日期須人工核對原件"}
@@ -841,7 +841,7 @@ def test_reconcile_deadline_does_not_override_while_the_note_stands():
     assert result.matched_clause is None
     assert "未據以覆寫程序審查" in check.review_note
 
-# --- 教示條款 -> 行政程序法§98 三分支(Ticket 8)---------------------------------
+# --- 教示條款 -> 行政程序法§98 三分支 ---------------------------------
 # 共同前提:送達生效日 114年5月28日、機關收文日 114年10月31日、在途 0 日。
 # 依訴願法§14 的 30 日算末日為 114年6月27日 -> 已逾期;三分支各自把這個結論推翻或懸置。
 
@@ -873,7 +873,7 @@ def test_full_notice_clause_still_computes_the_thirty_day_period():
 
 
 def test_disposition_without_a_notice_clause_uses_the_one_year_period():
-    """§98 III:未教示案不得被當一般 30 日案算——誤判方向不利人民,這是 Ticket 8 的主症狀。"""
+    """§98 III:未教示案不得被當一般 30 日案算——誤判方向不利人民。"""
     check = check_deadline_from_case(_case_with_disposition("主旨:裁處罰鍰。"))
 
     assert check.due_date == date(2026, 5, 28)  # 起算日 114年5月29日 -> 一年後前一日

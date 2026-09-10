@@ -150,7 +150,7 @@ def test_service_certificate_fields_are_read_by_their_official_labels():
     assert "板橋區" in facts.residence
 
 
-# ---------- extract_from_documents:分槽抽取(Ticket 1) ----------
+# ---------- extract_from_documents:分槽抽取 ----------
 
 
 def test_from_documents_consistent_dates_yield_facts():
@@ -164,7 +164,7 @@ def test_from_documents_consistent_dates_yield_facts():
 
 def test_from_documents_conflicting_dates_take_the_certificate_and_record_the_dispute():
     """送達證書為公文書,推定真正,故送達生效日以其為準;訴願書自述的收受或知悉日另記為爭點。
-    不整筆棄權——訴願人主張未收受正是 77(2) 要判的事,停在這裡等於不判(見實作規劃 S1)。"""
+    不整筆棄權——訴願人主張未收受正是 77(2) 要判的事,停在這裡等於不判。"""
     conflicting_service = _SERVICE_CERTIFICATE.replace("114年5月28日", "114年6月2日")
 
     result = extract_from_documents(_APPEAL_FORM, conflicting_service)
@@ -194,7 +194,7 @@ def test_from_documents_service_slot_present_but_missing_field_reason():
 
 
 def test_from_documents_unreadable_service_slot_reason():
-    """送達證書有文字但無法辨識(可讀字元比例過低,與 Ticket 4 的 OCR 門檻共用同一套判準)。"""
+    """送達證書有文字但無法辨識(可讀字元比例過低,與 OCR 的可讀性門檻共用同一套判準)。"""
     garbled_service = "\ufffd\ufffd\ufffd\ufffd※★●◆■" * 20
 
     result = extract_from_documents(_APPEAL_FORM, garbled_service)
@@ -203,7 +203,7 @@ def test_from_documents_unreadable_service_slot_reason():
 
 
 def test_three_service_fallback_review_notes_are_distinct():
-    """三種 review_note 文字彼此不同,不可共用一句——實作計畫 Ticket 1 的明確要求。"""
+    """三種 review_note 文字彼此不同,不可共用一句。"""
     from app.pipeline import check_deadline_from_case
     from app.models import Case, CaseDocument
 

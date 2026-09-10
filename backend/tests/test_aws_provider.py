@@ -160,7 +160,7 @@ def test_assess_standing_returns_none_when_evidence_insufficient():
 
 
 def test_assess_standing_is_deterministic_across_repeated_calls():
-    """同一輸入連跑兩次要得到同一結果(實作計畫§Ticket 6 約束3):這裡驗證呼叫形狀本身是
+    """同一輸入連跑兩次要得到同一結果:這裡驗證呼叫形狀本身是
     決定性的(固定 temperature=0),用同一份回應模擬模型在溫度0下的穩定輸出。"""
     payload = {"referenced_norm": "廢棄物清理法#27", "has_standing": False, "reasoning": "僅單純事實上利害關係"}
     brt = MagicMock()

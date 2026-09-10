@@ -1,4 +1,4 @@
-"""可讀字元比例判準:Ticket 1(送達證書無法辨識)與 Ticket 4(OCR 產出可用性)共用同一套門檻。"""
+"""可讀字元比例判準:送達證書無法辨識判斷與 OCR 產出可用性判斷共用同一套門檻。"""
 from app.text_quality import is_unreadable, readable_char_ratio
 
 

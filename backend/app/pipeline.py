@@ -86,7 +86,7 @@ def enforce_inadmissible_format(draft: DraftResult, screening: ScreeningResult) 
 
 _SERVICE_FALLBACK_NOTES = {
     # 三種狀況原因不同、該做的事也不同,不可共用一句「未經送達證書核對」——
-    # 那句話會讓承辦人誤以為只是流程沒走完,見實作計畫 Ticket 1。
+    # 那句話會讓承辦人誤以為只是流程沒走完。
     "missing_field": "送達證書未載送達時間,送達生效日採訴願人自述",
     "unreadable": "送達證書無法辨識,送達生效日採訴願人自述,須人工調閱原件",
     "absent_slot": "卷內無送達證書,送達生效日採訴願人自述",
@@ -146,7 +146,7 @@ def _check_deadline_from_extraction(
     """抽取結果(不論來自單一字串或分槽) -> 訴願期間認定。抽不到事實就說明抽不到,不以預設值頂替。
 
     notice 為教示條款的認定(行政程序法§98,見 notice_clause.py);None 代表未經檢核,
-    行為與 Ticket 8 之前一致(照訴願法§14 的 30 日算),單一字串入口即走這條。
+    行為為照訴願法§14 的 30 日算,單一字串入口即走這條。
     """
     if extraction.facts is None:
         return DeadlineCheck(review_note=f"期間未計算,{extraction.problem}")
@@ -254,7 +254,7 @@ def check_deadline_from_case(case: Case, info: CaseInfo | None = None) -> Deadli
 
 def _flag_ocr_slots(case: Case, check: DeadlineCheck) -> DeadlineCheck:
     """經 OCR 取得文字的槽,其日期一律不得據以覆寫程序審查:模型抽字會編字,而這套系統的
-    正確性建立在日期上。標了 review_note,reconcile_deadline 就不會拿算式去覆寫(見 Ticket 4)。"""
+    正確性建立在日期上。標了 review_note,reconcile_deadline 就不會拿算式去覆寫。"""
     ocr_slots = [DOCUMENT_SLOT_LABELS[slot] for slot, doc in case.documents.items() if doc.ocr]
     if not ocr_slots:
         return check
@@ -313,7 +313,7 @@ def _retrieval_and_draft(
 
 def rerun_case(case_id: str, store: CaseStore, provider: AIProvider) -> None:
     """重跑。曾被人工推翻(screening_system 非 None)就保留 f1 與 screening,自 F2/F3 起跑;
-    否則整條自 F1 重跑。契約見實作計畫 Ticket 9。"""
+    否則整條自 F1 重跑。"""
     case = store.get(case_id)
     if case is None:
         raise ValueError(f"case not found: {case_id}")

@@ -145,7 +145,7 @@ def _case_with_documents(appeal_text="訴願書全文", service_text="送達證�
 
 def test_input_text_is_not_stored_twice_when_documents_exist():
     """DynamoDB 單筆上限 400KB,中文每字 3 bytes;documents 與 input_text 各存一份等於把
-    卷證文字量直接加倍。input_text 是衍生值,讀回時重建即可(見實作計畫 Ticket 3b)。"""
+    卷證文字量直接加倍。input_text 是衍生值,讀回時重建即可。"""
     table = MagicMock()
     store = DynamoDBStore(table=table)
 
@@ -182,7 +182,7 @@ def test_old_item_without_documents_keeps_its_stored_input_text():
 
 def test_oversized_case_raises_before_boto3_validation_exception():
     """寧可在寫入前擋下並說清楚,也不要讓案件在背景任務裡以 ValidationException 崩掉——
-    那會落成 status=error,承辦人只看到一串英文(見實作計畫 Ticket 3c)。"""
+    那會落成 status=error,承辦人只看到一串英文。"""
     import pytest
 
     from app.store import CaseTooLargeError
@@ -198,7 +198,7 @@ def test_oversized_case_raises_before_boto3_validation_exception():
 
 
 def full_case():
-    """滿載案件:Ticket 2 規模的三份文書 + F1~F4 + 20 版草稿。量大小用,也給人工量測腳本共用。"""
+    """滿載案件:三份文書 + F1~F4 + 20 版草稿。量大小用,也給人工量測腳本共用。"""
     from app.models import CaseInfo, DraftResult, DraftVersion, LawRef, ScreeningResult, SimilarCase
 
     draft = DraftResult(
@@ -247,7 +247,7 @@ def full_case():
 
 def test_a_realistic_full_case_stays_well_under_the_size_threshold():
     """量一次真實 item 大小:三份文書 + F1~F4 + 20 版草稿。這一條把「會不會逼近 400KB」
-    從推測變成已知數;實測值寫進 Content/backend-api.md。低於門檻一半才算安全——
+    從推測變成已知數。低於門檻一半才算安全——
     超過就要調降草稿版本上限,或把 S3 offload 從「不做」提前排進來。"""
     from app.store import MAX_ITEM_BYTES, item_size_bytes
 

@@ -165,7 +165,7 @@ class AWSProvider(AIProvider):
 
     def assess_standing(self, info: CaseInfo, text: str) -> StandingAssessment:
         """保護規範理論的判斷是全流程唯一需要 LLM 做價值判斷的節點,同一卷證跑兩次必須得到
-        同一結果(見實作計畫 §Ticket 6 約束3),故固定 temperature=0,不受其他呼叫的預設值影響。"""
+        同一結果,故固定 temperature=0,不受其他呼叫的預設值影響。"""
         schema = {
             "type": "object",
             "properties": {

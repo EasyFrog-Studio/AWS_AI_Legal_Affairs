@@ -230,14 +230,14 @@ async def replace_document(
     document = _build_document(slot, await _read_document_input(slot, file, text))
     documents = {**case.documents, slot: document}
     # 重建 input_text 是必要的——它是 documents 的衍生值,少了這行 F1/程序審查分析用的
-    # 仍是重傳前的舊文字(見 build_input_text 註解與實作計畫 Ticket 3a)。
+    # 仍是重傳前的舊文字。
     store.update(case_id, {"documents": documents, "input_text": build_input_text(documents)})
     return {"documents": {s: d.check for s, d in documents.items()}}
 
 
 @app.post("/api/cases/{case_id}/analyze", dependencies=[Depends(require_api_key)])
 def analyze_case(case_id: str, background_tasks: BackgroundTasks):
-    """使用者確認三份文件無誤後按下「開始分析」,才觸發既有的 F1->審查->F2/F3->F4 pipeline。"""
+    """使用者確認必填三槽文件無誤後按下「開始分析」,才觸發既有的 F1->審查->F2/F3->F4 pipeline。"""
     case = store.get(case_id)
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
@@ -382,7 +382,7 @@ def override_screening(case_id: str, override: ScreeningOverride):
 @app.post("/api/cases/{case_id}/reanalyze", dependencies=[Depends(require_api_key)])
 def reanalyze_case(case_id: str, background_tasks: BackgroundTasks):
     """重跑。done 與 error 兩種狀態都允許——推翻程序審查之後重跑正是 done 狀態下的
-    正常業務操作。契約(含起跑點)見 pipeline.rerun_case 與實作計畫 Ticket 9。"""
+    正常業務操作。契約(含起跑點)見 pipeline.rerun_case。"""
     case = store.get(case_id)
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")

@@ -58,7 +58,7 @@ def test_health_no_api_key_required():
 
 
 def test_health_reports_reference_data_coverage():
-    """假日表與在途表會過期,health 是唯一會主動講「該重抓了」的地方(Ticket 14)。"""
+    """假日表與在途表會過期,health 是唯一會主動講「該重抓了」的地方。"""
     client = TestClient(main_module.app)
     body = client.get("/api/health").json()
 
@@ -165,7 +165,7 @@ def test_replace_document_before_analysis_rechecks_type(monkeypatch):
 
 def test_replace_document_rebuilds_input_text(monkeypatch):
     """重傳一槽後 input_text 必須重建,否則 F1/程序審查分析用的仍是重傳前的舊文字
-    (見實作計畫 Ticket 3a:input_text 只是 documents 的衍生值,不能各自維護一份)。"""
+    (input_text 只是 documents 的衍生值,不能各自維護一份)。"""
     monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
     client = TestClient(main_module.app)
     case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
@@ -210,7 +210,7 @@ def _scanned_pdf_bytes() -> bytes:
 
 def test_scanned_pdf_in_mock_mode_is_refused_with_a_reason(monkeypatch):
     """掃描件不要偽裝成「文書寫得不清楚」:mock 模式沒有 OCR,就明確拒收,
-    不要讓使用者拿到一個空白案件(見實作計畫 Ticket 4)。"""
+    不要讓使用者拿到一個空白案件。"""
     monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
     client = TestClient(main_module.app)
 
@@ -280,7 +280,7 @@ def test_ocr_output_that_is_still_unreadable_is_refused(monkeypatch):
 
 def test_oversized_case_file_returns_400_not_a_crashed_case(monkeypatch):
     """aws 模式下卷證超過單筆儲存門檻:回 400 並說明,不讓 boto3 的 ValidationException
-    把案件打成 status=error 只留一串英文(見實作計畫 Ticket 3c)。"""
+    把案件打成 status=error 只留一串英文。"""
     from unittest.mock import MagicMock
 
     from app.store import DynamoDBStore

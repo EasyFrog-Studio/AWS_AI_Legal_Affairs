@@ -19,7 +19,7 @@ class CaseInfo(BaseModel):
     issues: list[str] = []
     cited_articles: list[str] = []  # 如 "廢棄物清理法#46"
     # 以下六欄取自送達證書/原處分書/訴願書,期間計算(deadline_extract)與程序審查才用得到;
-    # 全部預設空字串,舊樣本/舊測資不補這幾欄仍可通過驗證(見階段一文書規格與期間計算.md §一/§二/§三)
+    # 全部預設空字串,舊樣本/舊測資不補這幾欄仍可通過驗證
     receipt_date: str = ""  # 訴願書「收受或知悉行政處分日期」(訴願法§56 I⑥),非送達日期
     service_date: str = ""  # 送達證書「送達時間」欄,即送達生效日(原文寫法,不換算)
     service_method: str = ""  # 送達方式:本人/同居人/受雇人/接收郵件人員/留置/寄存(§72-74)
@@ -62,7 +62,7 @@ def parse_clause(matched_clause: Optional[str]) -> Optional[tuple[int, int]]:
 
 
 class StandingAssessment(BaseModel):
-    """provider.assess_standing 的結構化回傳(§77(3)保護規範判準,Ticket 6):不是自由論述,
+    """provider.assess_standing 的結構化回傳(§77(3)保護規範判準):不是自由論述,
     而是「所憑保護規範」與「是否及於訴願人」兩個獨立欄位。referenced_norm 留空(模型指不出
     具體法規名稱＋條號)時,has_standing 不論填了什麼都不得採用——見
     procedural_checks.resolve_standing_assessment,這裡只誠實記錄「模型說了什麼」。"""
@@ -128,7 +128,7 @@ class DraftPatch(BaseModel):
     main_text: str
     # 送出時前端帶目前的版本數;與伺服器端不符即回 409。三種 store 對 Case 都是整包
     # read-modify-write,兩個視窗同時 PATCH 的結果是後送出的那份無聲蓋掉前一份,而兩邊都
-    # 以為自己存成功了(見實作計畫 Ticket 10)。None 代表呼叫端未帶版本(舊前端),不檢查。
+    # 以為自己存成功了。None 代表呼叫端未帶版本(舊前端),不檢查。
     base_version: Optional[int] = None
 
 
@@ -168,7 +168,7 @@ class DocumentCheck(BaseModel):
 
 
 # 經 OCR 取得文字的槽一律標這句:模型抽字會編字,而本系統的正確性建立在日期上。
-# 凡是這一槽的日期,都不得據以覆寫程序審查(見實作計畫 Ticket 4)。
+# 凡是這一槽的日期,都不得據以覆寫程序審查。
 OCR_REVIEW_NOTE = "本槽文字由 OCR 取得,日期須人工核對原件"
 
 
@@ -190,10 +190,11 @@ class DocumentReplace(BaseModel):
 
 
 def build_input_text(documents: dict[DocumentSlot, CaseDocument]) -> str:
-    """三槽合一成 F1/程序審查吃的合併字串,分段標頭讓 F1 擷取知道欄位該從哪一段找。
+    """必填三槽(訴願書/送達證書/原處分書)加選填答辯書共四槽合一成 F1/程序審查吃的合併字串,
+    分段標頭讓 F1 擷取知道欄位該從哪一段找。
     單一真相是 documents[slot].text,input_text 只是它的衍生值——收案、重傳、store 讀回
     都必須呼叫這支函式重建,不能各自維護一份,否則重傳文件後分析用的仍是舊文字而畫面上
-    完全看不出來(見實作計畫 Ticket 3a/3b)。缺槽時該段留空,不省略標頭。"""
+    完全看不出來。缺槽時該段留空,不省略標頭。"""
     return "\n\n".join(
         f"【{DOCUMENT_SLOT_LABELS[slot]}】\n{documents[slot].text if slot in documents else ''}"
         for slot in ("appeal", "service", "disposition", "answer")

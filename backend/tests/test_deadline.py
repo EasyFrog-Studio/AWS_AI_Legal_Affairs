@@ -121,7 +121,7 @@ def test_public_notice_effective_dates_follow_article_81():
     assert public_notice_service_date(posted, repeat=True) == date(2021, 9, 18)
 
 
-# ---------- compute_one_year_deadline:行政程序法§98 III 未教示/未更正的一年期間(Ticket 8) ----------
+# ---------- compute_one_year_deadline:行政程序法§98 III 未教示/未更正的一年期間 ----------
 
 
 def test_one_year_deadline_is_the_day_before_next_year_anniversary_of_start_date():
