@@ -177,6 +177,8 @@ class PostgresStore(CaseStore):
     """appeal_cases 表,案件整包以 JSONB 存。"""
 
     def __init__(self, url, connect=None) -> None:
+        if not url:
+            raise RuntimeError("POSTGRES_URL 未設定,local 模式需要 Postgres 連線字串")
         if connect is None:
 
             def connect():

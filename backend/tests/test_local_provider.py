@@ -1,6 +1,9 @@
 """LocalProvider 單元測試:注入 fake http_client/connect,不打真實 ollama/Postgres。"""
 import json as json_mod
 
+import pytest
+
+from app.config import settings
 from app.models import CaseInfo, LawRef, ScreeningResult
 from app.providers.local import LocalProvider
 
@@ -432,6 +435,12 @@ def test_constructor_with_injected_fakes_never_imports_psycopg():
     provider = _provider()
     assert isinstance(provider, LocalProvider)
     assert "psycopg" not in sys.modules
+
+
+def test_constructor_raises_runtime_error_when_postgres_url_unset(monkeypatch):
+    monkeypatch.setattr(settings, "POSTGRES_URL", "")
+    with pytest.raises(RuntimeError, match="POSTGRES_URL"):
+        LocalProvider(http_client=FakeHTTP())
 
 
 # ---------- get_law_articles:條號精查 ----------

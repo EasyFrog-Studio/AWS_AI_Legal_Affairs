@@ -23,7 +23,7 @@ ANSWER_CHUNKS_PATH = OUTPUT_DIR / "answer_chunks.jsonl"
 # --- 設定(環境變數可覆寫) ---
 LOCAL_LLM_BASE_URL = os.environ.get("LOCAL_LLM_BASE_URL", "http://localhost:11434")
 LOCAL_EMBED_MODEL = os.environ.get("LOCAL_EMBED_MODEL", "bge-m3")
-POSTGRES_URL = os.environ.get("POSTGRES_URL", "postgresql://appeal:appeal@localhost:5433/appeal")
+POSTGRES_URL = os.environ.get("POSTGRES_URL", "")  # 空字串=未設定,main() 連線前檢查,import 時不 raise
 
 EMBED_BATCH_SIZE = 32
 
@@ -152,6 +152,8 @@ def table_count(conn, table: str) -> int:
 
 
 def main():
+    if not POSTGRES_URL:
+        raise SystemExit("POSTGRES_URL 未設定")
     law_rows = load_jsonl(LAW_CHUNKS_PATH)
     interp_rows = load_jsonl(INTERP_CHUNKS_PATH)
     case_rows = drop_holdout_years(load_jsonl(CASE_CHUNKS_PATH))

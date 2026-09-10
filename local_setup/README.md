@@ -35,7 +35,7 @@ python ingest.py
 |---|---|---|
 | `LOCAL_LLM_BASE_URL` | `http://localhost:11434` | ollama base URL(主機直連;容器內另用 `host.docker.internal`,與本腳本無關) |
 | `LOCAL_EMBED_MODEL` | `bge-m3` | embedding 模型名稱 |
-| `POSTGRES_URL` | `postgresql://appeal:appeal@localhost:5433/appeal` | Postgres 連線字串(主機直連 compose 對外 port) |
+| `POSTGRES_URL` | (無預設,必填) | Postgres 連線字串,主機直連 compose 對外 port:`postgresql://appeal:<POSTGRES_PASSWORD>@localhost:5433/appeal`,密碼取 `.env` 的 `POSTGRES_PASSWORD`;未設定即 `SystemExit` |
 
 ## 預期輸出(範例)
 

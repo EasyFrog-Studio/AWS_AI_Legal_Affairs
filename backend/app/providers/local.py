@@ -34,6 +34,8 @@ class LocalProvider(AIProvider):
         self._http = http_client
 
         if connect is None:
+            if not settings.POSTGRES_URL:
+                raise RuntimeError("POSTGRES_URL 未設定,local 模式需要 Postgres 連線字串")
 
             def _default_connect():
                 import psycopg

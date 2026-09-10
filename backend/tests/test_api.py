@@ -1,7 +1,6 @@
 import os
 
 os.environ.setdefault("AI_PROVIDER", "mock")
-os.environ.setdefault("API_KEY", "demo-key-2026")
 
 from pathlib import Path
 
