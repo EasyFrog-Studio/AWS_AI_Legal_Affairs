@@ -36,16 +36,17 @@ _INADMISSIBLE_MAIN_TEXT = "訴願不受理。"  # 語料 90/90 件不受理決�
 _APPEAL_ACT_ARTICLE = 77
 _OVERDUE_CLAUSE = "77條第2款"
 _OVERDUE_CLAUSE_KEY = parse_clause(_OVERDUE_CLAUSE)  # 兩者同一件事,不手動同步
-# 語料只驗證過這五款(§77(1)(2)(3)(6)(8));(4)(5)(7) 語料 0 件,模型若判這三款不得逕採,
-# 見階段一文書規格與期間計算.md §六——沒有語料支撐的款次,連引哪些法條都答不出來
-_SUPPORTED_CLAUSES = {1, 2, 3, 6, 8}
+# §77(5) 語料 0 件,模型若判這款不得逕採——沒有語料支撐的款次,連引哪些法條都答不出來
+_SUPPORTED_CLAUSES = {1, 2, 3, 4, 6, 7, 8}
 
 # 各款附加條文取自語料實測:該款出現率 >=50% 且至少 2 件(件數下限防單一案例把比率拉到 50%)
 _CLAUSE_LAW_KEYS = {
     1: ["訴願法#56", "訴願法#47", "行政訴訟法#67", "行政訴訟法#71"],
     2: ["訴願法#14", "行政程序法#72"],
     3: ["訴願法#1", "訴願法#18"],
+    4: ["訴願法#19", "行政程序法#72", "行政程序法#74", "民法#12"],
     6: ["訴願法#1"],
+    7: [],
     8: ["訴願法#3"],
 }
 
@@ -58,9 +59,9 @@ def inadmissible_law_keys(matched_clause: str | None) -> list[str]:
 
 
 def guard_unsupported_clause(screening: ScreeningResult) -> ScreeningResult:
-    """語料只驗證過訴願法§77(1)(2)(3)(6)(8);模型若判其餘款次,或款次解析不出來,一律標記
-    待人工認定,不逕採——沒有語料就答不出該款次實際會引哪些法條(見§六),寧可讓承辦人員
-    自己判,不要讓系統裝出一個沒有根據的結論。只影響不受理判斷(passed=True 不動)。"""
+    """§77(5) 語料 0 件;模型若判這款,或款次解析不出來,一律標記待人工認定,不逕採——
+    沒有語料就答不出該款次實際會引哪些法條,寧可讓承辦人員自己判,不要讓系統裝出一個
+    沒有根據的結論。只影響不受理判斷(passed=True 不動)。"""
     if screening.passed:
         return screening
     parsed = parse_clause(screening.matched_clause)

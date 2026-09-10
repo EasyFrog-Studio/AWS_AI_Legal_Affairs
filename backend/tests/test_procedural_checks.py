@@ -193,7 +193,7 @@ def test_apply_77_3_inconsistent_with_standing_flags_but_does_not_override():
 
 
 def test_apply_77_3_inconsistent_without_standing_overrides_to_third_clause():
-    """不一致且無利害關係,覆寫為第3款不受理,但仍標記待人工確認(語料僅2件)。"""
+    """不一致且無利害關係,覆寫為第3款不受理,但仍標記待人工確認(利害關係屬價值判斷)。"""
     screening = _screening()
     result = apply_article_77_3(screening, StandingCheck(consistent=False, has_standing=False))
     assert result.passed is False

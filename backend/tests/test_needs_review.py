@@ -83,7 +83,7 @@ def test_missing_required_field_needs_review():
 
 
 def test_standing_dispute_needs_review():
-    """處分相對人與訴願人不一致就是當事人適格爭點,語料只有 2 件,一律人工看。"""
+    """處分相對人與訴願人不一致就是當事人適格爭點,利害關係屬價值判斷,一律人工看。"""
     case = _case(f1=_info(disposition_recipient="李小華"))
 
     assert needs_review(case) is True

@@ -304,10 +304,24 @@ def test_inadmissible_law_keys_disposition_gone_includes_article_1():
 
 
 def test_inadmissible_law_keys_clause_without_corpus_falls_back_to_77_only():
-    """§77(4)(5)(7) 語料 0 件,不猜對應法條,只給款次本身。"""
-    assert inadmissible_law_keys("77條第4款") == ["訴願法#77"]
+    """§77(5) 語料 0 件,不猜對應法條,只給款次本身。"""
     assert inadmissible_law_keys("77條第5款") == ["訴願法#77"]
-    assert inadmissible_law_keys("77條第7款") == ["訴願法#77"]
+
+
+def test_inadmissible_law_keys_clause_4_includes_corpus_derived_articles():
+    """§77(4) 語料 6 件:訴願法#19、行政程序法#72 各 67%,行政程序法#74、民法#12 各 50%。"""
+    keys = inadmissible_law_keys("77條第4款")
+
+    assert keys[0] == "訴願法#77"
+    assert keys == ["訴願法#77", "訴願法#19", "行政程序法#72", "行政程序法#74", "民法#12"]
+    assert len(keys) == len(set(keys))
+
+
+def test_inadmissible_law_keys_clause_7_has_no_article_meeting_threshold():
+    """§77(7) 語料 8 件:除訴願法#77(100%)外沒有其他鍵達到 >=50% 且至少 2 件的門檻。"""
+    keys = inadmissible_law_keys("77條第7款")
+
+    assert keys == ["訴願法#77"]
 
 
 def test_inadmissible_law_keys_unparsable_clause_falls_back_to_77_only():
@@ -343,17 +357,27 @@ def test_inadmissible_law_keys_has_no_duplicates():
 
 
 def test_guard_unsupported_clause_leaves_supported_clauses_untouched():
-    """語料驗證過的五款(1/2/3/6/8)照原樣通過,不動 passed 也不加 review_note。"""
-    for n in (1, 2, 3, 6, 8):
+    """語料驗證過的七款(1/2/3/4/6/7/8)照原樣通過,不動 passed 也不加 review_note。"""
+    for n in (1, 2, 3, 4, 6, 7, 8):
         screening = ScreeningResult(passed=False, matched_clause=f"77條第{n}款", reasoning="理由")
         result = guard_unsupported_clause(screening)
         assert result.passed is False
         assert result.review_note == ""
 
 
+def test_guard_unsupported_clause_now_supports_clauses_4_and_7():
+    """§77(4)(7) 語料各有 6/8 件,不再是「本版不判」的款次。"""
+    for n in (4, 7):
+        screening = ScreeningResult(passed=False, matched_clause=f"77條第{n}款", reasoning="模型理由")
+        result = guard_unsupported_clause(screening)
+        assert result.passed is False
+        assert result.review_note == ""
+        assert result.reasoning == "模型理由"
+
+
 def test_guard_unsupported_clause_flags_unsupported_clauses_without_flipping_passed():
-    """§77(4)(5)(7) 語料 0 件,模型判這三款時 passed 不動,只加 review_note 待人工認定。"""
-    for n in (4, 5, 7):
+    """§77(5) 語料 0 件,模型判這款時 passed 不動,只加 review_note 待人工認定。"""
+    for n in (5,):
         screening = ScreeningResult(passed=False, matched_clause=f"77條第{n}款", reasoning="模型理由")
         result = guard_unsupported_clause(screening)
         assert result.passed is False  # 不逕採,但也不偷改成受理——那同樣是臆造結論
@@ -390,19 +414,19 @@ def test_run_case_flags_unsupported_clause_but_still_produces_a_draft():
 
     class _UnsupportedClauseProvider(StubInadmissibleProvider):
         def screen_admissibility(self, info, text) -> ScreeningResult:
-            return ScreeningResult(passed=False, matched_clause="77條第7款", reasoning="模型判第7款")
+            return ScreeningResult(passed=False, matched_clause="77條第5款", reasoning="模型判第5款")
 
         def generate_draft(self, info, screening, laws, cases) -> DraftResult:
-            # §77(7) 語料 0 件,inadmissible_law_keys 只給訴願法#77,不驗證清單內容,只確保流程能跑完
+            # §77(5) 語料 0 件,inadmissible_law_keys 只給訴願法#77,不驗證清單內容,只確保流程能跑完
             return DraftResult(
-                draft_type="不受理", fact="", reason="模型判第7款", main_text="訴願不受理。"
+                draft_type="不受理", fact="", reason="模型判第5款", main_text="訴願不受理。"
             )
 
     run_case("c-55555555", store, _UnsupportedClauseProvider())
 
     case = store.get("c-55555555")
     assert case.status == "done"
-    assert case.screening.matched_clause == "77條第7款"
+    assert case.screening.matched_clause == "77條第5款"
     assert "須人工認定" in case.screening.review_note
     assert case.f4 is not None
 

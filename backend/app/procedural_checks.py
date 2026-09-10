@@ -131,7 +131,7 @@ def apply_article_77_1(
 
 
 class StandingCheck(BaseModel):
-    """§77(3) 當事人適格檢核結果。語料只有 2 件,不論哪個分支都一律待人工確認
+    """§77(3) 當事人適格檢核結果。語料 10 件,不論哪個分支都一律待人工確認
     (見 apply_article_77_3),這裡的欄位只記錄「查到了什麼」,不做結論性判斷。"""
 
     consistent: Optional[bool] = None  # 處分相對人與訴願人是否一致;任一欄空白時為 None,不猜
@@ -170,8 +170,8 @@ def apply_article_77_3(screening, check: StandingCheck):
     | consistent=False 且 has_standing=False(無利害關係) | 覆寫為第3款不受理 |
     | consistent=False 且 has_standing=None(LLM 判斷不出來) | 不覆寫,標記待人工認定 |
 
-    語料只有 2 件(見階段一文書規格與期間計算.md §六「§77(3) 樣本少」),**任何一種
-    不一致的情形都一律 `review_note` 非空**——即使覆寫成不受理,也不是可逕採的結論。
+    有無利害關係屬個案價值判斷,**任何一種不一致的情形都一律 `review_note` 非空**——
+    即使覆寫成不受理,也不是可逕採的結論。
     """
     if check.consistent is None:
         return screening
@@ -192,6 +192,6 @@ def apply_article_77_3(screening, check: StandingCheck):
             "passed": False,
             "matched_clause": "77條第3款",
             "reasoning": reasoning,
-            "review_note": "自動判第3款不受理(語料僅2件),請人工確認",
+            "review_note": "自動判第3款不受理(利害關係屬價值判斷),請人工確認",
         }
     )
