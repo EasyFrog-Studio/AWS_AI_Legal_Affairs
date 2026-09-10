@@ -152,6 +152,48 @@ def test_an_admissible_case_with_a_consistent_draft_does_not_need_review():
         assert needs_review(case) is False, draft_type
 
 
+def test_a_remand_draft_that_names_a_period_does_not_need_review():
+    """訴願法§81 II:撤銷發回應指定相當期間;主文寫得出期間就沒有這一項疑義。"""
+    for main_text in (
+        "原處分撤銷,由原處分機關於2個月內另為適法之處分。",
+        "原處分撤銷,由原處分機關於30日內另為適法之處理。",
+    ):
+        case = _case(
+            track="admissible",
+            f4=DraftResult(draft_type="撤銷另處", fact="事實", reason="理由", main_text=main_text),
+        )
+
+        assert needs_review(case) is False, main_text
+
+
+def test_a_remand_draft_without_a_period_needs_review():
+    case = _case(
+        track="admissible",
+        f4=DraftResult(
+            draft_type="撤銷另處", fact="事實", reason="理由", main_text="原處分撤銷,由原處分機關另為適法之處分。"
+        ),
+    )
+
+    assert needs_review(case) is True
+
+
+def test_a_partial_decision_always_needs_review():
+    """語料只有 1 件,主文逐標的分項是否對得上原處分的標的,系統驗不了。"""
+    for track in ("inadmissible", "admissible"):
+        case = _case(
+            track=track,
+            screening=ScreeningResult(passed=False, matched_clause="77條第8款", reasoning="限期改善部分非處分"),
+            f4=DraftResult(
+                draft_type="部分不受理部分駁回",
+                fact="事實",
+                reason="理由",
+                main_text="原處分關於罰鍰部分,訴願駁回。原處分關於限期改善部分,訴願不受理。",
+            ),
+        )
+
+        assert needs_review(case) is True, track
+
+
 def test_an_inadmissible_case_with_an_inadmissible_draft_does_not_need_review():
     case = _case(
         track="inadmissible",

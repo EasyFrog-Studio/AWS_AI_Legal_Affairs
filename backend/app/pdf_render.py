@@ -138,8 +138,8 @@ def build_decision_blocks(case, body_as_slots: bool = False) -> list[tuple[str, 
     for _ in range(_COMMITTEE_LINES):
         blocks.append(("body", f"委員　{_BLANK}"))
     blocks.append(("blank", ""))
-    # 語料 18 件不受理/駁回案逐字相同;3 件撤銷案全部沒有——訴願有理由就沒有要救濟的對象
-    if f4.draft_type != "原處分撤銷":
+    # 訴願有理由(撤銷/撤銷另處)就沒有要救濟的對象,其餘類型都附教示段
+    if f4.draft_type not in ("原處分撤銷", "撤銷另處"):
         blocks.append(("body", _LITIGATION_NOTICE))
         blocks.append(("blank", ""))
     blocks.append(("body", f"中華民國　　　　年　　　月　　　日"))

@@ -5,7 +5,7 @@ import json
 from typing import Optional
 
 from app.config import settings
-from app.models import CaseInfo, DraftResult, LawRef, ScreeningResult, SimilarCase, StandingAssessment
+from app.models import DRAFT_TYPES, CaseInfo, DraftResult, LawRef, ScreeningResult, SimilarCase, StandingAssessment
 from app.providers.aws import (
     _CASE_CHUNK_FETCH,
     _TOP_K,
@@ -277,7 +277,7 @@ class LocalProvider(AIProvider):
         schema = {
             "type": "object",
             "properties": {
-                "draft_type": {"type": "string", "enum": ["不受理", "駁回", "原處分撤銷"]},
+                "draft_type": {"type": "string", "enum": list(DRAFT_TYPES)},
                 "fact": {"type": "string"},
                 "reason": {"type": "string"},
                 "main_text": {"type": "string"},

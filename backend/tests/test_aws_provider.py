@@ -578,3 +578,28 @@ def test_find_similar_cases_returns_at_most_three_distinct_cases():
     assert [c.case_no for c in cases] == ["112-0001", "112-0002", "112-0003"]
     # chunk 取用量要大於呈現筆數,否則同一案號的多個段落會把三件不同案例佔滿
     assert _vector_config(bart, 0)["numberOfResults"] > 3
+
+
+def test_generate_draft_schema_enum_matches_draft_types():
+    from app.models import DRAFT_TYPES
+
+    brt = MagicMock()
+    brt.converse.return_value = _toolUse_response(
+        "generate_draft",
+        {
+            "draft_type": "駁回",
+            "fact": "事實",
+            "reason": "理由",
+            "main_text": "訴願駁回。",
+            "cited_laws": [],
+        },
+    )
+    provider = _provider(bedrock_runtime=brt)
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
+
+    provider.generate_draft(_info(), screening, [], [])
+
+    _, kwargs = brt.converse.call_args
+    tool_spec = kwargs["toolConfig"]["tools"][0]["toolSpec"]
+    schema = tool_spec["inputSchema"]["json"]
+    assert schema["properties"]["draft_type"]["enum"] == list(DRAFT_TYPES)

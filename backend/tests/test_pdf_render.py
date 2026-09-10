@@ -191,3 +191,22 @@ def test_slot_mode_still_omits_the_fact_slot_for_an_inadmissible_decision():
     slots = [t for k, t in build_decision_blocks(case, body_as_slots=True) if k == "slot"]
 
     assert slots == ["main_text", "reason"]
+
+
+def test_a_revoke_and_remand_decision_carries_no_litigation_notice():
+    """撤銷另處與原處分撤銷同為訴願有理由,語料 11 件撤銷另處案同樣沒有這段。"""
+    joined = "".join(_texts(build_decision_blocks(_case(f1=_info(), f4=_f4("撤銷另處")))))
+
+    assert "如不服本決定" not in joined
+
+
+def test_a_partially_inadmissible_partially_dismissed_decision_carries_the_notice_and_keeps_fact_section():
+    """部分不受理部分駁回對訴願人不利(仍有駁回部分),附教示段且不省略事實欄標題。"""
+    blocks = build_decision_blocks(_case(f1=_info(), f4=DraftResult(
+        draft_type="部分不受理部分駁回", fact="緣訴願人…", reason="一、關於罰鍰部分…",
+        main_text="關於罰鍰部分,訴願駁回。關於限期改善部分,訴願不受理。")))
+    headings = [t for k, t in blocks if k == "heading"]
+    joined = "".join(_texts(blocks))
+
+    assert headings == ["主　文", "事　實", "理　由"]
+    assert "如不服本決定,得於決定書送達之次日起 2 個月內向臺北高等行政法院" in joined

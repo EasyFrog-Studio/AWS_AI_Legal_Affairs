@@ -266,6 +266,30 @@ def test_enforce_inadmissible_format_admissible_left_untouched():
     assert result == draft
 
 
+def test_enforce_inadmissible_format_keeps_partial_decision_as_the_model_wrote_it():
+    """部分不受理部分駁回的主文逐標的分項、事實欄要留給駁回那一部分,套固定不受理套語就錯了。"""
+    screening = ScreeningResult(passed=False, matched_clause="77條第8款", reasoning="限期改善部分非行政處分")
+    draft = _draft(
+        draft_type="部分不受理部分駁回",
+        main_text="原處分關於新臺幣12萬元罰鍰部分,訴願駁回。原處分關於限期改善部分,訴願不受理。",
+        fact="罰鍰部分之事實",
+    )
+
+    result = enforce_inadmissible_format(draft, screening)
+
+    assert result == draft
+
+
+def test_enforce_inadmissible_format_still_coerces_other_admissible_types_on_inadmissible_track():
+    """只有部分不受理部分駁回例外;不受理側跑出撤銷另處,一樣視為分流與草稿矛盾,照舊覆寫。"""
+    screening = ScreeningResult(passed=False, matched_clause="77條第2款", reasoning="逾期")
+    draft = _draft(draft_type="撤銷另處", main_text="原處分撤銷,由原處分機關於2個月內另為適法之處分。")
+
+    result = enforce_inadmissible_format(draft, screening)
+
+    assert (result.draft_type, result.main_text, result.fact) == ("不受理", "訴願不受理。", "")
+
+
 def test_run_case_exception_sets_error_status():
     store = MemoryStore()
     _new_case(store, "c-33333333")

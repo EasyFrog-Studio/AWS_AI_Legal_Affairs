@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from typing import Literal, Optional
+from typing import Literal, Optional, get_args
 
 from pydantic import BaseModel
 
@@ -104,7 +104,7 @@ class SimilarCase(BaseModel):
 
 
 class DraftResult(BaseModel):
-    draft_type: Literal["不受理", "駁回", "原處分撤銷"]
+    draft_type: DraftType
     fact: str
     reason: str
     main_text: str
@@ -146,6 +146,8 @@ Status = Literal["collecting", "processing", "done", "error"]
 Track = Literal["admissible", "inadmissible"]
 Source = Literal["pdf", "text"]
 DocumentSlot = Literal["appeal", "service", "disposition", "answer"]
+DraftType = Literal["不受理", "駁回", "撤銷另處", "原處分撤銷", "部分不受理部分駁回"]
+DRAFT_TYPES: tuple[str, ...] = get_args(DraftType)  # providers 的 JSON schema enum 與這裡同源
 
 # 各槽對應的中文名,錯誤訊息與前端顯示共用同一份,不分別寫兩次
 DOCUMENT_SLOT_LABELS: dict[DocumentSlot, str] = {

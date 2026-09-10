@@ -75,8 +75,9 @@ def guard_unsupported_clause(screening: ScreeningResult) -> ScreeningResult:
 
 
 def enforce_inadmissible_format(draft: DraftResult, screening: ScreeningResult) -> DraftResult:
-    """不受理決定書體例:主文為固定套語、事實欄依訴願法第89條第1項第3款不記載。"""
-    if screening.passed:
+    """不受理決定書體例:主文為固定套語、事實欄依訴願法第89條第1項第3款不記載。
+    部分不受理部分駁回是唯一例外——主文逐標的分項、事實欄留給駁回的部分,固定套語套上去就錯。"""
+    if screening.passed or draft.draft_type == "部分不受理部分駁回":
         return draft
     return draft.model_copy(
         update={"draft_type": "不受理", "main_text": _INADMISSIBLE_MAIN_TEXT, "fact": ""}

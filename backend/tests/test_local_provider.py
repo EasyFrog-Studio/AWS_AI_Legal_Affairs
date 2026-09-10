@@ -422,7 +422,6 @@ def test_generate_draft_calls_chat_and_strips_disallowed_laws():
 
     path, body = http.calls[0]
     assert path == "/api/chat"
-    assert body["format"]["properties"]["draft_type"]["enum"] == ["不受理", "駁回", "原處分撤銷"]
 
 
 # ---------- f. 建構子注入 fake 完全不觸碰 settings 新欄位與 psycopg ----------
@@ -543,3 +542,27 @@ def test_find_similar_cases_returns_at_most_three_distinct_cases():
     )
 
     assert [c.case_no for c in cases] == ["112-0001", "112-0002", "112-0003"]
+
+
+def test_generate_draft_schema_enum_matches_draft_types():
+    from app.models import DRAFT_TYPES
+
+    http = FakeHTTP(
+        chat_payloads=[
+            {
+                "draft_type": "駁回",
+                "fact": "事實",
+                "reason": "理由",
+                "main_text": "訴願駁回。",
+                "cited_laws": [],
+            }
+        ]
+    )
+    provider = _provider(http_client=http)
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
+
+    provider.generate_draft(_info(), screening, [], [])
+
+    path, body = http.calls[0]
+    assert path == "/api/chat"
+    assert body["format"]["properties"]["draft_type"]["enum"] == list(DRAFT_TYPES)

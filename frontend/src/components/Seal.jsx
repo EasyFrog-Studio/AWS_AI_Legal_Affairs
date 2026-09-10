@@ -8,7 +8,7 @@ export default function Seal({ kind = 'accent', size = 'sm', children }) {
  * status=error → 處理失敗(error)
  * needs_review=true(已跑完但有事實待人工認定) → 待人工確認(review)
  * status=done, track=inadmissible → 不受理(reject)
- * status=done, track=admissible → draft_type 文字(駁回→reject,原處分撤銷→pass);無 f4 的清單摘要 → 已審結(accent)
+ * status=done, track=admissible → draft_type 文字(駁回/部分不受理部分駁回→reject,撤銷另處/原處分撤銷→pass);無 f4 的清單摘要 → 已審結(accent)
  */
 export function resolveCaseSeal(caseData) {
   if (!caseData) return { kind: 'accent', text: '審理中' }
@@ -20,8 +20,8 @@ export function resolveCaseSeal(caseData) {
   if (caseData.track === 'inadmissible') return { kind: 'reject', text: '不受理' }
   if (caseData.track === 'admissible') {
     const draftType = caseData.f4?.draft_type
-    if (draftType === '駁回') return { kind: 'reject', text: draftType }
-    if (draftType === '原處分撤銷') return { kind: 'pass', text: draftType }
+    if (draftType === '駁回' || draftType === '部分不受理部分駁回') return { kind: 'reject', text: draftType }
+    if (draftType === '原處分撤銷' || draftType === '撤銷另處') return { kind: 'pass', text: draftType }
     // 清單摘要(GET /api/cases)不含 f4,已審結的受理案件只能顯示「已審結」
     if (!draftType && caseData.status === 'done') return { kind: 'accent', text: '已審結' }
     return { kind: 'accent', text: draftType || '審理中' }
