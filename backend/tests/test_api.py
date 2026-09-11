@@ -430,6 +430,10 @@ def test_analyze_blocked_when_a_document_is_flagged_mismatched(monkeypatch):
 
     assert resp.status_code == 409
     assert "訴願書" in resp.json()["detail"]
+    # 清單要能講出這件是「文件不對」卡住,不是普通的待確認
+    row = next(r for r in client.get("/api/cases", headers=_headers()).json() if r["case_id"] == case_id)
+    assert row["documents_failed"] is True
+    assert row["result"] is None
 
 
 def test_analyze_blocked_when_a_document_check_is_inconclusive(monkeypatch):
@@ -457,7 +461,8 @@ def test_full_flow_create_analyze_list_get_completed_case(monkeypatch):
     list_resp = client.get("/api/cases", headers=_headers())
     assert list_resp.status_code == 200
     summaries = list_resp.json()
-    assert any(c["case_id"] == case_id for c in summaries)
+    row = next(c for c in summaries if c["case_id"] == case_id)
+    assert row["documents_failed"] is False
 
     get_resp = client.get(f"/api/cases/{case_id}", headers=_headers())
     assert get_resp.status_code == 200
@@ -468,6 +473,8 @@ def test_full_flow_create_analyze_list_get_completed_case(monkeypatch):
     assert case["track"] == "admissible"
     assert case["f1"]["appellant"] == "王大明"
     assert case["f4"] is not None
+    # 清單的「狀況」欄就是草稿的決定結果,兩處不能各講各的
+    assert row["result"] == case["f4"]["draft_type"]
 
 
 def test_full_flow_inadmissible_case_skips_f2_and_uses_fixed_draft(monkeypatch):

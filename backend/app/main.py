@@ -331,6 +331,8 @@ def list_cases() -> list[CaseSummary]:
             current_stage=c.current_stage,
             case_type=c.f1.case_type if c.f1 else None,
             needs_review=needs_review(c),
+            result=c.f4.draft_type if c.f4 else None,
+            documents_failed=any(doc.check.matched is False for doc in c.documents.values()),
         )
         for c in cases
     ]
