@@ -22,6 +22,8 @@ CASE_CHUNKS_PATH = OUTPUT_DIR / "case_chunks.jsonl"
 ANSWER_CHUNKS_PATH = OUTPUT_DIR / "answer_chunks.jsonl"
 
 # --- 設定(環境變數可覆寫) ---
+# 本腳本在主機上跑,而 .env 的 ollama 位址是給容器用的;先佔住主機位址,.env 就蓋不過來
+os.environ.setdefault("LOCAL_LLM_BASE_URL", "http://localhost:11434")
 # .env 只有 compose 會自動注入,建索引是在主機上跑的,要自己載;既有環境變數優先
 load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 
@@ -30,7 +32,9 @@ LOCAL_EMBED_MODEL = os.environ.get("LOCAL_EMBED_MODEL", "bge-m3")
 # 與 backend/app/config.py 的 LOCAL_LLM_TIMEOUT 同一個旋鈕:建索引是數千筆的長批次,
 # 逾時值調小會讓整批在中途斷在一筆正常的慢 embedding 上
 LOCAL_LLM_TIMEOUT = float(os.environ.get("LOCAL_LLM_TIMEOUT", "300"))
-POSTGRES_URL = os.environ.get("POSTGRES_URL", "")  # 空字串=未設定,main() 連線前檢查,import 時不 raise
+# .env 的 POSTGRES_URL 是給容器用的(host 為 compose 服務名),主機上解析不到;建索引在主機跑,
+# 走對外 port,故另設一個變數,兩者都沒有才算未設定
+POSTGRES_URL = os.environ.get("POSTGRES_URL_HOST") or os.environ.get("POSTGRES_URL", "")
 
 EMBED_BATCH_SIZE = 32
 
@@ -160,7 +164,10 @@ def table_count(conn, table: str) -> int:
 
 def main():
     if not POSTGRES_URL:
-        raise SystemExit("POSTGRES_URL 未設定")
+        raise SystemExit(
+            "POSTGRES_URL_HOST 未設定。本腳本在主機上跑,要連 compose 對外 port,"
+            "例:postgresql://appeal:<POSTGRES_PASSWORD>@localhost:5433/appeal"
+        )
     law_rows = load_jsonl(LAW_CHUNKS_PATH)
     interp_rows = load_jsonl(INTERP_CHUNKS_PATH)
     case_rows = drop_holdout_years(load_jsonl(CASE_CHUNKS_PATH))

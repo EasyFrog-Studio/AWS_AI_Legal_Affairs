@@ -31,11 +31,14 @@ python ingest.py
 
 ## 環境變數(皆可覆寫預設值)
 
+以下變數會自動從程式碼層根目錄的 `.env` 讀入(`override=False`,真實環境變數優先)。
+
 | 變數 | 預設值 | 說明 |
 |---|---|---|
-| `LOCAL_LLM_BASE_URL` | `http://localhost:11434` | ollama base URL(主機直連;容器內另用 `host.docker.internal`,與本腳本無關) |
+| `LOCAL_LLM_BASE_URL` | `http://localhost:11434` | ollama base URL(主機直連)。`.env` 裡那個是給容器用的 `host.docker.internal`,本腳本會先佔住主機位址不讓它蓋過來 |
 | `LOCAL_EMBED_MODEL` | `bge-m3` | embedding 模型名稱 |
-| `POSTGRES_URL` | (無預設,必填) | Postgres 連線字串,主機直連 compose 對外 port:`postgresql://appeal:<POSTGRES_PASSWORD>@localhost:5433/appeal`,密碼取 `.env` 的 `POSTGRES_PASSWORD`;未設定即 `SystemExit` |
+| `LOCAL_LLM_TIMEOUT` | `300` | ollama 單次請求逾時秒數;建索引是數千筆的長批次,調小會讓整批斷在一筆正常的慢 embedding 上 |
+| `POSTGRES_URL_HOST` | (無預設,必填) | Postgres 連線字串,主機直連 compose 對外 port:`postgresql://appeal:<POSTGRES_PASSWORD>@localhost:5433/appeal`。與 `POSTGRES_URL` 分開是因為後者的 host 是 compose 服務名,只在容器網路內解析得到;兩者皆空即 `SystemExit` |
 
 ## 預期輸出(範例)
 
