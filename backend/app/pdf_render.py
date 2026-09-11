@@ -8,6 +8,7 @@ import re
 import fitz
 
 from app.config import settings
+from app.models import DRAFT_SECTIONS
 
 _BUILTIN_FONT = "china-t"
 _EMBEDDED_FONT_NAME = "kai"
@@ -123,11 +124,8 @@ def build_decision_blocks(case) -> list[tuple[str, str]]:
     ]
 
     f4 = case.f4
-    for heading, field, body in (
-        ("主　文", "main_text", f4.main_text),
-        ("事　實", "fact", f4.fact),
-        ("理　由", "reason", f4.reason),
-    ):
+    for heading, field in DRAFT_SECTIONS:
+        body = getattr(f4, field)
         # 不受理決定得不記載事實(訴願法§89 I(3)),語料 90 件事實欄全空,不留空標題
         if field == "fact" and f4.draft_type == "不受理" and not (f4.fact or "").strip():
             continue

@@ -5,7 +5,7 @@ import re
 from datetime import date
 from typing import Literal, Optional, get_args
 
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, computed_field, model_validator
 
 from app.law_urls import interpretation_url, law_article_url
 
@@ -173,12 +173,25 @@ class DecisionHeader(BaseModel):
     decided_date: str = ""
 
 
+# 決定書本文三段的標題與 f4 欄位,版面(pdf_render)與舊版本快照攤平共用同一張表
+DRAFT_SECTIONS = (("主　文", "main_text"), ("事　實", "fact"), ("理　由", "reason"))
+
+
 class DraftVersion(BaseModel):
     """草稿的一個歷史版本。每次 PATCH 存一版,定稿後的修訂也一樣存——定稿只是標記,不鎖。
     存的是整份決定書全文:編輯單位就是這一整份,拆成三欄存會對不上承辦人實際改的東西。"""
 
     saved_at: str
     text: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _flatten_legacy_fields(cls, data):
+        # store 內仍有主文/事實/理由三欄格式的快照,讀出時攤成全文,空欄不印標題
+        if isinstance(data, dict) and "text" not in data and "main_text" in data:
+            text = "\n\n".join(f"{heading}\n{data[key]}" for heading, key in DRAFT_SECTIONS if data.get(key))
+            return {"saved_at": data.get("saved_at"), "text": text}
+        return data
 
 
 class DraftTextPatch(BaseModel):
@@ -308,6 +321,16 @@ class Case(BaseModel):
     draft_versions_truncated: bool = False  # 有版本被丟掉這件事要看得見,不是靜默消失
     finalized_at: Optional[str] = None  # 定稿只是標記,不鎖;定稿後仍可 PATCH,改了再存一版
     error: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _fill_plain_text_from_f4(self):
+        # store 內仍有只有 f4、沒有全文的案件;讀出時攤平,否則畫面與下載都是空白
+        if self.f4 is not None and not self.draft_plain_text:
+            from app.pdf_render import decision_plain_text  # pdf_render 載入 fitz,不在模型模組載入時付這個代價
+
+            self.draft_plain_text = decision_plain_text(self)
+        return self
+
 
 
 class CaseSummary(BaseModel):
