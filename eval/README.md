@@ -15,14 +15,16 @@ cd AWS_AI_Legal_Affairs/eval
 python run_eval.py                       # 兩條線全跑,約 10 分鐘
 python run_eval.py --only example4       # 只跑一組,除錯用
 python run_eval.py --only 07 --skip-cases   # --skip-cases / --skip-decisions 各關掉一條線
+python run_eval.py --cases <卷證根目錄> --out <報告目錄>   # 語料不在預設位置時
 python -m pytest                         # 計分與執行器的測試,不需 ollama
 ```
 
 前置:主機 ollama 已 `ollama serve` 且已 pull `LOCAL_LLM_MODEL`。ollama 一次只跑一個生成,
 評測跑起來會把同時使用網站的請求餓死成 timeout,測站前先確認 `/api/ps` 是空的。
 
-報告覆寫 `data/output/eval_report.md`(給人看)與 `eval_report.json`(給程式讀),不累積歷史。
-該目錄在 .gitignore 內,報告不進版控。
+報告覆寫 `--out` 目錄下的 `eval_report.md`(給人看)與 `eval_report.json`(給程式讀),不累積歷史。
+`--cases` 與 `--out` 的預設值都指向 repo 之外的 `../data/`:語料體積大又會過期,不進版控,
+所以路徑因機器而異,兩個參數都留成可覆寫。
 
 ## 答案從哪裡來
 

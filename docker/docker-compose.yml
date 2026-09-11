@@ -12,8 +12,9 @@ services:
     volumes:
       - ${USERPROFILE:-~}/.aws:/root/.aws:ro
       # local/mock 模式「原文」讀的是前處理產出的 markdown;image 不含 data/(過大且會過期),
-      # 容器內解析出的路徑是 /data/output,掛不上就每個原文都回「找不到檔案」
-      - ../../data/output:/data/output:ro
+      # 容器內解析出的路徑是 /data/output,掛不上就每個原文都回「找不到檔案」。
+      # 語料不在 repo 內(體積大且會過期),路徑因機器而異,故留成可覆寫
+      - ${DATA_OUTPUT_DIR:-../../data/output}:/data/output:ro
     depends_on:
       postgres:
         condition: service_healthy

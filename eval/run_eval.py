@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 _EVAL_DIR = Path(__file__).resolve().parent
 _CODE_ROOT = _EVAL_DIR.parent
-_OUTER_ROOT = _CODE_ROOT.parent
+_DATA_PARENT = _CODE_ROOT.parent
 
 sys.path.insert(0, str(_EVAL_DIR))
 sys.path.insert(0, str(_CODE_ROOT / "backend"))
@@ -36,9 +36,10 @@ from app.store import MemoryStore  # noqa: E402
 
 from scoring import CORRECT, UNSURE, WRONG, score_case_type, score_field, score_screening, tally  # noqa: E402
 
-_TEST_DATA = _OUTER_ROOT / "data" / "TEST_DATA"
-_DECISION_DIR = _TEST_DATA / "_參考-114年決定書全文"
-_OUTPUT_DIR = _OUTER_ROOT / "data" / "output"
+# 語料與報告都在 repo 之外,路徑因機器而異,故只當預設值,由 --cases / --out 覆寫
+_DEFAULT_CASES_DIR = _DATA_PARENT / "data" / "TEST_DATA"
+_DEFAULT_OUTPUT_DIR = _DATA_PARENT / "data" / "output"
+_DECISION_SUBDIR = "_參考-114年決定書全文"
 _ANSWER_KEY = _EVAL_DIR / "answer_key.json"
 
 _SLOT_FILES = {
@@ -187,7 +188,7 @@ def _score_case(case: Case, expected: dict) -> list[dict]:
     return rows
 
 
-def _run_cases(provider: AIProvider, key: dict, only: str | None) -> list[dict]:
+def _run_cases(provider: AIProvider, key: dict, only: str | None, cases_dir: Path) -> list[dict]:
     results = []
     for name, expected in key["cases"].items():
         if name.startswith("_") or (only and name != only):
@@ -195,7 +196,7 @@ def _run_cases(provider: AIProvider, key: dict, only: str | None) -> list[dict]:
         started = time.time()
         entry = {"name": name, "source_decision": expected.get("source_decision", ""), "note": expected.get("_note", "")}
         try:
-            case = _load_case(name, _TEST_DATA / name)
+            case = _load_case(name, cases_dir / name)
             store = MemoryStore()
             store.create(case)
             run_case(name, store, provider)
@@ -215,8 +216,8 @@ def _run_cases(provider: AIProvider, key: dict, only: str | None) -> list[dict]:
     return results
 
 
-def _run_decisions(provider: AIProvider, key: dict, only: str | None) -> list[dict]:
-    sources = {path.name[:2]: path for path in sorted(_DECISION_DIR.glob("*.txt"))}
+def _run_decisions(provider: AIProvider, key: dict, only: str | None, cases_dir: Path) -> list[dict]:
+    sources = {path.name[:2]: path for path in sorted((cases_dir / _DECISION_SUBDIR).glob("*.txt"))}
     results = []
     for doc_id, expected in key["decisions"].items():
         if doc_id.startswith("_") or (only and doc_id != only):
@@ -334,14 +335,22 @@ def main() -> int:
     parser.add_argument("--only", help="只跑指定組別(線1 用 example4,線2 用 07),除錯用")
     parser.add_argument("--skip-cases", action="store_true", help="略過線1 的合成卷證")
     parser.add_argument("--skip-decisions", action="store_true", help="略過線2 的 21 份決定書")
+    parser.add_argument(
+        "--cases", type=Path, default=_DEFAULT_CASES_DIR,
+        help=f"卷證根目錄,底下為 example1..8 與 {_DECISION_SUBDIR}(預設 {_DEFAULT_CASES_DIR})",
+    )
+    parser.add_argument(
+        "--out", type=Path, default=_DEFAULT_OUTPUT_DIR,
+        help=f"報告輸出目錄(預設 {_DEFAULT_OUTPUT_DIR})",
+    )
     args = parser.parse_args()
 
     key = json.loads(_ANSWER_KEY.read_text(encoding="utf-8"))
     provider = ScreeningOnlyProvider(LocalProvider())
 
     print(f"模型 {settings.LOCAL_LLM_MODEL} @ {settings.LOCAL_LLM_BASE_URL}")
-    cases = [] if args.skip_cases else _run_cases(provider, key, args.only)
-    decisions = [] if args.skip_decisions else _run_decisions(provider, key, args.only)
+    cases = [] if args.skip_cases else _run_cases(provider, key, args.only, args.cases)
+    decisions = [] if args.skip_decisions else _run_decisions(provider, key, args.only, args.cases)
 
     report = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -353,10 +362,10 @@ def main() -> int:
         "decisions": decisions,
     }
 
-    _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    (_OUTPUT_DIR / "eval_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    (_OUTPUT_DIR / "eval_report.md").write_text(_markdown(report), encoding="utf-8")
-    print(f"報告已寫入 {_OUTPUT_DIR / 'eval_report.md'}")
+    args.out.mkdir(parents=True, exist_ok=True)
+    (args.out / "eval_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    (args.out / "eval_report.md").write_text(_markdown(report), encoding="utf-8")
+    print(f"報告已寫入 {args.out / 'eval_report.md'}")
     for layer, stats in report["summary"].items():
         print(f"  {layer}: 對 {stats['correct']} / 錯 {stats['wrong']} / 不確定 {stats['unsure']}(共 {stats['total']})")
     return 0
