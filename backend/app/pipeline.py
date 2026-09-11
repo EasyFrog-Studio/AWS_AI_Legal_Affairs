@@ -57,6 +57,17 @@ def inadmissible_law_keys(matched_clause: str | None) -> list[str]:
     return list(dict.fromkeys(["訴願法#77"] + (extra or [])))
 
 
+def guard_contradictory_screening(screening: ScreeningResult) -> ScreeningResult:
+    """模型答「通過」卻同時指出不受理款次時,以款次為準:具體發現優於概括結論,原樣放行
+    等於讓承辦人看到一個寫著不受理事由的「受理」。款次欄填非款次文字(「無」「不適用」)
+    不算矛盾,那不是發現,不得據以翻掉受理結論。"""
+    if not screening.passed or parse_clause(screening.matched_clause) is None:
+        return screening
+    note = f"程序審查結論與款次矛盾(判通過卻指出{screening.matched_clause}),已以款次為準,須人工確認"
+    merged = ";".join(n for n in (screening.review_note, note) if n)
+    return screening.model_copy(update={"passed": False, "review_note": merged})
+
+
 def guard_unsupported_clause(screening: ScreeningResult) -> ScreeningResult:
     """語料只驗證過訴願法§77(1)(2)(3)(6)(8);模型若判其餘款次,或款次解析不出來,一律標記
     待人工認定,不逕採——沒有語料就答不出該款次實際會引哪些法條(見§六),寧可讓承辦人員
@@ -265,8 +276,14 @@ def reconcile_deadline(
 ) -> tuple[ScreeningResult, DeadlineCheck]:
     """算得出逾期即以算式取代模型判斷;結論待確認或與模型相反時兩者都不動,只記歧異待人工。"""
     if check.overdue is True and check.review_note:
-        # 算式本身還要人工確認,就不該拿去覆寫審查結果,更不該進草稿理由
-        return screening, check.model_copy(update={"review_note": f"{check.review_note};未據以覆寫程序審查"})
+        # 算式本身還要人工確認,就不該拿去覆寫審查結果,更不該進草稿理由;但被質疑的是
+        # 「本案未逾期」這個結論,註記只落在期間欄的話,單看程序審查區塊的人會把它當可逕採
+        note = f"期間算得出逾期但{check.review_note},結論未經期間算式確認"
+        merged = ";".join(n for n in (screening.review_note, note) if n)
+        return (
+            screening.model_copy(update={"review_note": merged}),
+            check.model_copy(update={"review_note": f"{check.review_note};未據以覆寫程序審查"}),
+        )
     if check.overdue is True:
         reasoning = f"{check.detail}依訴願法第77條第2款應不受理。程序審查意見:{screening.reasoning}"
         update = {"passed": False, "matched_clause": _OVERDUE_CLAUSE, "reasoning": reasoning}
@@ -343,6 +360,7 @@ def _screen_and_draft(
     那種案件重跑時不得再呼叫 extract_case_info,否則人剛改的欄位會被模型改回去。
     例外不在此處理,由呼叫端統一落 status=error。"""
     screening = provider.screen_admissibility(info, case.input_text)
+    screening = guard_contradictory_screening(screening)
     # §77(1) 必要記載檢核在期間計算之前:期間逾期是最能客觀算出的事實,若兩者都成立,
     # 讓 reconcile_deadline 的覆寫有最終發言權(與既有的期間覆寫優先順序一致)。
     # notice 目前一律傳 None——補正通知抽取尚未建立(見 procedural_checks.py 註解),

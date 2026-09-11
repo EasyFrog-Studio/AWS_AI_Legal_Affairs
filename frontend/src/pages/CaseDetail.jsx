@@ -7,10 +7,11 @@ import {
   overrideScreening,
   reanalyzeCase,
   replaceDocument,
+  updateCaseInfo,
 } from '../api'
 import AppShell from '../components/AppShell.jsx'
 import DocumentCheckBadge from '../components/DocumentCheckBadge.jsx'
-import { DOCUMENT_SLOTS } from '../components/documentSlots.js'
+import { DOCUMENT_SLOTS, F1_GROUPS } from '../components/documentSlots.js'
 import Icon from '../components/Icon.jsx'
 import Seal, { resolveCaseSeal } from '../components/Seal.jsx'
 import SourceOverlay from '../components/SourceOverlay.jsx'
@@ -226,76 +227,141 @@ function CollectingSection({ caseData, onReplaced, onAnalyzed }) {
 
 // 期間與程序審查複核時最需要看的六欄(取自送達證書/原處分書/訴願書)。
 // 抽不到就顯示「—」而不是整欄不畫:少一欄的畫面看起來一樣完整,那正是最難發現的失效。
-const F1_DOCUMENT_FIELDS = [
-  ['收受或知悉日', 'receipt_date', true],
-  ['送達時間', 'service_date', true],
-  ['送達方式', 'service_method', false],
-  ['罰鍰金額', 'disposition_fine', false],
-  ['處分相對人', 'disposition_recipient', false],
-]
+/** 一欄的顯示值;清單欄位一行一項,空值一律「—」(看得出是沒抽到,不是沒這一欄)。 */
+function fieldText(info, field) {
+  const value = info[field.key]
+  if (field.kind === 'list') return (value || []).join('\n')
+  return value || ''
+}
 
-function F1Section({ info }) {
+/** 卷證總匯表的一欄:唯讀顯示 + 就地編輯。編輯送出的是整份 CaseInfo,只有這一欄換了值。 */
+function F1Field({ info, field, editable, onSave }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const text = fieldText(info, field)
+
+  async function save() {
+    setBusy(true)
+    setError('')
+    try {
+      const value =
+        field.kind === 'list'
+          ? draft.split('\n').map((line) => line.trim()).filter(Boolean)
+          : draft.trim()
+      await onSave({ ...info, [field.key]: value })
+      setEditing(false)
+    } catch (err) {
+      // 錯誤要看得見,而且不清掉他剛打的字——重打一次是最沒必要的懲罰
+      setError(err.message || '儲存失敗,請重試。')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="f1-field f1-field--editing">
+        <dt>
+          <label htmlFor={`f1-${field.key}`}>{field.label}</label>
+        </dt>
+        <dd>
+          {field.kind === 'list' ? (
+            <textarea
+              id={`f1-${field.key}`}
+              rows={Math.max(3, draft.split('\n').length)}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+            />
+          ) : (
+            <input
+              id={`f1-${field.key}`}
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+            />
+          )}
+          <div className="f1-field__actions">
+            <button type="button" className="btn-secondary" onClick={save} disabled={busy}>
+              儲存
+            </button>
+            <button type="button" className="btn-link" onClick={() => setEditing(false)}>
+              取消
+            </button>
+          </div>
+          {error && <p className="f1-field__error">{error}</p>}
+        </dd>
+      </div>
+    )
+  }
+
   return (
-    <dl className="f1-grid">
-      <div className="f1-field">
-        <dt>訴願人</dt>
-        <dd>{info.appellant}</dd>
-      </div>
-      <div className="f1-field">
-        <dt>原處分機關</dt>
-        <dd>{info.agency}</dd>
-      </div>
-      <div className="f1-field">
-        <dt>原處分日期</dt>
-        <dd className="mono">{info.disposition_date}</dd>
-      </div>
-      <div className="f1-field">
-        <dt>原處分字號</dt>
-        <dd className="mono">{info.disposition_no}</dd>
-      </div>
-      <div className="f1-field">
-        <dt>案由類別</dt>
-        <dd>{info.case_type}</dd>
-      </div>
-      <div className="f1-field">
-        <dt>援引法條</dt>
-        <dd>{(info.cited_articles || []).join('、')}</dd>
-      </div>
-      {F1_DOCUMENT_FIELDS.map(([label, key, mono]) => (
-        <div className="f1-field" key={key}>
-          <dt>{label}</dt>
-          <dd className={mono ? 'mono' : undefined}>{info[key] || '—'}</dd>
-        </div>
-      ))}
-      <div className="f1-field f1-field--wide">
-        <dt>教示條款</dt>
-        <dd>{info.disposition_notice_clause || '—'}</dd>
-      </div>
-      <div className="f1-field f1-field--wide">
-        <dt>原處分內容</dt>
-        <dd>{info.disposition_summary}</dd>
-      </div>
-      <div className="f1-field f1-field--wide">
-        <dt>訴願理由</dt>
-        <dd>
+    <div className="f1-field">
+      <dt>{field.label}</dt>
+      <dd className={field.kind === 'mono' ? 'mono' : undefined}>
+        {field.kind === 'list' && text ? (
           <ul>
-            {(info.appeal_reasons || []).map((r, i) => (
-              <li key={i}>{r}</li>
+            {text.split('\n').map((line, i) => (
+              <li key={i}>{line}</li>
             ))}
           </ul>
-        </dd>
-      </div>
-      <div className="f1-field f1-field--wide">
-        <dt>爭點</dt>
-        <dd>
-          <ul>
-            {(info.issues || []).map((r, i) => (
-              <li key={i}>{r}</li>
-            ))}
-          </ul>
-        </dd>
-      </div>
-    </dl>
+        ) : (
+          text || '—'
+        )}
+        {editable && (
+          <button
+            type="button"
+            className="btn-link f1-field__edit"
+            onClick={() => {
+              setDraft(text)
+              setEditing(true)
+            }}
+          >
+            {`修改${field.label}`}
+          </button>
+        )}
+      </dd>
+    </div>
+  )
+}
+
+/** F1 卷證總匯表:依四份文件分組,眼睛跟著卷宗走。第五組是不出自單一文件的綜合判讀。 */
+function F1Section({ info, editable, onSave }) {
+  return (
+    <div className="f1-summary">
+      {!editable && (
+        <p className="f1-summary__note">分析進行中,此時不開放修改案件資訊。</p>
+      )}
+      {F1_GROUPS.map((group) => {
+        const empty = group.fields.every((f) => !fieldText(info, f))
+        return (
+          <section
+            className="f1-group"
+            key={group.key}
+            role="group"
+            aria-label={group.label}
+          >
+            <h3 className="f1-group__title">{group.label}</h3>
+            {empty && group.emptyNote ? (
+              <p className="state-message state-message--empty">{group.emptyNote}</p>
+            ) : (
+              <dl className="f1-grid">
+                {group.fields.map((field) => (
+                  <F1Field
+                    key={field.key}
+                    info={info}
+                    field={field}
+                    editable={editable}
+                    onSave={onSave}
+                  />
+                ))}
+              </dl>
+            )}
+          </section>
+        )
+      })}
+    </div>
   )
 }
 
@@ -594,7 +660,14 @@ function stageContent(key, caseData, onViewSource, onDocumentsChanged) {
   }
   if (key === 'f1') {
     return caseData.f1 ? (
-      <F1Section info={caseData.f1} />
+      <F1Section
+        info={caseData.f1}
+        editable={caseData.status !== 'processing'}
+        onSave={async (next) => {
+          await updateCaseInfo(caseData.case_id, next)
+          await onDocumentsChanged()
+        }}
+      />
     ) : (
       <div className="state-message state-message--pending">
         {caseData.status === 'processing' && key === caseData.current_stage ? '處理中…' : '尚未執行'}

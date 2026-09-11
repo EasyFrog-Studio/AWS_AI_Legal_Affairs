@@ -80,6 +80,14 @@ export function updateDraft(id, body) {
   })
 }
 
+export function updateCaseInfo(id, info) {
+  return request(`/cases/${id}/f1`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(info),
+  })
+}
+
 export function overrideScreening(id, body) {
   return request(`/cases/${id}/screening`, {
     method: 'PATCH',

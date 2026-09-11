@@ -1,10 +1,11 @@
 from datetime import date
 
-from app.models import CaseInfo, DraftResult, LawRef, ReferenceRef, ScreeningResult, SimilarCase, StandingAssessment, Case
+from app.models import CaseInfo, DeadlineCheck, DraftResult, LawRef, ReferenceRef, ScreeningResult, SimilarCase, StandingAssessment, Case
 from app.pipeline import (
     check_deadline,
     check_deadline_from_case,
     enforce_inadmissible_format,
+    guard_contradictory_screening,
     guard_unsupported_clause,
     inadmissible_law_keys,
     reconcile_deadline,
@@ -1133,3 +1134,107 @@ def test_rerun_after_screening_override_recomputes_reference_opinions():
     case = store.get("c-11111111")
     assert case.f2_refs is not None and [r.name for r in case.f2_refs] == ["釋字第469號"]
     assert "f2_refs" in store.stages
+
+
+# ---------- guard_contradictory_screening:passed 與款次自相矛盾 ----------
+
+
+def test_guard_contradictory_screening_takes_the_clause_over_passed():
+    """模型答「通過」卻同時指出不受理款次時,以具體款次為準改判不受理,並標待人工確認。"""
+    for clause in ("77條第2款", "77條第八款"):
+        screening = ScreeningResult(passed=True, matched_clause=clause, reasoning="模型理由")
+        result = guard_contradictory_screening(screening)
+        assert result.passed is False
+        assert result.matched_clause == clause
+        assert result.reasoning == "模型理由"
+        assert "矛盾" in result.review_note
+        assert "須人工確認" in result.review_note
+
+
+def test_guard_contradictory_screening_leaves_consistent_results_untouched():
+    for screening in (
+        ScreeningResult(passed=True, matched_clause=None, reasoning="無不受理事由"),
+        ScreeningResult(passed=True, matched_clause="", reasoning="無不受理事由"),
+        ScreeningResult(passed=False, matched_clause="77條第3款", reasoning="當事人不適格"),
+    ):
+        assert guard_contradictory_screening(screening) == screening
+
+
+def test_guard_contradictory_screening_keeps_admissible_when_clause_is_not_a_clause():
+    """款次欄填的是「無」「不適用」這種非款次文字時不算矛盾,不得據此把受理偷翻成不受理。"""
+    for text in ("無", "不適用", "訴願法第77條"):
+        screening = ScreeningResult(passed=True, matched_clause=text, reasoning="無不受理事由")
+        assert guard_contradictory_screening(screening) == screening
+
+
+def test_guard_contradictory_screening_appends_to_existing_review_note():
+    screening = ScreeningResult(
+        passed=True, matched_clause="77條第2款", reasoning="理由", review_note="原有保留事項"
+    )
+    result = guard_contradictory_screening(screening)
+    assert result.review_note.startswith("原有保留事項")
+    assert "矛盾" in result.review_note
+
+
+def test_run_case_routes_a_contradictory_screening_into_the_inadmissible_track():
+    """矛盾輸出若原樣放行,承辦人畫面上會是「受理」——整條 track 都會走錯。"""
+    store = MemoryStore()
+    _new_case(store, "c-77777777")
+
+    class _ContradictoryProvider(StubInadmissibleProvider):
+        def extract_case_info(self, text):
+            # 必要記載齊備,§77(1) 自動判才不會插進來蓋掉矛盾註記
+            return _info(case_type="社會救助").model_copy(
+                update={"appeal_reasons": ["原處分認定事實有誤"], "receipt_date": "110年3月10日"}
+            )
+
+        def screen_admissibility(self, info, text) -> ScreeningResult:
+            return ScreeningResult(passed=True, matched_clause="77條第2款", reasoning="模型理由")
+
+    run_case("c-77777777", store, _ContradictoryProvider())
+
+    case = store.get("c-77777777")
+    assert case.status == "done"
+    assert case.track == "inadmissible"
+    assert case.screening.passed is False
+    assert case.screening.matched_clause == "77條第2款"
+    assert "矛盾" in case.screening.review_note
+    assert case.f2 is None
+
+
+# ---------- 算得出逾期但不覆寫時,保留事項也要落在程序審查結論上 ----------
+
+
+def test_an_unconfirmed_overdue_finding_is_also_noted_on_the_screening_conclusion():
+    """算出逾期卻因保留而不覆寫時,受質疑的正是「受理」這個結論;註記只落在期間欄的話,
+    單看程序審查區塊的人會把那個結論當成可逕採。"""
+    for note in ("送達證書文字由 OCR 取得,日期須人工核對原件", "訴願書自述收受日與送達證書不符,送達是否合法係本件爭點"):
+        check = DeadlineCheck(overdue=True, detail="算式敘述", review_note=note)
+        screening = ScreeningResult(passed=True, matched_clause=None, reasoning="無不受理事由")
+        result, reconciled = reconcile_deadline(screening, check)
+
+        assert result.passed is True  # 不覆寫結論,只是不再假裝它可逕採
+        assert "未據以覆寫程序審查" in reconciled.review_note
+        assert "期間" in result.review_note
+        assert note in result.review_note  # 保留的原因要看得到,不是只寫「有保留」
+
+
+def test_a_confirmed_overdue_finding_leaves_no_caveat_on_the_screening():
+    """算式無保留時走的是覆寫分支:結論就是不受理,不該再掛一個待確認的尾巴。"""
+    check = DeadlineCheck(overdue=True, detail="算式敘述")
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="無不受理事由")
+    result, _ = reconcile_deadline(screening, check)
+
+    assert result.passed is False
+    assert result.review_note == ""
+
+
+def test_the_screening_caveat_is_appended_to_an_existing_one():
+    check = DeadlineCheck(overdue=True, detail="算式敘述", review_note="送達日待確認")
+    screening = ScreeningResult(
+        passed=True, matched_clause=None, reasoning="無不受理事由", review_note="原有保留事項"
+    )
+    result, _ = reconcile_deadline(screening, check)
+
+    assert result.review_note.startswith("原有保留事項")
+    assert "期間" in result.review_note

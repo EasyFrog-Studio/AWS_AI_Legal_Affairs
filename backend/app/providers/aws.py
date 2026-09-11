@@ -8,6 +8,7 @@ from typing import Optional
 
 from app.config import settings
 from app.models import (
+    SERVICE_METHODS,
     CaseInfo,
     DraftResult,
     LawRef,
@@ -179,10 +180,13 @@ class AWSProvider(AIProvider):
                 "cited_articles": {"type": "array", "items": {"type": "string"}},
                 "receipt_date": {"type": "string"},
                 "service_date": {"type": "string"},
-                "service_method": {"type": "string"},
+                "service_method": {"type": "string", "enum": list(SERVICE_METHODS)},
                 "disposition_fine": {"type": "string"},
                 "disposition_notice_clause": {"type": "string"},
                 "disposition_recipient": {"type": "string"},
+                "answer_statement": {"type": "string"},
+                "answer_self_revoked": {"type": "string"},
+                "answer_arguments": {"type": "array", "items": {"type": "string"}},
             },
             "required": [
                 "appellant",

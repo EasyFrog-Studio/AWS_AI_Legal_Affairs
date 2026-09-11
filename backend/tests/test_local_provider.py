@@ -1,7 +1,7 @@
 """LocalProvider 單元測試:注入 fake http_client/connect,不打真實 ollama/Postgres。"""
 import json as json_mod
 
-from app.models import CaseInfo, LawRef, ScreeningResult
+from app.models import SERVICE_METHODS, CaseInfo, LawRef, ScreeningResult
 from app.providers.local import LocalProvider
 
 _DEFAULT_EMBED_VEC = [0.1] * 1024
@@ -708,3 +708,25 @@ def test_retrieval_paths_drop_source_keys_the_source_endpoint_cannot_serve():
     crawl, official = _provider(connect=connect2).find_similar_cases(_info(), screening, "原文")
     assert crawl.source_key is None
     assert official.source_key == "markdown/歷史訴願決定書/02.112年-違反廢棄物清理法事件.md"
+
+
+def test_extract_case_info_constrains_service_method_to_statutory_options():
+    """送達證書是勾選式表單,六個選項的文字全在同一頁文字層裡;不限定值域時模型會整段抄寫,
+    重複到觸及輸出上限而整份擷取失敗。"""
+    http = FakeHTTP(chat_payloads=[{"appellant": "王大明", "agency": "彰化縣環境保護局", "disposition_date": "110年3月5日", "disposition_no": "彰環廢字第1號", "disposition_summary": "裁處罰鍰", "case_type": "廢棄物清理"}])
+    provider = _provider(http_client=http)
+
+    provider.extract_case_info("訴願書原文")
+
+    _, body = http.calls[0]
+    assert body["format"]["properties"]["service_method"].get("enum") == list(SERVICE_METHODS)
+
+
+def test_extract_case_info_keeps_a_service_method_outside_the_enum_instead_of_dropping_it():
+    """enum 是給模型的方向盤,不是驗證關卡:ollama 的 grammar 沒擋住時,記錄模型實際說了什麼,
+    不是靜默改成空字串——這一欄沒有邏輯消費者,竄改它只會讓承辦人看不到模型抽了什麼。"""
+    http = FakeHTTP(chat_payloads=[{"appellant": "王大明", "agency": "彰化縣環境保護局", "disposition_date": "110年3月5日", "disposition_no": "彰環廢字第1號", "disposition_summary": "裁處罰鍰", "case_type": "廢棄物清理", "service_method": "寄存於板橋郵局"}])
+
+    info = _provider(http_client=http).extract_case_info("訴願書原文")
+
+    assert info.service_method == "寄存於板橋郵局"

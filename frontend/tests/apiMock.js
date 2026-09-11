@@ -23,6 +23,7 @@ export const api = {
     ],
   })),
   updateDraft: vi.fn(async () => ({})),
+  updateCaseInfo: vi.fn(async () => ({})),
   downloadDraftPdf: vi.fn(async () => {}),
   createCase: vi.fn(async () => ({ case_id: 'c-new' })),
   replaceDocument: vi.fn(async () => ({})),

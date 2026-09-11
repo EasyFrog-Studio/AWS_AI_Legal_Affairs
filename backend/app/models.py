@@ -8,6 +8,12 @@ from typing import Literal, Optional
 from pydantic import BaseModel
 
 
+# 送達方式的法定值域(訴願法準用行政程序法§72-74)。送達證書是勾選式表單,六個選項的文字
+# 全在同一頁的文字層裡,不把值域交給模型就會整段抄寫;寄存地點對期間無影響(生效日即寄存當日),
+# 故只留「寄存」不留地點。
+SERVICE_METHODS = ("本人", "同居人", "受雇人", "接收郵件人員", "留置", "寄存", "未載明")
+
+
 class CaseInfo(BaseModel):
     appellant: str
     agency: str
@@ -22,10 +28,15 @@ class CaseInfo(BaseModel):
     # 全部預設空字串,舊樣本/舊測資不補這幾欄仍可通過驗證(見階段一文書規格與期間計算.md §一/§二/§三)
     receipt_date: str = ""  # 訴願書「收受或知悉行政處分日期」(訴願法§56 I⑥),非送達日期
     service_date: str = ""  # 送達證書「送達時間」欄,即送達生效日(原文寫法,不換算)
-    service_method: str = ""  # 送達方式:本人/同居人/受雇人/接收郵件人員/留置/寄存(§72-74)
+    service_method: str = ""  # 送達方式,值域見 SERVICE_METHODS(§72-74)
     disposition_fine: str = ""  # 原處分書罰鍰金額(原文寫法)
     disposition_notice_clause: str = ""  # 原處分書教示條款原文,有無教示影響救濟期間認定
     disposition_recipient: str = ""  # 原處分相對人;多數與 appellant 同一人,但代理/繼受案可能不同
+    # 以下三欄取自訴願答辯書(第四槽,選填)。機關受理後才送來,收案當下本來就沒有,
+    # 故皆預設空值;答辯書的內容只能填這三欄,不得用來填訴願人那一側的欄位
+    answer_statement: str = ""  # 答辯聲明原文
+    answer_self_revoked: str = ""  # 機關是否已自行撤銷或變更原處分(原文寫法)
+    answer_arguments: list[str] = []  # 機關的答辯主張,逐條列出
 
 
 class ScreeningResult(BaseModel):

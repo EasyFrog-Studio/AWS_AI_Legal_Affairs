@@ -1,7 +1,7 @@
 """AWSProvider 單元測試:mock boto3 client,驗證參數組裝,不做真實呼叫。"""
 from unittest.mock import MagicMock
 
-from app.models import CaseInfo, ScreeningResult, LawRef
+from app.models import SERVICE_METHODS, CaseInfo, ScreeningResult, LawRef
 from app.providers.aws import AWSProvider, _clause_to_appeal_article, _retrieval_query, _valid_cited_articles
 
 
@@ -950,3 +950,68 @@ def test_retrieval_paths_drop_source_keys_the_source_endpoint_cannot_serve():
     )
     assert crawl.source_key is None
     assert official.source_key == "markdown/歷史訴願決定書/02.112年-違反廢棄物清理法事件.md"
+
+
+def test_extract_case_info_carries_the_answer_document_fields():
+    """訴願答辯書是第四份卷證,至今沒有任何欄位取自它,總匯表那一組永遠是空的。"""
+    brt = MagicMock()
+    brt.converse.return_value = _toolUse_response(
+        "extract_case_info",
+        {
+            "appellant": "王大明",
+            "agency": "彰化縣環境保護局",
+            "disposition_date": "110年3月5日",
+            "disposition_no": "彰環廢字第1號",
+            "disposition_summary": "裁處罰鍰",
+            "case_type": "廢棄物清理",
+            "answer_statement": "本件訴願駁回。",
+            "answer_self_revoked": "否",
+            "answer_arguments": ["訴願人確有任意棄置行為", "裁處於法有據"],
+        },
+    )
+    info = _provider(bedrock_runtime=brt).extract_case_info("四份卷證原文")
+
+    assert info.answer_statement == "本件訴願駁回。"
+    assert info.answer_self_revoked == "否"
+    assert info.answer_arguments == ["訴願人確有任意棄置行為", "裁處於法有據"]
+
+    schema = brt.converse.call_args.kwargs["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
+    for key in ("answer_statement", "answer_self_revoked", "answer_arguments"):
+        assert key in schema["properties"], key
+        assert key not in schema["required"]  # 機關尚未答辯是常態,不能要求模型一定要生出來
+
+
+def test_extract_case_info_without_an_answer_document_leaves_those_fields_at_defaults():
+    """機關受理後才送答辯書,收案當下本來就沒有;空的不得讓模型改變其他欄位的判斷。"""
+    brt = MagicMock()
+    brt.converse.return_value = _toolUse_response(
+        "extract_case_info",
+        {
+            "appellant": "李小華",
+            "agency": "臺北市政府社會局",
+            "disposition_date": "111年1月2日",
+            "disposition_no": "北社字第2號",
+            "disposition_summary": "駁回補助申請",
+            "case_type": "社會救助",
+        },
+    )
+    info = _provider(bedrock_runtime=brt).extract_case_info("只有三份卷證")
+
+    assert info.answer_statement == ""
+    assert info.answer_self_revoked == ""
+    assert info.answer_arguments == []
+    assert info.appellant == "李小華"  # 其他欄位不受影響
+
+
+def test_extract_case_info_constrains_service_method_to_statutory_options():
+    """兩個 provider 對同一欄位的值域必須一致——前端與答案鍵看到的形狀不該因模式而異。"""
+    brt = MagicMock()
+    brt.converse.return_value = _toolUse_response(
+        "extract_case_info",
+        {"appellant": "王大明", "agency": "彰化縣環境保護局", "disposition_date": "110年3月5日", "disposition_no": "彰環廢字第1號", "disposition_summary": "裁處罰鍰", "case_type": "廢棄物清理"},
+    )
+    _provider(bedrock_runtime=brt).extract_case_info("訴願書原文")
+
+    _, kwargs = brt.converse.call_args
+    schema = kwargs["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
+    assert schema["properties"]["service_method"].get("enum") == list(SERVICE_METHODS)

@@ -612,3 +612,113 @@ describe('F2+ 參考見解', () => {
     expect(screen.getByText('未檢索到相關參考見解。')).toBeInTheDocument()
   })
 })
+
+describe('F1 卷證總匯表', () => {
+  const withAnswer = {
+    ...doneAdmissible,
+    f1: {
+      ...doneAdmissible.f1,
+      service_date: '114年5月28日',
+      service_method: '寄存於板橋郵局',
+      answer_statement: '本件訴願駁回。',
+      answer_self_revoked: '否',
+      answer_arguments: ['訴願人確有違規事實', '裁處於法有據'],
+    },
+  }
+
+  const group = (name) => screen.getByRole('group', { name })
+
+  it('依四份文件分組,各欄落在自己的來源文件底下', async () => {
+    api.getCase.mockResolvedValue(withAnswer)
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByRole('button', { name: /^F1 擷取/ })
+    await user.click(rail(/^F1 擷取/))
+
+    expect(within(group('訴願書')).getByText('王○明')).toBeInTheDocument()
+    expect(within(group('送達證書')).getByText('寄存於板橋郵局')).toBeInTheDocument()
+    expect(within(group('原處分書')).getByText('北環稽字第1130001號')).toBeInTheDocument()
+    expect(within(group('訴願答辯書')).getByText('本件訴願駁回。')).toBeInTheDocument()
+    expect(within(group('訴願答辯書')).getByText(/訴願人確有違規事實/)).toBeInTheDocument()
+    // 送達方式屬送達證書,不該同時出現在原處分書那組
+    expect(within(group('原處分書')).queryByText('寄存於板橋郵局')).toBeNull()
+  })
+
+  it('機關尚未答辯時,那一組講得出是「尚未答辯」而不是留白或「無」', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible) // 樣本無答辯書欄位
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByRole('button', { name: /^F1 擷取/ })
+    await user.click(rail(/^F1 擷取/))
+
+    expect(within(group('訴願答辯書')).getByText('尚未答辯')).toBeInTheDocument()
+    expect(within(group('訴願答辯書')).queryByText('無')).toBeNull()
+  })
+
+  it('單值欄位可就地改,送出的是整份案件資訊且只有該欄變了', async () => {
+    api.getCase.mockResolvedValue(withAnswer)
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByRole('button', { name: /^F1 擷取/ })
+    await user.click(rail(/^F1 擷取/))
+
+    await user.click(within(group('送達證書')).getByRole('button', { name: '修改送達方式' }))
+    const input = screen.getByLabelText('送達方式')
+    await user.clear(input)
+    await user.type(input, '本人簽收')
+    await user.click(screen.getByRole('button', { name: '儲存' }))
+
+    expect(api.updateCaseInfo).toHaveBeenCalledWith('c-1', {
+      ...withAnswer.f1,
+      service_method: '本人簽收',
+    })
+  })
+
+  it('清單欄位以換行分行,儲存時拆成陣列並丟掉空行', async () => {
+    api.getCase.mockResolvedValue(withAnswer)
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByRole('button', { name: /^F1 擷取/ })
+    await user.click(rail(/^F1 擷取/))
+
+    await user.click(within(group('訴願答辯書')).getByRole('button', { name: '修改機關主張' }))
+    const box = screen.getByLabelText('機關主張')
+    await user.clear(box)
+    await user.type(box, '第一項主張\n\n第二項主張')
+    await user.click(screen.getByRole('button', { name: '儲存' }))
+
+    expect(api.updateCaseInfo).toHaveBeenCalledWith('c-1', {
+      ...withAnswer.f1,
+      answer_arguments: ['第一項主張', '第二項主張'],
+    })
+  })
+
+  it('分析進行中不給改,不讓使用者送出後才看到 409', async () => {
+    api.getCase.mockResolvedValue({ ...withAnswer, status: 'processing', current_stage: 'f2' })
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByRole('button', { name: /^F1 擷取/ })
+    await user.click(rail(/^F1 擷取/))
+
+    expect(screen.queryByRole('button', { name: '修改送達方式' })).toBeNull()
+    expect(screen.getByText(/分析進行中/)).toBeInTheDocument()
+  })
+
+  it('儲存失敗時錯誤看得見,而且不清掉剛打的字', async () => {
+    api.getCase.mockResolvedValue(withAnswer)
+    api.updateCaseInfo.mockRejectedValueOnce(new Error('案件分析中,無法修改案件資訊'))
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByRole('button', { name: /^F1 擷取/ })
+    await user.click(rail(/^F1 擷取/))
+
+    await user.click(within(group('送達證書')).getByRole('button', { name: '修改送達方式' }))
+    const input = screen.getByLabelText('送達方式')
+    await user.clear(input)
+    await user.type(input, '本人簽收')
+    await user.click(screen.getByRole('button', { name: '儲存' }))
+
+    expect(await screen.findByText(/無法修改案件資訊/)).toBeInTheDocument()
+    expect(screen.getByLabelText('送達方式')).toHaveValue('本人簽收')
+  })
+})
