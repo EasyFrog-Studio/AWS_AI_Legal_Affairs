@@ -851,16 +851,32 @@ def test_reconcile_deadline_computed_overdue_overrides_the_model():
     assert "無不受理事由" in result.reasoning  # 原程序審查意見一併保留
 
 
-def test_reconcile_deadline_records_conflict_instead_of_flipping_silently():
-    """算出未逾期而模型仍指第2款:兩邊都不動,把歧異寫下來送人工。"""
+def test_reconcile_deadline_clean_arithmetic_withdraws_a_false_overdue_finding():
+    """算式乾淨且明說未逾期,模型仍指第2款:撤銷該款認定。
+    期間算式已被授權單方面把案件打成不受理,沒有理由不讓它擋下一個它明說不成立的不受理。"""
     timely = _OVERDUE_TEXT.replace("114年10月31日", "114年6月20日")
+    check = check_deadline(timely)
+    assert check.overdue is False and not check.review_note  # 前提:算式本身沒有保留事項
     screening = ScreeningResult(passed=False, matched_clause="77條第2款", reasoning="模型認為逾期")
 
-    result, check = reconcile_deadline(screening, check_deadline(timely))
+    result, reconciled = reconcile_deadline(screening, check)
 
-    assert check.overdue is False
-    assert result.matched_clause == "77條第2款"  # 未偷改模型結論
-    assert "不符" in check.review_note
+    assert result.matched_clause is None
+    assert result.passed is True
+    assert result.review_note  # 撤銷別人的結論必須留痕,不能靜默翻案
+    assert "不符" in reconciled.review_note
+
+
+def test_reconcile_deadline_keeps_the_model_clause_when_the_arithmetic_is_not_clean():
+    """算式自己就帶保留事項時不得據以翻案——與 overdue is True 那一側同一條準則。"""
+    timely = _OVERDUE_TEXT.replace("114年10月31日", "114年6月20日")
+    check = check_deadline(timely).model_copy(update={"review_note": "送達日採訴願人自述,須人工確認"})
+    screening = ScreeningResult(passed=False, matched_clause="77條第2款", reasoning="模型認為逾期")
+
+    result, reconciled = reconcile_deadline(screening, check)
+
+    assert result.matched_clause == "77條第2款"
+    assert result.passed is False
 
 
 def test_dates_from_an_ocr_slot_never_override_the_screening():

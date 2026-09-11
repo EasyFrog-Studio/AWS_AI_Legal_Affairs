@@ -295,7 +295,19 @@ def reconcile_deadline(
         # 附加而非取代:既有的 review_note 裡是算式本身的保留事項(公示送達、採自述送達日、
         # §98 期間分支),那些正是解釋歧異從何而來的線索,覆蓋掉會讓承辦人只看到結論不一致。
         merged = ";".join(note for note in (check.review_note, note) if note)
-        return screening, check.model_copy(update={"review_note": merged})
+        if check.review_note:
+            return screening, check.model_copy(update={"review_note": merged})
+        # 算式乾淨且明說未逾期:撤銷第2款認定。算式已被授權單方面把案件打成不受理
+        # (上一個分支),不讓它擋下一個它明說不成立的不受理,就是只在對機關有利的方向信任它。
+        withdrawn = ";".join(
+            n for n in (screening.review_note, "第2款認定經期間算式否定,已撤銷,須人工確認") if n
+        )
+        return (
+            screening.model_copy(
+                update={"passed": True, "matched_clause": None, "review_note": withdrawn}
+            ),
+            check.model_copy(update={"review_note": merged}),
+        )
     return screening, check
 
 
