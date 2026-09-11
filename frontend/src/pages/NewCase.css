@@ -1,10 +1,5 @@
-/* NewCase 頁專用;卷證工作檯的格線與落件框在 components.css,與待確認階段共用 */
-
-/* 說明文字緊貼頁首,兩者是同一段交代;疊上類別是為了壓過 layout.css 的同權重規則 */
-.page-header.page-header--tight {
-  padding-bottom: var(--space-sm);
-  margin-bottom: var(--space-xs);
-}
+/* NewCase 頁專用;卷證工作檯的格線與落件框在 components.css,與待確認階段共用;
+   page-header--tight 在 layout.css,與案件詳情頁共用 */
 
 /* 槽名與分頁是同一組控制,靠緊才讀成一體 */
 .doc-grid .tabs--sm {

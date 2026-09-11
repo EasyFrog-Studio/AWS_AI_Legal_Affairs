@@ -168,6 +168,12 @@
   flex-shrink: 0;
 }
 
+/* 頁首緊排:說明或狀態句要貼齊標題,兩者是同一段交代 */
+.page-header.page-header--tight {
+  padding-bottom: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
 /* ---------- Responsive:左欄收成頂列 ---------- */
 
 @media (max-width: 1023px) {

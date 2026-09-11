@@ -35,20 +35,7 @@
   padding-left: var(--space-lg);
 }
 
-/* ---------- F1 卷證總匯表(依四份文件分組) ---------- */
-
-.f1-group + .f1-group {
-  margin-top: var(--space-lg);
-  padding-top: var(--space-lg);
-  border-top: 1px solid var(--color-rule-soft);
-}
-
-.f1-group__title {
-  font-family: var(--font-ui);
-  font-size: var(--text-sm);
-  color: var(--color-wood);
-  margin: 0 0 var(--space-sm);
-}
+/* ---------- F1 卷證總匯表(依四份文件分組,一組一張卡) ---------- */
 
 .f1-summary__note {
   font-size: var(--text-sm);
@@ -100,43 +87,13 @@
 
 /* ---------- F2 法規參照 ---------- */
 
-.law-ref {
-  padding-block: var(--space-md);
-  border-bottom: 1px solid var(--color-rule-soft);
-}
-
-.law-ref:last-child {
-  border-bottom: none;
-}
-
 .law-ref__name {
   font-family: var(--font-display);
   font-weight: 600;
   font-size: var(--text-lg);
 }
 
-.law-ref__date {
-  font-size: var(--text-sm);
-  color: var(--color-ink-soft);
-  margin-left: var(--space-sm);
-}
-
-.law-ref__text {
-  font-family: var(--font-body);
-  max-width: var(--measure);
-  margin-block: var(--space-xs);
-}
-
 /* ---------- F2+ 參考見解 ---------- */
-
-.reference-ref {
-  padding-block: var(--space-md);
-  border-bottom: 1px solid var(--color-rule-soft);
-}
-
-.reference-ref:last-child {
-  border-bottom: none;
-}
 
 .reference-ref__kind {
   font-size: var(--text-sm);
@@ -163,22 +120,7 @@
   margin-block: var(--space-xs) 0;
 }
 
-.reference-ref__text {
-  font-family: var(--font-body);
-  max-width: var(--measure);
-  margin-block: var(--space-xs);
-}
-
 /* ---------- F3 相似案例 ---------- */
-
-.similar-case {
-  padding-block: var(--space-md);
-  border-bottom: 1px solid var(--color-rule-soft);
-}
-
-.similar-case:last-child {
-  border-bottom: none;
-}
 
 .similar-case__title {
   font-family: var(--font-display);
@@ -190,8 +132,24 @@
   color: var(--color-ink-soft);
 }
 
-.similar-case p {
+/* ---------- 參考依據卡片內容(法規 / 參考見解 / 案例共用)---------- */
+
+/* 條文與見解全文常常很長,卡片高度不該被單一則拉爆整排 */
+.ref-card__text {
+  font-family: var(--font-body);
   max-width: var(--measure);
+  margin-block: var(--space-xs);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+}
+
+.ref-card__links {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
 }
 
 @media (max-width: 767px) {
@@ -201,10 +159,6 @@
 }
 
 /* ---------- 期間認定 ---------- */
-
-.deadline {
-  margin-top: var(--space-md);
-}
 
 .deadline__head {
   display: flex;

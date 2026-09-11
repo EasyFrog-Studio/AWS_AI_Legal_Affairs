@@ -370,7 +370,7 @@
   background: var(--color-surface);
   color: var(--color-review);
   padding: var(--space-sm) var(--space-md);
-  margin-bottom: var(--space-md);
+  margin-bottom: var(--space-lg);
   font-family: var(--font-ui);
   font-size: var(--text-ui);
 }
@@ -631,6 +631,14 @@ table.list-table {
   margin: 0;
   padding: 0;
   border-bottom: none;
+}
+
+/* 卡片化的文件槽:F1 卷證分組卡、參考依據各條目卡共用,與 collecting 階段的裸槽區分開 */
+.doc-grid .doc-slot--card {
+  padding: var(--space-md);
+  background: var(--color-surface);
+  border: var(--rule-strong);
+  border-radius: var(--radius);
 }
 
 /* 兩欄與單欄的落件框等高,切換分頁時版面不跳動 */

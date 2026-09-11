@@ -30,6 +30,22 @@ function renderDetail(id = 'c-1') {
 const rail = (name) => screen.getByRole('button', { name })
 const isCurrent = (name) => rail(name).getAttribute('aria-current') === 'true'
 
+describe('頁首標題', () => {
+  it('F1 有結果時顯示訴願人與案由類別事件,而不是文件片段', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible)
+    renderDetail()
+
+    expect(await screen.findByRole('heading', { name: '王○明　環保事件' })).toBeInTheDocument()
+  })
+
+  it('F1 尚無結果時退回原標題,並把連續空白(含全形)折成一個', async () => {
+    api.getCase.mockResolvedValue({ ...processingAt('f1'), title: '訴　願　書   陳○瑤' })
+    renderDetail('c-3')
+
+    expect(await screen.findByRole('heading', { name: '訴 願 書 陳○瑤' })).toBeInTheDocument()
+  })
+})
+
 describe('案件詳情', () => {
   it('切換階段再切回,草稿未儲存內容存活', async () => {
     api.getCase.mockResolvedValue(doneAdmissible)
@@ -729,6 +745,12 @@ describe('F1 訴願事實與已修改標記', () => {
 
     const untouched = screen.getByText('原處分字號').closest('.f1-field')
     expect(untouched.className).not.toContain('f1-field--edited')
+
+    // 卡片抬頭也要標「已修改」,不必逐欄點開才知道哪一組動過;沒改過的組不標
+    expect(within(screen.getByRole('group', { name: '送達證書' })).getByText('已修改')).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('group', { name: '原處分書' })).queryByText('已修改'),
+    ).toBeNull()
   })
 
   it('沒有修改紀錄的案件一欄都不標', async () => {

@@ -57,6 +57,15 @@ function parseClause(matchedClause) {
   return m ? `第 ${m[1]} 款` : ''
 }
 
+/** 頁首標題:F1 有結果就用「訴願人 案由類別事件」,比文件片段更一眼認得出案件;
+ * F1 還沒跑出來時退回原標題,折疊連續空白——PDF 抽出來的原文常帶著排版用的空白。 */
+function pageTitle(caseData) {
+  const appellant = caseData.f1?.appellant
+  const caseType = caseData.f1?.case_type
+  if (appellant && caseType) return `${appellant}　${caseType}事件`
+  return (caseData.title || '（未命名案件）').replace(/\s+/g, ' ')
+}
+
 function stageMarker(key, caseData) {
   // 參考依據是三個後端階段的合併節點:F3 跑完才算這一組完成,「不適用」只屬於裡面的法規那一組
   const isRefs = key === 'refs'
@@ -363,12 +372,13 @@ function F1Field({ info, system, field, editable, onSave }) {
           <button
             type="button"
             className="btn-link f1-field__edit"
+            aria-label={`修改${field.label}`}
             onClick={() => {
               setDraft(text)
               setEditing(true)
             }}
           >
-            {`修改${field.label}`}
+            修改
           </button>
         )}
       </dd>
@@ -376,42 +386,55 @@ function F1Field({ info, system, field, editable, onSave }) {
   )
 }
 
-/** F1 卷證總匯表:依四份文件分組,眼睛跟著卷宗走。第五組是不出自單一文件的綜合判讀。 */
+/** 這一組底下任一欄被人改過:卡片抬頭標「已修改」,不必逐欄點開才看得出來。 */
+function groupEdited(info, system, group) {
+  if (!system) return false
+  return group.fields.some((field) => fieldText(system, field) !== fieldText(info, field))
+}
+
+/** F1 卷證總匯表:依四份文件分組,一組一張卡,眼睛跟著卷宗走。第五組是不出自單一文件的綜合判讀。 */
 function F1Section({ info, system, editable, onSave }) {
   return (
     <div className="f1-summary">
       {!editable && (
         <p className="f1-summary__note">分析進行中，此時不開放修改案件資訊。</p>
       )}
-      {F1_GROUPS.map((group) => {
-        const empty = group.fields.every((f) => !fieldText(info, f))
-        return (
-          <section
-            className="f1-group"
-            key={group.key}
-            role="group"
-            aria-label={group.label}
-          >
-            <h3 className="f1-group__title">{group.label}</h3>
-            {empty && group.emptyNote ? (
-              <p className="state-message state-message--empty">{group.emptyNote}</p>
-            ) : (
-              <dl className="f1-grid">
-                {group.fields.map((field) => (
-                  <F1Field
-                    key={field.key}
-                    info={info}
-                    system={system}
-                    field={field}
-                    editable={editable}
-                    onSave={onSave}
-                  />
-                ))}
-              </dl>
-            )}
-          </section>
-        )
-      })}
+      <div className="doc-grid">
+        {F1_GROUPS.map((group) => {
+          const empty = group.fields.every((f) => !fieldText(info, f))
+          return (
+            <section
+              className="doc-slot doc-slot--card"
+              key={group.key}
+              role="group"
+              aria-label={group.label}
+            >
+              <div className="doc-slot__head">
+                <span className="doc-slot__label">{group.label}</span>
+                {groupEdited(info, system, group) && (
+                  <span className="doc-slot__flag">已修改</span>
+                )}
+              </div>
+              {empty && group.emptyNote ? (
+                <p className="state-message state-message--na">{group.emptyNote}</p>
+              ) : (
+                <dl className="f1-grid">
+                  {group.fields.map((field) => (
+                    <F1Field
+                      key={field.key}
+                      info={info}
+                      system={system}
+                      field={field}
+                      editable={editable}
+                      onSave={onSave}
+                    />
+                  ))}
+                </dl>
+              )}
+            </section>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -473,7 +496,7 @@ function ScreeningSection({ caseData, onChanged }) {
         </p>
       )}
       {!editing && (
-        <div className="action-row">
+        <div className="action-row action-row--end">
           <button type="button" className="btn btn-secondary" onClick={() => setEditing(true)}>
             推翻此結論
           </button>
@@ -556,7 +579,7 @@ function DeadlineSection({ deadline }) {
         : { text: '未逾期', modifier: 'timely' }
   const dates = DEADLINE_DATES.filter(([, key]) => deadline[key])
   return (
-    <div className="card deadline">
+    <div className="card">
       <div className="deadline__head">
         <span className="deadline__title">訴願期間</span>
         <span className={`deadline__verdict deadline__verdict--${verdict.modifier}`}>
@@ -606,20 +629,24 @@ function F2Section({ laws, track, screening, running, onViewSource }) {
     return <div className="state-message state-message--empty">未檢索到相關法規。</div>
   }
   return (
-    <div className="card">
+    <div className="doc-grid">
       {laws.map((law, i) => (
-        <div className="law-ref" key={i}>
-          <span className="law-ref__name">
-            {law.law_name} 第 {law.article_no} 條
-          </span>
-          <span className="law-ref__date mono">修正日期 {law.amend_date}</span>
-          <p className="law-ref__text">{law.text}</p>
-          {law.source_key && (
-            <button type="button" className="btn-link" onClick={() => onViewSource(law.source_key)}>
-              原文
-            </button>
-          )}
-          <SourceSiteLink url={law.source_url} />
+        <div className="doc-slot doc-slot--card law-ref" key={i}>
+          <div className="doc-slot__head">
+            <span className="law-ref__name">
+              {law.law_name} 第 {law.article_no} 條
+            </span>
+          </div>
+          <p className="doc-verdict__meta mono">修正日期 {law.amend_date}</p>
+          <p className="ref-card__text">{law.text}</p>
+          <div className="ref-card__links">
+            {law.source_key && (
+              <button type="button" className="btn-link" onClick={() => onViewSource(law.source_key)}>
+                原文
+              </button>
+            )}
+            <SourceSiteLink url={law.source_url} />
+          </div>
         </div>
       ))}
     </div>
@@ -635,21 +662,27 @@ function F2RefsSection({ refs, running, onViewSource }) {
     return <div className="state-message state-message--empty">未檢索到相關參考見解。</div>
   }
   return (
-    <div className="card">
+    <div className="doc-grid">
       {refs.map((ref, i) => (
-        <div className="reference-ref" key={i}>
-          <span className="reference-ref__kind">{ref.doc_kind}</span>
-          <span className="reference-ref__name">{ref.name}</span>
-          {ref.issuer && <span className="reference-ref__issuer">{ref.issuer}</span>}
-          <span className="reference-ref__date mono">{ref.issued_date}</span>
+        <div className="doc-slot doc-slot--card reference-ref" key={i}>
+          <div className="doc-slot__head">
+            <span className="reference-ref__kind">{ref.doc_kind}</span>
+            <span className="reference-ref__name">{ref.name}</span>
+          </div>
+          <p className="doc-verdict__meta">
+            {ref.issuer && <span className="reference-ref__issuer">{ref.issuer}</span>}
+            <span className="reference-ref__date mono">{ref.issued_date}</span>
+          </p>
           {ref.topic && <p className="reference-ref__topic">爭點：{ref.topic}</p>}
-          <p className="reference-ref__text">{ref.text}</p>
-          {ref.source_key && (
-            <button type="button" className="btn-link" onClick={() => onViewSource(ref.source_key)}>
-              原文
-            </button>
-          )}
-          <SourceSiteLink url={ref.source_url} />
+          <p className="ref-card__text">{ref.text}</p>
+          <div className="ref-card__links">
+            {ref.source_key && (
+              <button type="button" className="btn-link" onClick={() => onViewSource(ref.source_key)}>
+                原文
+              </button>
+            )}
+            <SourceSiteLink url={ref.source_url} />
+          </div>
         </div>
       ))}
     </div>
@@ -664,24 +697,28 @@ function F3Section({ cases, running, onViewSource }) {
     return <div className="state-message state-message--empty">未檢索到相似案例。</div>
   }
   return (
-    <div className="card">
+    <div className="doc-grid">
       {cases.map((c, i) => (
-        <div className="similar-case" key={i}>
-          <span className="similar-case__title">
-            {c.year}年 {c.case_type} — {c.result}
-          </span>
+        <div className="doc-slot doc-slot--card similar-case" key={i}>
+          <div className="doc-slot__head">
+            <span className="similar-case__title">
+              {c.year}年 {c.case_type} — {c.result}
+            </span>
+          </div>
           <div className="similar-case__meta mono">
             案號 {c.case_no} · 訴願條款 {c.appeal_article} · 爭點 {c.issue}
           </div>
-          <p>{c.summary}</p>
-          <p>{c.similarity_note}</p>
+          <p className="ref-card__text">{c.summary}</p>
+          <p className="ref-card__text">{c.similarity_note}</p>
           {/* 原文按鈕:草稿頁的參考依據面板有,階段頁沒有的話兩處呈現不一致 */}
-          {c.source_key && (
-            <button type="button" className="btn-link" onClick={() => onViewSource(c.source_key)}>
-              原文
-            </button>
-          )}
-          <SourceSiteLink url={c.source_url} />
+          <div className="ref-card__links">
+            {c.source_key && (
+              <button type="button" className="btn-link" onClick={() => onViewSource(c.source_key)}>
+                原文
+              </button>
+            )}
+            <SourceSiteLink url={c.source_url} />
+          </div>
         </div>
       ))}
     </div>
@@ -727,10 +764,10 @@ function stageContent(key, caseData, onViewSource, onDocumentsChanged) {
   }
   if (key === 'screening') {
     return caseData.screening ? (
-      <>
+      <div className="doc-grid">
         <ScreeningSection caseData={caseData} onChanged={onDocumentsChanged} />
         <DeadlineSection deadline={caseData.deadline} />
-      </>
+      </div>
     ) : (
       <div className="state-message state-message--pending">
         {caseData.status === 'processing' && key === caseData.current_stage ? '處理中…' : '尚未執行'}
@@ -962,9 +999,9 @@ export default function CaseDetail() {
       )}
       {!error && caseData && (
         <>
-          <div className="page-header">
+          <div className="page-header page-header--tight">
             <div>
-              <h1 className="page-header__title">{caseData.title || '（未命名案件）'}</h1>
+              <h1 className="page-header__title">{pageTitle(caseData)}</h1>
             </div>
             <div className="page-header__actions">
               <Seal kind={resolveCaseSeal(caseData).kind} size="lg">
@@ -996,12 +1033,6 @@ export default function CaseDetail() {
             </div>
           )}
           {actionError && <div className="form-result form-result--error">{actionError}</div>}
-
-          {caseData.status === 'done' && manualRef.current && effectiveSelected !== 'draft' && (
-            <div className="state-message state-message--empty">
-              審理完成，可前往決定書草稿。
-            </div>
-          )}
 
           {(effectiveSelected === 'collecting' || STAGES.some((s) => s.key === effectiveSelected)) &&
             stageContent(effectiveSelected, caseData, handleViewSource, load)}
