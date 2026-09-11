@@ -790,3 +790,20 @@ def test_default_http_client_uses_configured_timeout(monkeypatch):
 
     assert captured["timeout"] == 1234.0
     assert captured["base_url"] == settings.LOCAL_LLM_BASE_URL
+
+
+def test_f1_schema_requires_every_field_a_procedural_check_reads():
+    """程式化檢核讀得到的欄位一律必填。schema 沒列必填時模型直接不輸出該鍵,
+    欄位落回預設空字串,而吃它的檢核只看得到「空」——沒抽到與卷內沒有,結果是同一個空值,
+    檢核於是靜默停用(local 實測 9 件全缺 disposition_recipient,§77(3) 整組沒跑)。
+    抽不到要填「未載明」,那是誠實回報,與整個鍵消失不同。"""
+    http = FakeHTTP(chat_payloads=[{
+        "appellant": "王大明", "agency": "機關", "disposition_date": "112年1月1日",
+        "disposition_no": "字第1號", "disposition_summary": "罰鍰", "case_type": "廢棄物清理法",
+    }])
+    provider = _provider(http_client=http)
+    provider.extract_case_info("卷證全文")
+
+    required = http.calls[0][1]["format"]["required"]
+    for field in ("disposition_recipient", "disposition_notice_clause", "receipt_date", "appeal_reasons"):
+        assert field in required, field

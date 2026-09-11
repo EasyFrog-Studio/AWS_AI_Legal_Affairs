@@ -1050,3 +1050,19 @@ def test_generate_draft_schema_enum_keeps_every_value_on_the_inadmissible_track(
     from app.models import DRAFT_TYPES
 
     assert _draft_enum_sent(passed=False) == list(DRAFT_TYPES)
+
+
+def test_f1_schema_requires_every_field_a_procedural_check_reads():
+    """與 local 同一條約束:schema 沒列必填,模型就不輸出該鍵,吃它的程式化檢核靜默停用。"""
+    brt = MagicMock()
+    brt.converse.return_value = _toolUse_response("extract_case_info", {
+        "appellant": "王大明", "agency": "機關", "disposition_date": "112年1月1日",
+        "disposition_no": "字第1號", "disposition_summary": "罰鍰", "case_type": "廢棄物清理法",
+    })
+    provider = _provider(bedrock_runtime=brt)
+    provider.extract_case_info("卷證全文")
+
+    _, kwargs = brt.converse.call_args
+    schema = kwargs["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
+    for field in ("disposition_recipient", "disposition_notice_clause", "receipt_date", "appeal_reasons"):
+        assert field in schema["required"], field

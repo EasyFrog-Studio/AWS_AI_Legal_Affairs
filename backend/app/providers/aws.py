@@ -189,6 +189,9 @@ class AWSProvider(AIProvider):
                 "answer_self_revoked": {"type": "string"},
                 "answer_arguments": {"type": "array", "items": {"type": "string"}},
             },
+            # 程式化檢核讀得到的欄位一律必填:選填時模型會整個略過該鍵,欄位落回空字串,
+            # 吃它的檢核只看得到「空」——沒抽到與卷內沒有變成同一個值,檢核於是靜默停用。
+            # 抽不到要填「未載明」(見 f1_extract.txt),那是誠實回報,與鍵消失不同
             "required": [
                 "appellant",
                 "agency",
@@ -196,6 +199,10 @@ class AWSProvider(AIProvider):
                 "disposition_no",
                 "disposition_summary",
                 "case_type",
+                "disposition_recipient",  # check_standing → §77(3) 當事人適格
+                "disposition_notice_clause",  # notice_clause → 行政程序法§98 期間分支
+                "receipt_date",  # check_required_fields → 訴願法§56 I⑥
+                "appeal_reasons",  # check_required_fields → 訴願法§56 I⑤
             ],
         }
         data = self._converse_json(_load_prompt("f1_extract.txt"), text, "extract_case_info", schema)
