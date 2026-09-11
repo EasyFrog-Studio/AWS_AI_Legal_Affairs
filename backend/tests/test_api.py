@@ -267,6 +267,47 @@ def _scanned_pdf_bytes() -> bytes:
     return pdf_bytes
 
 
+def _text_pdf_bytes(text: str) -> bytes:
+    """有文字層的 PDF:內建中文字型,抽字層才讀得回同一段字。"""
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_textbox(fitz.Rect(40, 40, 560, 800), text, fontname="china-t", fontsize=11)
+    pdf_bytes = doc.tobytes()
+    doc.close()
+    return pdf_bytes
+
+
+def test_uploaded_filename_is_kept_on_the_slot_and_pasted_text_has_none(monkeypatch):
+    """承辦人要在畫面上對回自己的卷宗,存的是當初上傳的檔名;貼上文字沒有檔名可言。"""
+    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+    client = TestClient(main_module.app)
+    resp = client.post(
+        "/api/cases",
+        data={"service_text": _SERVICE_TEXT, "disposition_text": _DISPOSITION_TEXT},
+        files={"appeal_file": ("01_訴願書.pdf", _text_pdf_bytes(_APPEAL_TEXT), "application/pdf")},
+        headers=_headers(),
+    )
+    assert resp.status_code == 200, resp.json()
+    case_id = resp.json()["case_id"]
+    docs = client.get(f"/api/cases/{case_id}", headers=_headers()).json()["documents"]
+    assert docs["appeal"].get("filename") == "01_訴願書.pdf"
+    assert docs["appeal"]["source"] == "pdf"
+    assert docs["service"].get("filename") == ""
+
+    # 重傳同樣記下新檔名,舊檔名不能留著
+    resp = client.patch(
+        f"/api/cases/{case_id}/documents/service",
+        # 送達證書本文很短,重複幾遍才過得了文字層門檻,不然會被當成掃描件
+        files={"file": ("03_送達證書_補正.pdf", _text_pdf_bytes((_SERVICE_TEXT + "\n") * 6), "application/pdf")},
+        headers=_headers(),
+    )
+    assert resp.status_code == 200, resp.json()
+    docs = client.get(f"/api/cases/{case_id}", headers=_headers()).json()["documents"]
+    assert docs["service"].get("filename") == "03_送達證書_補正.pdf"
+
+
 def test_scanned_pdf_in_mock_mode_is_refused_with_a_reason(monkeypatch):
     """掃描件不要偽裝成「文書寫得不清楚」:mock 模式沒有 OCR,就明確拒收,
     不要讓使用者拿到一個空白案件。"""

@@ -1,126 +1,11 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createCase } from '../api'
 import AppShell from '../components/AppShell.jsx'
-import Icon from '../components/Icon.jsx'
+import AutoTextarea from '../components/AutoTextarea.jsx'
+import DropZone from '../components/DropZone.jsx'
 import { DOCUMENT_SLOTS as SLOTS } from '../components/documentSlots.js'
 import './NewCase.css'
-
-// 副檔名是給拖曳來源沒帶 MIME 的情形留的退路,後端仍只收 PDF
-function isPdf(file) {
-  return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
-}
-
-function fileSize(bytes) {
-  const kb = bytes / 1024
-  return kb < 1024 ? `${Math.max(1, Math.round(kb))} KB` : `${(kb / 1024).toFixed(1)} MB`
-}
-
-/** 落件框:拖曳與點選共用同一個 input,兩種來源走同一條檢查。 */
-function DropZone({ slot, fieldId, file, onFile, disabled }) {
-  const [dragging, setDragging] = useState(false)
-  const [rejected, setRejected] = useState('')
-
-  function accept(picked) {
-    if (!picked) return
-    if (!isPdf(picked)) {
-      setRejected(`只接受 PDF 檔：${picked.name} 無法帶入`)
-      return
-    }
-    setRejected('')
-    onFile(picked)
-  }
-
-  const state = [
-    dragging ? 'dropzone--over' : '',
-    file ? 'dropzone--filled' : '',
-    rejected ? 'dropzone--error' : '',
-    disabled ? 'dropzone--disabled' : '',
-  ].join(' ')
-
-  return (
-    <div
-      className={`dropzone ${state}`}
-      onDragOver={(e) => {
-        e.preventDefault()
-        if (!disabled) setDragging(true)
-      }}
-      onDragLeave={(e) => {
-        // 游標移到框內的 label 上也會觸發 dragleave,不濾掉的話拖曳標示會閃爍
-        if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false)
-      }}
-      onDrop={(e) => {
-        e.preventDefault()
-        setDragging(false)
-        if (!disabled) accept(e.dataTransfer?.files?.[0])
-      }}
-    >
-      <input
-        id={fieldId}
-        className="dropzone__input"
-        type="file"
-        accept="application/pdf"
-        aria-label={`${slot.label} PDF`}
-        onChange={(e) => accept(e.target.files?.[0])}
-        disabled={disabled}
-      />
-      <label className="dropzone__face" htmlFor={fieldId}>
-        <Icon name={file ? 'page-filled' : 'page-arrow'} className="dropzone__icon" />
-        {file ? (
-          <>
-            <span className="dropzone__file">{file.name}</span>
-            <span className="dropzone__size">{fileSize(file.size)}</span>
-          </>
-        ) : (
-          <>
-            <span className="dropzone__title">拖曳 PDF 到這裡</span>
-            <span className="dropzone__hint">或點選此處選擇檔案</span>
-          </>
-        )}
-      </label>
-      {file && (
-        <button
-          type="button"
-          className="btn-link dropzone__clear"
-          onClick={() => {
-            setRejected('')
-            onFile(null)
-          }}
-          disabled={disabled}
-        >
-          移除
-        </button>
-      )}
-      {rejected && (
-        <p className="dropzone__reject" role="alert">
-          {rejected}
-        </p>
-      )}
-    </div>
-  )
-}
-
-/** 貼上的全文長度差距極大,固定高度不是內捲就是留白,改成跟著內容長。 */
-function AutoTextarea({ slot, fieldId, value, onChange, disabled }) {
-  const ref = useRef(null)
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${el.scrollHeight}px`
-  }, [value])
-  return (
-    <textarea
-      id={fieldId}
-      ref={ref}
-      className="textarea doc-slot__text"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={`請貼上${slot.label}全文`}
-      disabled={disabled}
-    />
-  )
-}
 
 /** 單一文件槽:PDF / 文字二擇一,自己管自己的輸入狀態。 */
 function DocumentSlotField({ slot, value, onChange, disabled }) {
@@ -160,10 +45,11 @@ function DocumentSlotField({ slot, value, onChange, disabled }) {
       )}
       {value.tab === 'text' && (
         <AutoTextarea
-          slot={slot}
-          fieldId={fieldId}
+          id={fieldId}
+          className="doc-slot__text"
           value={value.text}
           onChange={(text) => onChange({ ...value, text })}
+          placeholder={`請貼上${slot.label}全文`}
           disabled={disabled}
         />
       )}
@@ -238,7 +124,7 @@ export default function NewCase() {
       </div>
 
       <div className="newcase">
-        <p className="newcase__intro">
+        <p className="doc-intro">
           請分別提供訴願書、送達證書、原處分書三份文件（限 PDF 或貼上全文皆可）；原處分機關的訴願答辯書可不附加
         </p>
 
@@ -270,10 +156,10 @@ export default function NewCase() {
             ))}
           </div>
 
-          <div className="action-row newcase__actions">
+          <div className="action-row action-row--end">
             <button
               type="submit"
-              className={`btn btn-primary newcase__submit ${status === 'loading' ? 'btn--loading' : ''}`}
+              className={`btn btn-primary btn-submit ${status === 'loading' ? 'btn--loading' : ''}`}
               // 用 aria-disabled 而非 disabled:原生停用的按鈕不吃 cursor,游標無法說明為何按不下去
               aria-disabled={!canSubmit || status === 'loading'}
             >

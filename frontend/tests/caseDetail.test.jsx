@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import App from '../src/App.jsx'
@@ -162,6 +162,8 @@ describe('待確認階段(collecting)', () => {
     // 沒送來跟送來但看不懂是兩件事,不能都顯示「無法自動確認」
     expect(within(slot).getByText(/未提供/)).toBeInTheDocument()
     expect(within(slot).queryByText(/無法自動確認/)).toBeNull()
+    // 沒送來過的槽談不上「重新」上傳
+    expect(within(slot).getByRole('button', { name: '補上傳' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '開始分析' })).toBeEnabled()
   })
 
@@ -208,7 +210,7 @@ describe('待確認階段(collecting)', () => {
     renderDetail('c-5')
 
     await screen.findByText(/不是訴願答辯書/)
-    expect(screen.getByRole('button', { name: '開始分析' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '開始分析' })).toHaveAttribute('aria-disabled', 'true')
   })
 
   it('有文件判斷不符時,開始分析被停用,並標示不符原因', async () => {
@@ -216,7 +218,11 @@ describe('待確認階段(collecting)', () => {
     renderDetail('c-6')
 
     await screen.findByText(/不是送達證書/)
-    expect(screen.getByRole('button', { name: '開始分析' })).toBeDisabled()
+    const analyze = screen.getByRole('button', { name: '開始分析' })
+    expect(analyze).toHaveAttribute('aria-disabled', 'true')
+    api.analyzeCase.mockClear()
+    await userEvent.setup().click(analyze)
+    expect(api.analyzeCase).not.toHaveBeenCalled()
   })
 
   it('點擊開始分析呼叫 API 並重新載入案件', async () => {
@@ -240,13 +246,85 @@ describe('待確認階段(collecting)', () => {
     const serviceSlot = screen.getByText('送達證書').closest('.doc-slot')
     await user.click(within(serviceSlot).getByRole('button', { name: '重新上傳' }))
     const file = new File(['%PDF-1.4'], '送達證書.pdf', { type: 'application/pdf' })
-    await user.upload(within(serviceSlot).getByLabelText('重新上傳 PDF'), file)
+    await user.upload(within(serviceSlot).getByLabelText('送達證書 PDF'), file)
     api.replaceDocument.mockClear()
     await user.click(within(serviceSlot).getByRole('button', { name: '送出' }))
 
     const formData = api.replaceDocument.mock.calls[0][2]
     expect(formData.get('file')).toBe(file)
     expect(formData.get('text')).toBeNull() // 兩者只送一個,不讓後端猜該用哪個
+  })
+
+  it('展開重傳時不符的理由要留在畫面上,他是照著那句補件的', async () => {
+    api.getCase.mockResolvedValue(collectingWithMismatch)
+    const user = userEvent.setup()
+    renderDetail('c-6')
+
+    await screen.findByText(/不是送達證書/)
+    const serviceSlot = screen.getByText('送達證書').closest('.doc-slot')
+    await user.click(within(serviceSlot).getByRole('button', { name: '重新上傳' }))
+
+    expect(within(serviceSlot).getByText(/不是送達證書/)).toBeInTheDocument()
+  })
+
+  it('重傳的落件框拒收非 PDF,不讓壞檔走到後端', async () => {
+    api.getCase.mockResolvedValue(collectingWithMismatch)
+    const user = userEvent.setup()
+    renderDetail('c-6')
+
+    await screen.findByText(/不是送達證書/)
+    const serviceSlot = screen.getByText('送達證書').closest('.doc-slot')
+    await user.click(within(serviceSlot).getByRole('button', { name: '重新上傳' }))
+    const zone = within(serviceSlot).getByLabelText('送達證書 PDF').closest('.dropzone')
+    const notPdf = new File(['送達證書'], '送達證書.txt', { type: 'text/plain' })
+    api.replaceDocument.mockClear()
+    fireEvent.drop(zone, { dataTransfer: { files: [notPdf], types: ['Files'] } })
+
+    expect(within(serviceSlot).getByText(/只接受 PDF 檔/)).toBeInTheDocument()
+    // 檔案沒被帶進來,送出鍵就不該可按——按下去只會把壞檔送到後端才被退
+    expect(within(serviceSlot).getByRole('button', { name: '送出' })).toBeDisabled()
+    expect(api.replaceDocument).not.toHaveBeenCalled()
+  })
+
+  it('換一槽重傳不把上一槽打到一半的字帶過去', async () => {
+    api.getCase.mockResolvedValue(collectingWithMismatch)
+    const user = userEvent.setup()
+    renderDetail('c-6')
+
+    await screen.findByText(/不是送達證書/)
+    const serviceSlot = screen.getByText('送達證書').closest('.doc-slot')
+    await user.click(within(serviceSlot).getByRole('button', { name: '重新上傳' }))
+    await user.type(within(serviceSlot).getByPlaceholderText('或貼上送達證書全文'), '打到一半')
+
+    const appealSlot = screen.getByText('訴願書').closest('.doc-slot')
+    await user.click(within(appealSlot).getByRole('button', { name: '重新上傳' }))
+
+    expect(within(appealSlot).getByPlaceholderText('或貼上訴願書全文')).toHaveValue('')
+  })
+
+  it('OCR 取字的槽要在卡片上講出來,日期不能被當成已核對', async () => {
+    api.getCase.mockResolvedValue({
+      ...collectingAllMatched,
+      documents: {
+        ...collectingAllMatched.documents,
+        service: {
+          ...collectingAllMatched.documents.service,
+          source: 'pdf',
+          filename: '03_送達證書.pdf',
+          ocr: true,
+        },
+      },
+    })
+    renderDetail('c-5')
+
+    await screen.findByRole('button', { name: '開始分析' })
+    const serviceSlot = screen.getByText('送達證書').closest('.doc-slot')
+    // 來源直接寫當初上傳的檔名,承辦人對得回自己的卷宗
+    expect(within(serviceSlot).getByText(/來源：03_送達證書\.pdf/)).toBeInTheDocument()
+    expect(within(serviceSlot).getByText(/OCR 取字/)).toBeInTheDocument()
+    // 沒走 OCR 的槽不該跟著標,否則這個提醒等於沒說
+    const appealSlot = screen.getByText('訴願書').closest('.doc-slot')
+    expect(within(appealSlot).getByText(/來源：貼上文字$/)).toBeInTheDocument()
   })
 
   it('重傳遇 409(案件已離開收案階段)時同步真實狀態', async () => {

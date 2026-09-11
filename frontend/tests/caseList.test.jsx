@@ -76,10 +76,10 @@ describe('案件清單', () => {
     expect(dataRows()).toHaveLength(3)
   })
 
-  it('完全沒有案件:顯示「尚無案件。」與新建案件按鈕', async () => {
+  it('完全沒有案件:顯示「尚無案件。」與新增案件按鈕', async () => {
     await renderList([])
     expect(await screen.findByText('尚無案件。')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '新建案件' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '新增案件' })).toBeInTheDocument()
   })
 
   it('needs_review 的案件蓋「待人工確認」章,並可據此篩選', async () => {

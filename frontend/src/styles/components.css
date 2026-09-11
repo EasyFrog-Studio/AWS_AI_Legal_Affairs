@@ -322,6 +322,13 @@
   line-height: var(--leading-body);
 }
 
+/* inline 元素的基線空隙會讓切到文字分頁時整列長高 */
+.textarea--auto {
+  display: block;
+  resize: none;
+  overflow: hidden;
+}
+
 /* ---------- Seal(印章):方正雙線框,顏色只來自狀態層 ---------- */
 
 .seal {
@@ -526,16 +533,231 @@ table.list-table {
   padding-inline: var(--space-xs);
 }
 
-.doc-slot--review {
+/* 待確認階段的一張卷證卡:結論框與重傳框共用同一個版位,展開時版面不跳 */
+.doc-verdict {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: var(--space-md);
-  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2xs);
+  min-height: 152px;
+  padding: var(--space-lg) var(--space-md);
+  text-align: center;
+  background: var(--color-surface);
+  /* 與落件框同一個框:這一格佔的是落件框的版位,顏色一律環境層,狀態只由框內的字帶 */
+  border: 2px solid var(--color-rule-strong);
+  border-radius: var(--radius);
 }
 
-.doc-slot__replace {
+.doc-verdict .doc-verdict__icon {
+  width: 28px;
+  height: 28px;
+  color: var(--color-wood);
+  margin-bottom: var(--space-2xs);
+}
+
+/* 實線 = 這一槽收好了,虛線 = 還要人動手,與落件框 filled / 空框同一個講法 */
+.doc-verdict--mismatch,
+.doc-verdict--unknown,
+.doc-verdict--na {
+  border-style: dashed;
+}
+
+.doc-verdict--na {
+  border-color: var(--color-rule);
+}
+
+/* 結論是這張卡唯一要被掃到的東西,字級與字重都得壓過旁邊的來源與連結 */
+.doc-verdict .doc-check {
+  font-size: var(--text-ui);
+  font-weight: 600;
+}
+
+.doc-verdict__meta {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+}
+
+.doc-verdict__action {
+  margin-top: var(--space-2xs);
+  font-size: var(--text-sm);
+}
+
+.doc-replace__title {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--color-wood);
+  margin: 0 0 var(--space-xs);
+}
+
+.doc-replace__title .doc-check {
+  font-weight: 600;
+}
+
+/* 重傳的落件框比收案時矮:這裡是補一份,不是四份一起收 */
+.doc-replace .dropzone {
+  min-height: 152px;
+}
+
+/* 補一份文件的貼上框,不必跟收案時的整頁落件一樣高 */
+.doc-replace__text.textarea {
+  min-height: 96px;
+  margin-top: var(--space-xs);
+}
+
+.doc-replace__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+/* 槽名是格子的抬頭,靠緊下面那一格才讀成一體 */
+.doc-grid .doc-slot__head {
+  margin-bottom: var(--space-2xs);
+}
+
+.doc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* 各槽自己決定高度:文字槽長出來時,同列的落件框不該跟著被拉高留一段空白 */
+  align-items: start;
+  gap: var(--space-xl);
+}
+
+/* 並排後每格自成一塊,共用樣式的分隔線與外距在格線裡是多餘的 */
+.doc-grid .doc-slot {
+  margin: 0;
+  padding: 0;
+  border-bottom: none;
+}
+
+/* 兩欄與單欄的落件框等高,切換分頁時版面不跳動 */
+.doc-slot__text.textarea,
+.dropzone {
+  min-height: 220px;
+}
+
+.dropzone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: var(--space-lg);
+  background: var(--color-surface);
+  border: 2px dashed var(--color-rule-strong);
+  border-radius: var(--radius);
+  transition: border-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+
+.dropzone:hover {
+  border-color: var(--color-ink-soft);
+}
+
+.dropzone:focus-within {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  transition: none;
+}
+
+.dropzone--over {
+  border-color: var(--color-accent);
+  background: var(--color-surface-2);
+}
+
+.dropzone--filled {
+  border-style: solid;
+  border-color: var(--color-accent);
+}
+
+.dropzone--error {
+  border-color: var(--color-error);
+}
+
+/* input 留在 tab 序列裡才有鍵盤入口,焦點環畫在外框上 */
+.dropzone__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.dropzone__face {
+  flex: 1;
   width: 100%;
-  margin-top: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2xs);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  text-align: center;
+}
+
+.dropzone .dropzone__icon {
+  width: 28px;
+  height: 28px;
+  color: var(--color-wood);
+  margin-bottom: var(--space-2xs);
+}
+
+.dropzone__title {
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--color-ink);
+}
+
+.dropzone__hint,
+.dropzone__size {
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+}
+
+.dropzone__file {
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+
+.dropzone__size {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+}
+
+.dropzone__clear {
+  font-size: var(--text-sm);
+}
+
+.dropzone__reject {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--color-error);
+  margin: 0;
+  text-align: center;
+}
+
+.dropzone--disabled {
+  background: var(--color-surface-2);
+  border-color: var(--color-rule);
+}
+
+.dropzone--disabled:hover {
+  border-color: var(--color-rule);
+}
+
+.dropzone--disabled .dropzone__face {
+  cursor: not-allowed;
+}
+
+.dropzone--disabled .dropzone__face *,
+.dropzone--disabled .dropzone__icon {
+  color: var(--color-ink-faint);
 }
 
 /* 文件型態確認結果:matched=null(unknown)是「無法確認」,顏色不可與 ok/mismatch 共用,
@@ -670,5 +892,59 @@ table.list-table {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* ---------- 文件表單共用:說明句 · 送出鍵 · 缺件說明 ---------- */
+
+.doc-intro {
+  font-family: var(--font-ui);
+  font-size: var(--text-ui);
+  color: var(--color-ink-soft);
+  margin: 0 0 var(--space-md);
+}
+
+.btn-submit.btn-primary {
+  background: var(--color-accent-deep);
+  border-color: var(--color-accent-deep);
+  color: var(--color-surface);
+  min-height: 48px;
+  padding-inline: var(--space-xl);
+}
+
+.btn-submit.btn-primary:hover:not([aria-disabled='true']) {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.action-row--end {
+  justify-content: flex-end;
+}
+
+/* 必填文件未齊時外觀不變,只用游標說明按不下去 */
+.btn-submit.btn-primary[aria-disabled='true'] {
+  background: var(--color-accent-deep);
+  border-color: var(--color-accent-deep);
+  color: var(--color-surface);
+  pointer-events: auto;
+  cursor: not-allowed;
+}
+
+/* 送出中是等待,不是禁止 */
+.btn-submit.btn-primary.btn--loading {
+  cursor: progress;
+}
+
+/* 送出鍵停用時退回一般停用外觀,不可被上面的加重色蓋過 */
+.btn-submit.btn-primary:disabled {
+  background: var(--color-surface-2);
+  border-color: var(--color-rule);
+  color: var(--color-ink-faint);
+}
+
+@media (max-width: 900px) {
+  .doc-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-lg);
   }
 }

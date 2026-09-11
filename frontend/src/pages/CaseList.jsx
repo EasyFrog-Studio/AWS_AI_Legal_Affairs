@@ -233,7 +233,7 @@ export default function CaseList() {
           </div>
           <div className="case-list-empty-text">尚無案件。</div>
           <button type="button" className="btn btn-primary" onClick={() => navigate('/new')}>
-            新建案件
+            新增案件
           </button>
         </div>
       )}

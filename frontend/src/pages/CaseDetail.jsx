@@ -12,6 +12,8 @@ import {
 } from '../api'
 import AppShell from '../components/AppShell.jsx'
 import DocumentCheckBadge from '../components/DocumentCheckBadge.jsx'
+import AutoTextarea from '../components/AutoTextarea.jsx'
+import DropZone from '../components/DropZone.jsx'
 import { DOCUMENT_SLOTS, F1_GROUPS } from '../components/documentSlots.js'
 import Icon from '../components/Icon.jsx'
 import Seal, { resolveCaseSeal } from '../components/Seal.jsx'
@@ -84,8 +86,92 @@ function draftMarker(caseData) {
   return { icon: 'fishtail-hollow', modifier: 'pending', note: null }
 }
 
-/** 待確認階段:三份文件的型態確認結果、單槽重傳、開始分析。案件在 status='collecting' 時渲染,
- * 取代原有的階段內容——分析尚未開始,F1~F4 都還沒有東西可看。 */
+/** 一槽的確認結論,四態互斥:ok / mismatch / unknown / na。
+ * na(選填槽沒送來)必須與 unknown(送來了但看不懂)分開——前者沒有東西可確認,不是判斷失敗。 */
+function verdictOf(slot, doc) {
+  if (slot.optional && !doc?.text?.trim()) return 'na'
+  if (doc?.check?.matched === true) return 'ok'
+  if (doc?.check?.matched === false) return 'mismatch'
+  return 'unknown'
+}
+
+const VERDICT_ICON = { ok: 'page-filled', mismatch: 'page-arrow', unknown: 'page-arrow' }
+
+/** 這一槽的文字是怎麼進來的:上傳的寫原始檔名,貼的寫貼上文字。
+ * OCR 取字要講出來:模型抽字會編字,而本系統的正確性建立在日期上。 */
+function sourceNote(doc) {
+  if (!doc) return ''
+  const from = doc.source === 'pdf' ? doc.filename || 'PDF' : '貼上文字'
+  return doc.ocr ? `來源：${from}(掃描件 OCR 取字)` : `來源：${from}`
+}
+
+/** 待確認階段的一張卷證卡:確認結論與重傳共用同一個版位,展開重傳時版面不跳。
+ * replace 是這一槽的重傳狀態與四個動作,收成一包傳——它們永遠一起出現。 */
+function ReviewSlotCard({ slot, doc, replace, busy }) {
+  const verdict = verdictOf(slot, doc)
+  return (
+    <div className="doc-slot doc-slot--review">
+      <div className="doc-slot__head">
+        <span className="doc-slot__label">{slot.label}</span>
+        <span className="doc-slot__flag">{slot.optional ? '選填' : '必填'}</span>
+      </div>
+      {replace.active ? (
+        <div className="doc-replace">
+          {/* 結論留在原地:不符的理由正是他要照著補件的東西,不能在他動手時收走 */}
+          <p className="doc-replace__title">
+            {verdict === 'na' ? '尚未提供,補上傳' : <DocumentCheckBadge check={doc?.check} />}
+          </p>
+          <DropZone
+            slot={slot}
+            fieldId={`replace-file-${slot.key}`}
+            file={replace.file}
+            onFile={replace.onFile}
+            disabled={busy}
+          />
+          <AutoTextarea
+            className="doc-replace__text"
+            value={replace.text}
+            onChange={replace.onText}
+            placeholder={`或貼上${slot.label}全文`}
+            disabled={busy || Boolean(replace.file)}
+          />
+          <div className="doc-replace__actions">
+            <button type="button" className="btn btn-secondary" onClick={replace.onClose} disabled={busy}>
+              取消
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={replace.onSubmit}
+              disabled={busy || (!replace.text.trim() && !replace.file)}
+            >
+              送出
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className={`doc-verdict doc-verdict--${verdict}`}>
+          {verdict === 'na' ? (
+            <span className="doc-check doc-check--na">— 未提供(選填,可事後補上)</span>
+          ) : (
+            <>
+              <Icon name={VERDICT_ICON[verdict]} className="doc-verdict__icon" />
+              <DocumentCheckBadge check={doc?.check} />
+              <span className="doc-verdict__meta">{sourceNote(doc)}</span>
+            </>
+          )}
+          <button type="button" className="btn-link doc-verdict__action" onClick={replace.onOpen} disabled={busy}>
+            {verdict === 'na' ? '補上傳' : '重新上傳'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 待確認階段:四份文件的型態確認結果、單槽重傳、開始分析。案件在 status='collecting' 時渲染,
+ * 取代原有的階段內容——分析尚未開始,F1~F4 都還沒有東西可看。
+ * 版面與收案頁同一個卷證工作檯(doc-grid),兩處看到的是同一批槽,不該長成兩種東西。 */
 function CollectingSection({ caseData, onReplaced, onAnalyzed }) {
   const [replacing, setReplacing] = useState(null) // 目前正在重傳哪一槽(key),null 代表沒有
   const [replaceText, setReplaceText] = useState('')
@@ -95,10 +181,14 @@ function CollectingSection({ caseData, onReplaced, onAnalyzed }) {
 
   const documents = caseData.documents || {}
   // 選填槽沒送來就沒有東西可確認,不能讓它永遠擋著開始分析;送來了就照樣要通過型態確認
-  const isEmptyOptional = (slot) => slot.optional && !documents[slot.key]?.text?.trim()
-  const allMatched = DOCUMENT_SLOTS.every(
-    (s) => documents[s.key]?.check?.matched === true || isEmptyOptional(s),
-  )
+  const allMatched = DOCUMENT_SLOTS.every((s) => ['ok', 'na'].includes(verdictOf(s, documents[s.key])))
+
+  // 三個重傳狀態是全體共用的,換槽不清掉的話會把上一槽打到一半的字帶過去
+  function closeReplace() {
+    setReplacing(null)
+    setReplaceText('')
+    setReplaceFile(null)
+  }
 
   async function handleReplaceSubmit(slotKey) {
     setBusy(true)
@@ -109,9 +199,7 @@ function CollectingSection({ caseData, onReplaced, onAnalyzed }) {
       if (replaceFile) formData.append('file', replaceFile)
       else formData.append('text', replaceText)
       await replaceDocument(caseData.case_id, slotKey, formData)
-      setReplacing(null)
-      setReplaceText('')
-      setReplaceFile(null)
+      closeReplace()
       onReplaced()
     } catch (err) {
       setError(err.message || '重傳失敗,請重試。')
@@ -123,6 +211,7 @@ function CollectingSection({ caseData, onReplaced, onAnalyzed }) {
   }
 
   async function handleAnalyze() {
+    if (!allMatched || busy) return
     setBusy(true)
     setError('')
     try {
@@ -137,92 +226,47 @@ function CollectingSection({ caseData, onReplaced, onAnalyzed }) {
 
   return (
     <div className="card">
-      <p className="newcase__intro">
+      <p className="doc-intro">
         {allMatched
           ? '文件皆已確認無誤,可以開始分析。'
           : '有文件無法確認或判斷不符,請重新上傳該份文件。'}
       </p>
-      {DOCUMENT_SLOTS.map((slot) => {
-        const doc = documents[slot.key]
-        const isReplacing = replacing === slot.key
-        return (
-          <div className="doc-slot doc-slot--review" key={slot.key}>
-            <span className="doc-slot__label">{slot.label}</span>
-            {isEmptyOptional(slot) ? (
-              <span className="doc-check doc-check--na">— 未提供(選填,可事後補上)</span>
-            ) : (
-              <DocumentCheckBadge check={doc?.check} />
-            )}
-            {!isReplacing && (
-              <button
-                type="button"
-                className="btn-link"
-                onClick={() => {
-                  setReplacing(slot.key)
-                  setReplaceText('')
-                }}
-                disabled={busy}
-              >
-                重新上傳
-              </button>
-            )}
-            {isReplacing && (
-              <div className="doc-slot__replace">
-                <label htmlFor={`replace-file-${slot.key}`} className="rail-label">
-                  重新上傳 PDF
-                </label>
-                <input
-                  id={`replace-file-${slot.key}`}
-                  type="file"
-                  accept="application/pdf"
-                  className="rail-field"
-                  onChange={(e) => setReplaceFile(e.target.files?.[0] || null)}
-                  disabled={busy}
-                />
-                <textarea
-                  className="textarea"
-                  value={replaceText}
-                  onChange={(e) => setReplaceText(e.target.value)}
-                  placeholder={`或貼上${slot.label}全文`}
-                  rows={4}
-                  disabled={busy || Boolean(replaceFile)}
-                />
-                <div className="action-row">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => {
-                      setReplacing(null)
-                      setReplaceFile(null)
-                    }}
-                    disabled={busy}
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => handleReplaceSubmit(slot.key)}
-                    disabled={busy || (!replaceText.trim() && !replaceFile)}
-                  >
-                    送出
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )
-      })}
-      <div className="action-row">
+
+      <div className="doc-grid">
+        {DOCUMENT_SLOTS.map((slot) => (
+          <ReviewSlotCard
+            key={slot.key}
+            slot={slot}
+            doc={documents[slot.key]}
+            busy={busy}
+            replace={{
+              active: replacing === slot.key,
+              file: replaceFile,
+              text: replaceText,
+              onOpen: () => {
+                closeReplace()
+                setReplacing(slot.key)
+              },
+              onClose: closeReplace,
+              onFile: setReplaceFile,
+              onText: setReplaceText,
+              onSubmit: () => handleReplaceSubmit(slot.key),
+            }}
+          />
+        ))}
+      </div>
+
+      <div className="action-row action-row--end">
         <button
           type="button"
-          className="btn btn-primary"
+          className="btn btn-primary btn-submit"
           onClick={handleAnalyze}
-          disabled={!allMatched || busy}
+          aria-disabled={!allMatched || busy}
         >
           開始分析
         </button>
       </div>
+
       {error && <div className="form-result form-result--error">{error}</div>}
     </div>
   )

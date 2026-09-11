@@ -35,7 +35,7 @@ async function fillRequiredSlotsAndSubmit(user) {
   await user.click(screen.getByRole('button', { name: '送出並確認文件' }))
 }
 
-describe('新建案件(三檔上傳)', () => {
+describe('新增案件(三檔上傳)', () => {
   it('三個文件槽都是文字貼上前,送出按鈕按不動', async () => {
     api.createCase.mockClear()
     const user = userEvent.setup()

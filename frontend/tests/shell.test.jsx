@@ -24,7 +24,7 @@ describe('App shell', () => {
     renderAt('/')
     const nav = await screen.findByRole('navigation', { name: '全域導覽' })
     expect(nav).toHaveTextContent('案件清單')
-    expect(nav).toHaveTextContent('新建案件')
+    expect(nav).toHaveTextContent('新增案件')
     expect(screen.getByRole('button', { name: '登出' })).toBeInTheDocument()
   })
 

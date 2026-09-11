@@ -127,6 +127,7 @@ class DocumentInput(NamedTuple):
     text: str
     source: str
     ocr: bool = False
+    filename: str = ""  # 上傳的原始檔名;貼上文字為空字串
 
 
 def _ocr_document(label: str, pdf_bytes: bytes) -> DocumentInput:
@@ -166,9 +167,12 @@ async def _read_document_input(
             extracted = extract_text_quality(pdf_bytes)
         except Exception:
             raise HTTPException(status_code=400, detail=f"{label}檔案讀取失敗,請改用文字貼上。")
-        if extracted.char_count < MIN_TEXT_CHARS:
-            return _ocr_document(label, pdf_bytes)
-        return DocumentInput(text=extracted.text, source="pdf")
+        document = (
+            _ocr_document(label, pdf_bytes)
+            if extracted.char_count < MIN_TEXT_CHARS
+            else DocumentInput(text=extracted.text, source="pdf")
+        )
+        return document._replace(filename=file.filename or "")
     if text is not None and text.strip():
         return DocumentInput(text=text, source="text")
     if not required:
@@ -184,6 +188,7 @@ def _build_document(slot: DocumentSlot, document_input: DocumentInput) -> CaseDo
         text=document_input.text,
         check=check,
         ocr=document_input.ocr,
+        filename=document_input.filename,
         review_note=OCR_REVIEW_NOTE if document_input.ocr else "",
     )
 

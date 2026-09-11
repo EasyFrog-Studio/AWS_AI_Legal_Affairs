@@ -71,7 +71,7 @@ export default function AppShell({ railSlot, children }) {
               className={({ isActive }) => `rail__link ${isActive ? 'rail__link--active' : ''}`}
               onClick={(e) => confirmLeave(guardRef, e)}
             >
-              新建案件
+              新增案件
             </NavLink>
           </nav>
           <div className="rail__page">{railSlot}</div>

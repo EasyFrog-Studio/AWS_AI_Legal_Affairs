@@ -261,6 +261,7 @@ class CaseDocument(BaseModel):
     text: str
     check: DocumentCheck = DocumentCheck()
     ocr: bool = False  # 文字由掃描件逐頁抽字取得,非 PDF 文字層
+    filename: str = ""  # 上傳的原始檔名,貼上文字為空;舊案沒有這欄,讀回時視為空
     review_note: str = ""  # 這一槽本身需人工複核的原因(如 OCR 取字),空字串代表無
 
 
