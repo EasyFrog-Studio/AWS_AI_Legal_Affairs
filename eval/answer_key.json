@@ -6,6 +6,7 @@
   "cases": {
     "example1": {
       "source_decision": "04.114年-違反廢棄物清理法事件-77(2)-訴願逾期-不受理.txt",
+      "decision": "不受理",
       "screening": {
         "passed": false,
         "clause": "77(2)"
@@ -24,6 +25,7 @@
     },
     "example2": {
       "source_decision": "05.114年-違反空氣汙染防制法事件-77(3)-當事人不適格-不受理.txt",
+      "decision": "不受理",
       "screening": {
         "passed": false,
         "clause": "77(3)"
@@ -43,6 +45,7 @@
     },
     "example3": {
       "source_decision": "13.114年-陳情事件-77(8)-非行政處分-不受理.txt",
+      "decision": "不受理",
       "screening": {
         "passed": false,
         "clause": "77(8)"
@@ -62,6 +65,7 @@
     },
     "example4": {
       "source_decision": "17.114年-違反廢棄物清理法事件-79I-訴願無理由-駁回.txt",
+      "decision": "駁回",
       "screening": {
         "passed": true,
         "clause": null
@@ -80,6 +84,7 @@
     },
     "example5": {
       "source_decision": "16.114年-違反空氣汙染防制法事件-79I-訴願無理由-駁回.txt",
+      "decision": "駁回",
       "screening": {
         "passed": true,
         "clause": null
@@ -99,6 +104,7 @@
     },
     "example6": {
       "source_decision": "19.114年-違反建築法事件-81I-訴願有理由-原處分撤銷.txt",
+      "decision": "原處分撤銷",
       "screening": {
         "passed": true,
         "clause": null
@@ -117,6 +123,7 @@
     },
     "example7": {
       "source_decision": "21.114年-違反建築法事件-77(8)&79I-部分不受理&部分駁回.txt",
+      "decision": "部分不受理部分駁回",
       "screening": null,
       "f1": {
         "agency": "新北市政府工務局",
@@ -133,6 +140,7 @@
     },
     "example8": {
       "source_decision": "15.114年-違反洗錢防制法事件-79I-訴願無理由-駁回.txt",
+      "decision": "駁回",
       "screening": {
         "passed": true,
         "clause": null

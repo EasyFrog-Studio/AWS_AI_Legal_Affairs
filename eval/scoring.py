@@ -58,6 +58,18 @@ def _case_type_core(text: str) -> str:
     return re.sub(r"事件$", "", re.sub(r"^違反", "", normalize(text)))
 
 
+def score_decision(actual: str | None, expected: str) -> str:
+    """決定類型三格計分。答案取自決定書主文,五值與 DraftResult.draft_type 同一組。
+
+    只做等值比對,不做包含比對:「部分不受理部分駁回」含有「不受理」三字,包含比對會讓
+    一個少判了駁回部分的答案記成答對。草稿不存在(F4 逾時或失控生成)記 unsure——
+    系統那時並沒有主張任何決定類型。
+    """
+    if not (actual or "").strip():
+        return UNSURE
+    return CORRECT if normalize(actual) == normalize(expected) else WRONG
+
+
 def score_screening(
     passed: bool, matched_clause: str | None, review_note: str, expected: dict
 ) -> str:

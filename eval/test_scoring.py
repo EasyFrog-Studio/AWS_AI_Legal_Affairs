@@ -1,7 +1,10 @@
 """scoring 純函式測試(不需 ollama / Postgres)。
 執行:cd eval && python -m pytest test_scoring.py
 """
-from scoring import CORRECT, UNSURE, WRONG, clause_key, normalize_roc_date, score_field, score_screening, tally
+from scoring import (
+    CORRECT, UNSURE, WRONG, clause_key, normalize_roc_date,
+    score_decision, score_field, score_screening, tally,
+)
 
 
 def test_document_numbers_match_across_dash_and_width_variants():
@@ -91,3 +94,27 @@ def test_case_type_refuses_a_runaway_answer_that_merely_contains_the_law_name():
     assert score_case_type(runaway, "廢棄物清理法") == WRONG
     assert score_case_type("違反廢棄物清理法事件", "廢棄物清理法") == CORRECT
     assert score_case_type("廢棄物清理法", "違反廢棄物清理法事件") == CORRECT
+
+
+def test_decision_type_matches_the_five_legal_values():
+    """五值來自決定書主文;兩個不同的值都要判對,單一案例會被寫死的回傳值蒙混過去。"""
+    assert score_decision("不受理", "不受理") == CORRECT
+    assert score_decision("部分不受理部分駁回", "部分不受理部分駁回") == CORRECT
+
+
+def test_a_different_decision_type_is_wrong():
+    """撤銷另處與原處分撤銷是兩種主文(前者要指定期間),不得互相認帳。"""
+    assert score_decision("撤銷另處", "原處分撤銷") == WRONG
+    assert score_decision("駁回", "不受理") == WRONG
+
+
+def test_a_missing_draft_is_unsure_not_wrong():
+    """F4 沒跑出草稿(逾時、失控生成)時系統並沒有主張任何決定類型。"""
+    assert score_decision(None, "駁回") == UNSURE
+    assert score_decision("", "駁回") == UNSURE
+
+
+def test_a_partial_decision_is_not_satisfied_by_naming_only_one_half():
+    """「部分不受理部分駁回」含有「不受理」三字。包含比對會讓漏判駁回那半的答案記成答對。"""
+    assert score_decision("不受理", "部分不受理部分駁回") == WRONG
+    assert score_decision("駁回", "部分不受理部分駁回") == WRONG

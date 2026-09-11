@@ -12,7 +12,7 @@
 
 ```bash
 cd AWS_AI_Legal_Affairs/eval
-python run_eval.py                       # 兩條線全跑,約 10 分鐘
+python run_eval.py                       # 兩條線全跑;線1 每組約 70 秒(F1 與 F4 各佔近半)
 python run_eval.py --only example4       # 只跑一組,除錯用
 python run_eval.py --only 07 --skip-cases   # --skip-cases / --skip-decisions 各關掉一條線
 python run_eval.py --cases <卷證根目錄> --out <報告目錄>   # 語料不在預設位置時
@@ -41,10 +41,14 @@ python -m pytest                         # 計分與執行器的測試,不需 ol
 ## 兩條線
 
 **線1:8 組合成卷證**(`data/TEST_DATA/example1..8`,各四份 PDF)。走真實的
-`pipeline.run_case`,量三層:程序審查分流(受理與否 + 訴願法§77 款次)、F1 四欄、期間三要素
-(送達生效日 / 末日 / 機關收文日)。F2/F2+/F3/F4 由 `ScreeningOnlyProvider` 回空——那四層
-不在計分範圍,但**不繞過 pipeline**:期間覆寫、§77(1)(3) 後置檢核、款次守門都住在 pipeline 裡,
-自己另寫一條呼叫順序量到的就不是出貨的那條路徑。
+`pipeline.run_case`,六層全跑真貨,量四層:程序審查分流(受理與否 + 訴願法§77 款次)、
+決定類型、F1 四欄、期間三要素(送達生效日 / 末日 / 機關收文日)。F2/F2+/F3 的檢索結果
+不單獨計分,但**必須真的跑**——F4 的輸入就是它們,抽掉等於量一條產品上不存在的路徑。
+同理不繞過 pipeline:期間覆寫、§77(1)(3) 後置檢核、款次守門都住在 pipeline 裡。
+
+決定類型這一層要看清楚它量的是什麼:不受理那一側的 `draft_type` 由
+`enforce_inadmissible_format` 依分流結果決定,不是 F4 自己判的,所以這個數字是
+「最後送到承辦人手上的決定類型對不對」,不等於 F4 的獨立準確率。
 
 **線2:21 份真實 114 年決定書全文**(`data/TEST_DATA/_參考-114年決定書全文/`)。只量 F1 對
 真實文本的擷取與案類分類。**刻意不量分流**:決定書的理由欄逐字寫著「依訴願法第 77 條第 2 款」,

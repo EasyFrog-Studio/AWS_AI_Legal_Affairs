@@ -25,16 +25,22 @@ sys.path.insert(0, str(_CODE_ROOT / "backend"))
 os.environ.setdefault("LOCAL_LLM_BASE_URL", "http://localhost:11434")
 # .env 只有 compose 會自動注入,主機上跑要自己載;override=False,上面那行的位址優先
 load_dotenv(_CODE_ROOT / ".env", override=False)
+# .env 的 POSTGRES_URL 是給容器用的(host 為 compose 服務名);F2/F3 會真的查庫,
+# 在主機上就得走對外 port,與 local_setup/ingest.py 同一個變數
+if os.environ.get("POSTGRES_URL_HOST"):
+    os.environ["POSTGRES_URL"] = os.environ["POSTGRES_URL_HOST"]
 
 from app.config import settings  # noqa: E402
-from app.models import Case, CaseDocument, CaseInfo, DraftResult, build_input_text  # noqa: E402
+from app.models import Case, CaseDocument, CaseInfo, build_input_text  # noqa: E402
 from app.pdf_extract import extract_text  # noqa: E402
 from app.pipeline import run_case  # noqa: E402
 from app.providers.base import AIProvider  # noqa: E402
 from app.providers.local import LocalProvider  # noqa: E402
 from app.store import MemoryStore  # noqa: E402
 
-from scoring import CORRECT, UNSURE, WRONG, score_case_type, score_field, score_screening, tally  # noqa: E402
+from scoring import (  # noqa: E402
+    CORRECT, UNSURE, WRONG, score_case_type, score_decision, score_field, score_screening, tally,
+)
 
 # 語料與報告都在 repo 之外,路徑因機器而異,故只當預設值,由 --cases / --out 覆寫
 _DEFAULT_CASES_DIR = _DATA_PARENT / "data" / "TEST_DATA"
@@ -54,6 +60,9 @@ LAYER_SCREENING = "分流"
 LAYER_F1 = "F1 擷取"
 LAYER_DEADLINE = "期間"
 LAYER_DECISION = "決定書 F1"
+# 不受理那一側的決定類型由 enforce_inadmissible_format 依分流結果決定,不是 F4 自己判的;
+# 這一層量的是「最後送到承辦人手上的決定類型對不對」,不等於 F4 的獨立準確率
+LAYER_DECISION_TYPE = "決定類型"
 
 
 def _with_stage_name(stage: str, fn, *args):
@@ -64,14 +73,13 @@ def _with_stage_name(stage: str, fn, *args):
         raise RuntimeError(f"{stage} 失敗:{exc}") from exc
 
 
-class ScreeningOnlyProvider(AIProvider):
-    """F1 / 程序審查 / 當事人適格走真的 LocalProvider,F2 之後一律回空。
+class StageNamedProvider(AIProvider):
+    """把每一層的例外冠上階段名再往外丟,其餘一律轉給真的 provider。
 
-    評測不量檢索與生成那三層,但仍走 pipeline.run_case 本人:期間覆寫、§77(1)(3) 後置檢核、
-    款次守門都住在 pipeline 裡,評測若自己另寫一條呼叫順序,量到的就不是出貨的那條路徑。
+    pipeline 把所有例外壓成一句 status=error,沒有階段名就分不出是擷取掛了還是生成掛了。
+    六層全走真貨而不是讓 F2 之後回空:決定類型要量就得讓 F4 真的生成,而 F4 的輸入來自
+    F2/F3 的檢索結果,抽掉檢索等於量一條產品上不存在的路徑。
     """
-
-    _EMPTY_DRAFT = DraftResult(draft_type="駁回", fact="", reason="", main_text="")
 
     def __init__(self, inner: AIProvider) -> None:
         self._inner = inner
@@ -86,19 +94,19 @@ class ScreeningOnlyProvider(AIProvider):
         return _with_stage_name("當事人適格", self._inner.assess_standing, info, text)
 
     def recommend_laws(self, info):
-        return []
+        return _with_stage_name("F2", self._inner.recommend_laws, info)
 
     def find_references(self, info):
-        return []
+        return _with_stage_name("F2+", self._inner.find_references, info)
 
     def get_law_articles(self, keys):
-        return []
+        return _with_stage_name("法條精查", self._inner.get_law_articles, keys)
 
     def find_similar_cases(self, info, screening, text):
-        return []
+        return _with_stage_name("F3", self._inner.find_similar_cases, info, screening, text)
 
     def generate_draft(self, info, screening, laws, cases):
-        return self._EMPTY_DRAFT
+        return _with_stage_name("F4", self._inner.generate_draft, info, screening, laws, cases)
 
 
 def _roc(value: date | None) -> str:
@@ -176,6 +184,12 @@ def _score_case(case: Case, expected: dict) -> list[dict]:
         )
         rows.append(_row(LAYER_SCREENING, "受理與否/款次", actual, f"passed={want['passed']} clause={want['clause']}", result))
 
+    want_decision = expected.get("decision")
+    if want_decision is not None:
+        actual = case.f4.draft_type if case.f4 else ""
+        rows.append(_row(LAYER_DECISION_TYPE, "draft_type", actual, want_decision,
+                         score_decision(actual, want_decision)))
+
     rows += _score_fields(case.f1, expected.get("f1") or {}, LAYER_F1)
 
     check = case.deadline
@@ -250,7 +264,7 @@ def _all_rows(entries: list[dict]) -> list[dict]:
 
 def _summarize(rows: list[dict]) -> dict:
     layers = {}
-    for layer in (LAYER_SCREENING, LAYER_F1, LAYER_DEADLINE, LAYER_DECISION):
+    for layer in (LAYER_SCREENING, LAYER_DECISION_TYPE, LAYER_F1, LAYER_DEADLINE, LAYER_DECISION):
         picked = [r["result"] for r in rows if r["layer"] == layer]
         if picked:
             layers[layer] = tally(picked)
@@ -346,7 +360,7 @@ def main() -> int:
     args = parser.parse_args()
 
     key = json.loads(_ANSWER_KEY.read_text(encoding="utf-8"))
-    provider = ScreeningOnlyProvider(LocalProvider())
+    provider = StageNamedProvider(LocalProvider())
 
     print(f"模型 {settings.LOCAL_LLM_MODEL} @ {settings.LOCAL_LLM_BASE_URL}")
     cases = [] if args.skip_cases else _run_cases(provider, key, args.only, args.cases)
