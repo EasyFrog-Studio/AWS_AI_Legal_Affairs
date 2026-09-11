@@ -118,7 +118,7 @@ class DynamoDBStore(CaseStore):
         size = item_size_bytes(item)
         if size > MAX_ITEM_BYTES:
             raise CaseTooLargeError(
-                f"卷證文字量超過單筆儲存上限({size} bytes,上限 {MAX_ITEM_BYTES} bytes)"
+                f"卷證文字量超過單筆儲存上限（{size} bytes，上限 {MAX_ITEM_BYTES} bytes）"
             )
         return item
 

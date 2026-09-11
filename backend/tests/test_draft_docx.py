@@ -44,7 +44,7 @@ def test_the_docx_carries_the_whole_document():
     text = _docx_text(render_draft_docx(_case("c-docx001")))
 
     assert "新北市政府訴願決定書" in text
-    assert "案　　號:1141021559" in text
+    assert "案　　號：1141021559" in text
     assert "主　文" in text and "訴願駁回。" in text
     assert "理　由" in text and "理由欄內容。" in text
     assert "訴願審議委員會主任委員　王主委" in text

@@ -36,8 +36,8 @@ _AUTHORITY_TITLE = "新北市政府訴願決定書"
 _BLANK = "　　　　　　"  # 全形空白,列印後承辦人可直接手寫
 _COMMITTEE_LINES = 12  # 語料每案 10~14 位委員,取中位數留行數,名單與人數都不由系統決定
 _LITIGATION_NOTICE = (
-    "如不服本決定,得於決定書送達之次日起 2 個月內向臺北高等行政法院"
-    "(地址:臺北市士林區福國路 101 號)提起行政訴訟。"
+    "如不服本決定，得於決定書送達之次日起 2 個月內向臺北高等行政法院"
+    "（地址：臺北市士林區福國路 101 號）提起行政訴訟。"
 )
 
 
@@ -115,7 +115,7 @@ def build_decision_blocks(case) -> list[tuple[str, str]]:
     blocks: list[tuple[str, str]] = [
         ("title", _AUTHORITY_TITLE),
         ("blank", ""),
-        ("body", f"案　　號:{_value(header.case_no)}"),
+        ("body", f"案　　號：{_value(header.case_no)}"),
         ("body", f"　訴願人　{_value(header.appellant or (f1 and f1.appellant))}"),
         ("body", f"　原處分機關　{_value(header.agency or (f1 and f1.agency))}"),
         ("blank", ""),
@@ -166,8 +166,8 @@ def _opening_paragraph(f1) -> str:
     date = _strip_era(_value(f1 and f1.disposition_date))
     doc_no = _value(f1 and f1.disposition_no)
     return (
-        f"上列訴願人因{case_type}事件,不服原處分機關民國{date}{doc_no}"
-        "所為之處分,提起訴願一案,本府依法決定如下:"
+        f"上列訴願人因{case_type}事件，不服原處分機關民國{date}{doc_no}"
+        "所為之處分，提起訴願一案，本府依法決定如下："
     )
 
 

@@ -76,7 +76,7 @@ async def case_too_large_handler(_request, exc: CaseTooLargeError):
 _CREDENTIAL_ERROR_CODES = frozenset(
     {"ExpiredToken", "ExpiredTokenException", "InvalidClientTokenId", "UnrecognizedClientException"}
 )
-_CREDENTIAL_DETAIL = "AWS 憑證無效或已過期,請更新後重試;本機請更新 ~/.aws/credentials,雲端請更新工作負載的憑證來源。"
+_CREDENTIAL_DETAIL = "AWS 憑證無效或已過期，請更新後重試；本機請更新 ~/.aws/credentials，雲端請更新工作負載的憑證來源。"
 
 
 @app.exception_handler(NoCredentialsError)
@@ -136,7 +136,7 @@ def _ocr_document(label: str, pdf_bytes: bytes) -> DocumentInput:
     try:
         client = get_ocr_client()
     except OcrUnavailableError as exc:
-        raise HTTPException(status_code=400, detail=f"{label}疑為掃描件(無可用文字層):{exc}")
+        raise HTTPException(status_code=400, detail=f"{label}疑為掃描件（無可用文字層）：{exc}")
     try:
         text = ocr_pdf(pdf_bytes, client)
     except (OcrFailedError, OcrTooManyPagesError) as exc:
@@ -146,7 +146,7 @@ def _ocr_document(label: str, pdf_bytes: bytes) -> DocumentInput:
     if len(stripped) < MIN_TEXT_CHARS or is_unreadable(stripped):
         raise HTTPException(
             status_code=400,
-            detail=f"{label}逐頁抽字後仍無法辨識,請改用電子檔或直接貼上文字。",
+            detail=f"{label}逐頁抽字後仍無法辨識，請改用電子檔或直接貼上文字。",
         )
     return DocumentInput(text=text, source="pdf", ocr=True)
 
@@ -160,13 +160,13 @@ async def _read_document_input(
     if file is not None:
         pdf_bytes = await file.read()
         if len(pdf_bytes) > 20 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail=f"{label}檔案超過 20MB 上限,請改用文字貼上。")
+            raise HTTPException(status_code=400, detail=f"{label}檔案超過 20MB 上限，請改用文字貼上。")
         if not pdf_bytes.startswith(b"%PDF"):
-            raise HTTPException(status_code=400, detail=f"{label}檔案讀取失敗,請改用文字貼上。")
+            raise HTTPException(status_code=400, detail=f"{label}檔案讀取失敗，請改用文字貼上。")
         try:
             extracted = extract_text_quality(pdf_bytes)
         except Exception:
-            raise HTTPException(status_code=400, detail=f"{label}檔案讀取失敗,請改用文字貼上。")
+            raise HTTPException(status_code=400, detail=f"{label}檔案讀取失敗，請改用文字貼上。")
         document = (
             _ocr_document(label, pdf_bytes)
             if extracted.char_count < MIN_TEXT_CHARS
@@ -177,7 +177,7 @@ async def _read_document_input(
         return DocumentInput(text=text, source="text")
     if not required:
         return DocumentInput(text="", source="text")
-    raise HTTPException(status_code=400, detail=f"必須提供{label}的 file(PDF)或 text")
+    raise HTTPException(status_code=400, detail=f"必須提供{label}的 file（PDF）或 text")
 
 
 def _build_document(slot: DocumentSlot, document_input: DocumentInput) -> CaseDocument:
@@ -209,11 +209,11 @@ def _resolve_case_id(raw: Optional[str]) -> str:
     if not case_id:
         return f"c-{uuid.uuid4().hex[:8]}"
     if not _CASE_ID_RE.match(case_id) or _WINDOWS_DEVICE_RE.match(case_id):
-        raise _case_id_error(400, "案號僅接受中英文、數字、底線與連字號,長度 64 字以內")
+        raise _case_id_error(400, "案號僅接受中英文、數字、底線與連字號，長度 64 字以內")
     # store.create() 三種實作皆為 upsert,重號放行就是無聲覆蓋掉同號舊案;
     # 這裡是 check-then-act,靠的是單 task 單 process 且本函式到 create 之間沒有 await,資料層本身無此保證
     if store.get(case_id) is not None:
-        raise _case_id_error(409, f"案號 {case_id} 已存在,請換一個或留白由系統產生")
+        raise _case_id_error(409, f"案號 {case_id} 已存在，請換一個或留白由系統產生")
     return case_id
 
 
@@ -280,7 +280,7 @@ async def replace_document(
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
     if case.status != "collecting":
-        raise HTTPException(status_code=409, detail="案件已開始分析,無法再修改文件")
+        raise HTTPException(status_code=409, detail="案件已開始分析，無法再修改文件")
 
     document = _build_document(slot, await _read_document_input(slot, file, text))
     documents = {**case.documents, slot: document}
@@ -310,7 +310,7 @@ def analyze_case(case_id: str, background_tasks: BackgroundTasks):
     ]
     if unconfirmed:
         raise HTTPException(
-            status_code=409, detail=f"以下文件尚未確認無誤,無法開始分析:{'、'.join(unconfirmed)}"
+            status_code=409, detail=f"以下文件尚未確認無誤，無法開始分析：{'、'.join(unconfirmed)}"
         )
 
     store.update(case_id, {"status": "processing", "current_stage": "f1"})
@@ -365,7 +365,7 @@ def get_source(key: str):
     local_path = (base / key).resolve()
     if local_path.is_relative_to(base) and local_path.is_file():
         return {"text": local_path.read_text(encoding="utf-8")}
-    return {"text": f"[mock 模式] 本地找不到對應檔案:{key}"}
+    return {"text": f"[mock 模式] 本地找不到對應檔案：{key}"}
 
 
 # 爬蟲語料的參考資料 PDF;容器內由 compose 掛在這裡,掛不上就每一份都回 404 而不是靜默給空白
@@ -407,7 +407,7 @@ def _same_content(version: DraftVersion, text: str) -> bool:
     return version.text == text
 
 
-_STALE_SCREENING_NOTE = "案件資訊經人工修改,程序審查結論尚未依修改後的資料重跑"
+_STALE_SCREENING_NOTE = "案件資訊經人工修改，程序審查結論尚未依修改後的資料重跑"
 
 
 @app.patch("/api/cases/{case_id}/f1", dependencies=[Depends(require_api_key)])
@@ -422,9 +422,9 @@ def update_case_info(case_id: str, info: CaseInfo) -> Case:
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
     if case.status == "processing":
-        raise HTTPException(status_code=409, detail="案件分析中,無法修改案件資訊")
+        raise HTTPException(status_code=409, detail="案件分析中，無法修改案件資訊")
     if case.f1 is None:
-        raise HTTPException(status_code=409, detail="案件尚未擷取案件資訊,無可修改的內容")
+        raise HTTPException(status_code=409, detail="案件尚未擷取案件資訊，無可修改的內容")
 
     fields = {
         "f1": info,
@@ -455,7 +455,7 @@ def update_draft_text(case_id: str, patch: DraftTextPatch):
         raise HTTPException(
             status_code=409,
             detail={
-                "message": "這份草稿已被他人更新,請重新載入後再改",
+                "message": "這份草稿已被他人更新，請重新載入後再改",
                 "current_version": len(case.draft_versions),
                 "text": case.draft_plain_text,
             },
@@ -475,7 +475,7 @@ def override_screening(case_id: str, override: ScreeningOverride):
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
     if case.screening is None:
-        raise HTTPException(status_code=409, detail="此案件尚無程序審查結論,無從推翻")
+        raise HTTPException(status_code=409, detail="此案件尚無程序審查結論，無從推翻")
 
     human = case.screening.model_copy(update=override.model_dump())
     fields = {
@@ -498,7 +498,7 @@ def reanalyze_case(case_id: str, background_tasks: BackgroundTasks):
     if case.status == "processing":
         raise HTTPException(status_code=409, detail="此案件正在分析中")
     if case.status == "collecting":
-        raise HTTPException(status_code=409, detail="此案件尚未開始分析,請改用 analyze")
+        raise HTTPException(status_code=409, detail="此案件尚未開始分析，請改用 analyze")
 
     # 重跑會重新擷取,新結果不是承辦人改的;留著舊快照會讓整份都標成已修改
     fields = {"status": "processing", "error": None, "f1_system": None}
@@ -546,7 +546,7 @@ def finalize_case(case_id: str):
             # 落地失敗多半是 FINALIZED_DIR 指到不可寫的位置(容器內尤其容易),
             # 講出是哪個目錄,不要只丟一個 500 讓人猜
             raise HTTPException(
-                status_code=500, detail=f"定稿 PDF 無法寫入 {target_dir}:{exc}"
+                status_code=500, detail=f"定稿 PDF 無法寫入 {target_dir}：{exc}"
             )
         location = str(target)
 

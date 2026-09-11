@@ -23,8 +23,8 @@ _CHECKED_ITEMS: list[tuple[tuple[str, ...], str]] = [
     (("receipt_date",), "收受或知悉行政處分之年、月、日（第六款）"),
 ]
 _UNCHECKED_NOTE = (
-    "本版僅檢核訴願法第56條第1項第一、三、五、六款(對應CaseInfo已擷取欄位);"
-    "第二(代理人)、四(請求事項)、七(受理機關)、八(證據)、九(年月日)款未檢核,"
+    "本版僅檢核訴願法第56條第1項第一、三、五、六款（對應CaseInfo已擷取欄位）；"
+    "第二（代理人）、四（請求事項）、七（受理機關）、八（證據）、九（年月日）款未檢核，"
     "CaseInfo 無對應欄位、規則式判斷不可靠"
 )
 
@@ -103,36 +103,36 @@ def apply_article_77_1(
     missing_text = "、".join(required_check.missing)
 
     if not required_check.correctable:
-        reasoning = f"訴願書缺漏{missing_text},且訴願人與原處分機關均無法特定,不能補正。"
+        reasoning = f"訴願書缺漏{missing_text}，且訴願人與原處分機關均無法特定，不能補正。"
         return screening.model_copy(
             update={
                 "passed": False,
                 "matched_clause": "77條第1款",
                 "reasoning": reasoning,
-                "review_note": join_review_notes(screening.review_note, "自動判第1款不受理(不能補正),請人工確認"),
+                "review_note": join_review_notes(screening.review_note, "自動判第1款不受理（不能補正），請人工確認"),
             }
         )
 
     if notice is None or not notice.notified:
-        note = f"訴願書缺漏{missing_text},應依訴願法第62條通知訴願人於20日內補正,尚無補正通知,不得逕為不受理。"
+        note = f"訴願書缺漏{missing_text}，應依訴願法第62條通知訴願人於20日內補正，尚無補正通知，不得逕為不受理。"
         return screening.model_copy(update={"review_note": join_review_notes(screening.review_note, note)})
 
     if notice.corrected:
         return screening  # 已補正齊備,不覆寫也不留標記
 
     if notice.overdue:
-        reasoning = f"訴願書缺漏{missing_text},經通知補正,逾期未補正。"
+        reasoning = f"訴願書缺漏{missing_text}，經通知補正，逾期未補正。"
         return screening.model_copy(
             update={
                 "passed": False,
                 "matched_clause": "77條第1款",
                 "reasoning": reasoning,
-                "review_note": join_review_notes(screening.review_note, "自動判第1款不受理(逾期未補正),請人工確認"),
+                "review_note": join_review_notes(screening.review_note, "自動判第1款不受理（逾期未補正），請人工確認"),
             }
         )
 
     # 已通知但補正期限未過、尚未補正:結果未定,不得預先判不受理
-    note = f"訴願書缺漏{missing_text},已通知補正,補正期限尚未屆至,結果未定。"
+    note = f"訴願書缺漏{missing_text}，已通知補正，補正期限尚未屆至，結果未定。"
     return screening.model_copy(update={"review_note": join_review_notes(screening.review_note, note)})
 
 
@@ -179,26 +179,26 @@ def apply_article_77_3(screening, check: StandingCheck):
     即使覆寫成不受理,也不是可逕採的結論。
     """
     if check.consistent is None:
-        note = "處分相對人或訴願人欄位缺漏,當事人適格未經檢核,須人工認定。"
+        note = "處分相對人或訴願人欄位缺漏，當事人適格未經檢核，須人工認定。"
         merged = ";".join(n for n in (screening.review_note, note) if n)
         return screening.model_copy(update={"review_note": merged})
     if check.consistent:
         return screening
 
     if check.has_standing is None:
-        note = "處分相對人與訴願人不一致,利害關係判斷依據不足,須人工認定當事人適格。"
+        note = "處分相對人與訴願人不一致，利害關係判斷依據不足，須人工認定當事人適格。"
         return screening.model_copy(update={"review_note": join_review_notes(screening.review_note, note)})
 
     if check.has_standing:
-        note = "處分相對人與訴願人不一致,但訴願人依訴願法第18條仍具法律上利害關係,須人工確認當事人適格爭點。"
+        note = "處分相對人與訴願人不一致，但訴願人依訴願法第18條仍具法律上利害關係，須人工確認當事人適格爭點。"
         return screening.model_copy(update={"review_note": join_review_notes(screening.review_note, note)})
 
-    reasoning = "處分相對人與訴願人不一致,且訴願人對原處分無法律上利害關係,依訴願法第18條不符訴願人適格要件。"
+    reasoning = "處分相對人與訴願人不一致，且訴願人對原處分無法律上利害關係，依訴願法第18條不符訴願人適格要件。"
     return screening.model_copy(
         update={
             "passed": False,
             "matched_clause": "77條第3款",
             "reasoning": reasoning,
-            "review_note": join_review_notes(screening.review_note, "自動判第3款不受理(利害關係屬價值判斷),請人工確認"),
+            "review_note": join_review_notes(screening.review_note, "自動判第3款不受理（利害關係屬價值判斷），請人工確認"),
         }
     )

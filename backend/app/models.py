@@ -250,7 +250,7 @@ class DocumentCheck(BaseModel):
 
 # 經 OCR 取得文字的槽一律標這句:模型抽字會編字,而本系統的正確性建立在日期上。
 # 凡是這一槽的日期,都不得據以覆寫程序審查。
-OCR_REVIEW_NOTE = "本槽文字由 OCR 取得,日期須人工核對原件"
+OCR_REVIEW_NOTE = "本槽文字由 OCR 取得，日期須人工核對原件"
 
 
 class CaseDocument(BaseModel):

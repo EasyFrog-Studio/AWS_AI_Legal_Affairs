@@ -56,7 +56,7 @@ def ocr_pdf(pdf_bytes: bytes, client: OcrClient, sleep: Callable[[float], None] 
     images = page_images(pdf_bytes)
     if len(images) > MAX_OCR_PAGES:
         raise OcrTooManyPagesError(
-            f"文件共 {len(images)} 頁,超過逐頁抽字上限 {MAX_OCR_PAGES} 頁,請改用電子檔或分次處理。"
+            f"文件共 {len(images)} 頁，超過逐頁抽字上限 {MAX_OCR_PAGES} 頁，請改用電子檔或分次處理。"
         )
 
     texts: list[str] = []
@@ -77,7 +77,7 @@ def _extract_with_retry(
             if attempt < _MAX_ATTEMPTS - 1:
                 sleep(_BACKOFF_BASE_SECONDS * (2**attempt))
     raise OcrFailedError(
-        f"第{page_no}頁抽字失敗({last_error}),請改用電子檔或直接貼上文字。"
+        f"第{page_no}頁抽字失敗（{last_error}），請改用電子檔或直接貼上文字。"
     )
 
 
@@ -150,4 +150,4 @@ def get_ocr_client() -> OcrClient:
         return BedrockOcrClient()
     if settings.AI_PROVIDER == "local":
         return OllamaOcrClient()
-    raise OcrUnavailableError("本版未接 OCR,請改用電子檔或直接貼上文字。")
+    raise OcrUnavailableError("本版未接 OCR，請改用電子檔或直接貼上文字。")

@@ -417,7 +417,7 @@ class AWSProvider(AIProvider):
                 issue=metadata.get("issue", ""),
                 result=metadata.get("result", ""),
                 summary=case_summary(r.get("content", {}).get("text", "")),
-                similarity_note="向量檢索命中(KB-CASE)",
+                similarity_note="向量檢索命中（KB-CASE）",
                 source_key=viewable_source_key(metadata),
                 source_url=external_source_url(metadata),
             )

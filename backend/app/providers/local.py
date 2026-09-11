@@ -95,7 +95,7 @@ class LocalProvider(AIProvider):
         body = resp.json()
         if body.get("done_reason") == "length":
             raise RuntimeError(
-                f"模型輸出觸及生成長度上限({_MAX_OUTPUT_TOKENS} token)而被截斷,結果不完整"
+                f"模型輸出觸及生成長度上限（{_MAX_OUTPUT_TOKENS} token）而被截斷，結果不完整"
             )
         return json.loads(body["message"]["content"])
 
@@ -330,7 +330,7 @@ class LocalProvider(AIProvider):
                 issue=metadata.get("issue", ""),
                 result=metadata.get("result", ""),
                 summary=case_summary(text_),
-                similarity_note="向量檢索命中(pgvector case_chunks)",
+                similarity_note="向量檢索命中（pgvector case_chunks）",
                 source_key=viewable_source_key(metadata),
                 source_url=external_source_url(metadata),
             )

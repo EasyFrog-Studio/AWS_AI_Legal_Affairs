@@ -77,21 +77,21 @@ def _rule_check(text: str, slot: DocumentSlot) -> DocumentCheck:
     top_slots = [s for s, sc in scores.items() if sc == best_score]
 
     if best_score < _MATCH_THRESHOLD:
-        return DocumentCheck(matched=None, method="none", note="規則判斷特徵不足,無法確認文件類型")
+        return DocumentCheck(matched=None, method="none", note="規則判斷特徵不足，無法確認文件類型")
     if len(top_slots) > 1:
         # 兩個以上槽位同分頂格(例如原處分書教示條款裡出現「訴願書」字樣,反過來也一樣),
         # 這代表文件本身就含混,不是「目標槽位恰好也是最高分之一」就能放心判定為真——
         # 交由 Gemini 判斷,不讓規則層在真正含混的情況下裝出一個確定的結論
         labels = "、".join(DOCUMENT_SLOT_LABELS[s] for s in top_slots)
         return DocumentCheck(
-            matched=None, method="none", note=f"規則判斷特徵在{labels}之間並列,無法確認文件類型"
+            matched=None, method="none", note=f"規則判斷特徵在{labels}之間並列，無法確認文件類型"
         )
     if top_slots[0] == slot:
         return DocumentCheck(matched=True, method="rule", note=f"符合{DOCUMENT_SLOT_LABELS[slot]}的文字特徵")
     return DocumentCheck(
         matched=False,
         method="rule",
-        note=f"文字特徵更接近{DOCUMENT_SLOT_LABELS[top_slots[0]]},不是{DOCUMENT_SLOT_LABELS[slot]}",
+        note=f"文字特徵更接近{DOCUMENT_SLOT_LABELS[top_slots[0]]}，不是{DOCUMENT_SLOT_LABELS[slot]}",
     )
 
 
@@ -133,7 +133,7 @@ def _head_tail(text: str) -> str:
 def _gemini_check(text: str, slot: DocumentSlot, http_client=None) -> DocumentCheck:
     """呼叫 Gemini 判斷文件類型。未設定金鑰或呼叫失敗一律回 matched=None,不讓外部服務的問題中斷建案。"""
     if not settings.GEMINI_API_KEY:
-        return DocumentCheck(matched=None, method="none", note="規則判斷不出來,且未設定 Gemini API 金鑰,請人工核對")
+        return DocumentCheck(matched=None, method="none", note="規則判斷不出來，且未設定 Gemini API 金鑰，請人工核對")
 
     import httpx
 
@@ -155,7 +155,7 @@ def _gemini_check(text: str, slot: DocumentSlot, http_client=None) -> DocumentCh
         raw = payload["candidates"][0]["content"]["parts"][0]["text"]
         parsed = json.loads(raw)
     except Exception as exc:  # noqa: BLE001 - 外部服務的任何失敗都不得讓建案流程中斷
-        return DocumentCheck(matched=None, method="none", note=f"Gemini 判斷失敗,請人工核對({exc})")
+        return DocumentCheck(matched=None, method="none", note=f"Gemini 判斷失敗，請人工核對（{exc}）")
 
     doc_type = parsed.get("document_type", "")
     reasoning = parsed.get("reasoning", "")
@@ -167,14 +167,14 @@ def _gemini_check(text: str, slot: DocumentSlot, http_client=None) -> DocumentCh
     return DocumentCheck(
         matched=False,
         method="gemini",
-        note=reasoning or f"Gemini 判斷為{doc_type},不是{DOCUMENT_SLOT_LABELS[slot]}",
+        note=reasoning or f"Gemini 判斷為{doc_type}，不是{DOCUMENT_SLOT_LABELS[slot]}",
     )
 
 
 def check_document(slot: DocumentSlot, text: str, *, http_client=None) -> DocumentCheck:
     """規則判斷優先(免費、不出網);判斷不出來(matched=None)才退到 Gemini。"""
     if not text.strip():
-        return DocumentCheck(matched=None, method="none", note="文件內容為空,無法確認")
+        return DocumentCheck(matched=None, method="none", note="文件內容為空，無法確認")
     result = _rule_check(text, slot)
     if result.matched is not None:
         return result

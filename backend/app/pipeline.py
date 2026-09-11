@@ -81,7 +81,7 @@ def guard_contradictory_screening(screening: ScreeningResult) -> ScreeningResult
     不算矛盾,那不是發現,不得據以翻掉受理結論。"""
     if not screening.passed or parse_clause(screening.matched_clause) is None:
         return screening
-    note = f"程序審查結論與款次矛盾(判通過卻指出{screening.matched_clause}),已以款次為準,須人工確認"
+    note = f"程序審查結論與款次矛盾（判通過卻指出{screening.matched_clause}），已以款次為準，須人工確認"
     return screening.model_copy(
         update={"passed": False, "review_note": join_review_notes(screening.review_note, note)}
     )
@@ -97,9 +97,9 @@ def guard_unsupported_clause(screening: ScreeningResult) -> ScreeningResult:
     if parsed and parsed[0] == _APPEAL_ACT_ARTICLE and parsed[1] in _SUPPORTED_CLAUSES:
         return screening
     if parsed and parsed[0] == _APPEAL_ACT_ARTICLE:
-        note = f"本版不判訴願法第{parsed[1]}款,須人工認定"
+        note = f"本版不判訴願法第{parsed[1]}款，須人工認定"
     else:
-        note = "訴願法款次解析不出,須人工認定"
+        note = "訴願法款次解析不出，須人工認定"
     return screening.model_copy(update={"review_note": join_review_notes(screening.review_note, note)})
 
 
@@ -116,9 +116,9 @@ def enforce_inadmissible_format(draft: DraftResult, screening: ScreeningResult) 
 _SERVICE_FALLBACK_NOTES = {
     # 三種狀況原因不同、該做的事也不同,不可共用一句「未經送達證書核對」——
     # 那句話會讓承辦人誤以為只是流程沒走完。
-    "missing_field": "送達證書未載送達時間,送達生效日採訴願人自述",
-    "unreadable": "送達證書無法辨識,送達生效日採訴願人自述,須人工調閱原件",
-    "absent_slot": "卷內無送達證書,送達生效日採訴願人自述",
+    "missing_field": "送達證書未載送達時間，送達生效日採訴願人自述",
+    "unreadable": "送達證書無法辨識，送達生效日採訴願人自述，須人工調閱原件",
+    "absent_slot": "卷內無送達證書，送達生效日採訴願人自述",
 }
 
 
@@ -127,18 +127,18 @@ def _caveats(facts: DeadlineFacts, due_date: date | None) -> list[str]:
     只回與事實有關的那幾項,末日相關的兩項無從判斷。"""
     notes = []
     if facts.public_notice:
-        notes.append("公示送達生效日之算法未經語料驗證,須人工確認")
+        notes.append("公示送達生效日之算法未經語料驗證，須人工確認")
     if facts.service_date_self_reported:
-        notes.append(_SERVICE_FALLBACK_NOTES.get(facts.service_fallback_reason, "送達生效日採訴願人自述,未經送達證書核對"))
+        notes.append(_SERVICE_FALLBACK_NOTES.get(facts.service_fallback_reason, "送達生效日採訴願人自述，未經送達證書核對"))
     if facts.disputed_receipt_date is not None and facts.service_date_self_reported:
         notes.append(
-            f"訴願書自述收受或知悉日{format_roc(facts.disputed_receipt_date)}與送達生效日不符,"
-            "而生效日本身出自訴願人自述、未經送達證書核對,結論須人工認定"
+            f"訴願書自述收受或知悉日{format_roc(facts.disputed_receipt_date)}與送達生效日不符，"
+            "而生效日本身出自訴願人自述、未經送達證書核對，結論須人工認定"
         )
     if due_date is None:
         return notes
     if due_date.year not in covered_years():
-        notes.append(f"{due_date.year} 年國定假日未收錄,末日是否須順延未經計入")
+        notes.append(f"{due_date.year} 年國定假日未收錄，末日是否須順延未經計入")
     return notes
 
 
@@ -153,12 +153,12 @@ def _advisories(facts: DeadlineFacts, due_date: date | None) -> list[str]:
     notes = []
     if facts.disputed_receipt_date is not None and not facts.service_date_self_reported:
         notes.append(
-            f"訴願書自述收受或知悉日{format_roc(facts.disputed_receipt_date)}與送達證書不符,"
-            "送達生效日依法採送達證書;自述日不影響起算,惟送達合法性如有爭執仍須人工認定"
+            f"訴願書自述收受或知悉日{format_roc(facts.disputed_receipt_date)}與送達證書不符，"
+            "送達生效日依法採送達證書；自述日不影響起算，惟送達合法性如有爭執仍須人工認定"
         )
     if due_date is not None and facts.stated_due_date is not None and facts.stated_due_date != due_date:
         notes.append(
-            f"算得末日與卷內自述之{format_roc(facts.stated_due_date)}不符,自述末日係訴願人之主張,須人工確認"
+            f"算得末日與卷內自述之{format_roc(facts.stated_due_date)}不符，自述末日係訴願人之主張，須人工確認"
         )
     return notes
 
@@ -174,7 +174,7 @@ def _with_filed_date(
             service_date=facts.service_date,
             due_date=result.due_date,
             detail=f"{detail}。",
-            review_note=";".join(["卷內未載機關收文日,無從認定是否逾期"] + caveats + advisories),
+            review_note=";".join(["卷內未載機關收文日，無從認定是否逾期"] + caveats + advisories),
             override_blocked=True,
         )
 
@@ -184,7 +184,7 @@ def _with_filed_date(
         service_date=facts.service_date,
         due_date=result.due_date,
         filed_date=facts.filed_date,
-        detail=f"{detail},機關收文日{format_roc(facts.filed_date)},{'已逾期' if overdue else '未逾期'}。",
+        detail=f"{detail}，機關收文日{format_roc(facts.filed_date)}，{'已逾期' if overdue else '未逾期'}。",
         review_note=";".join(caveats + advisories),
         override_blocked=bool(caveats),
     )
@@ -199,7 +199,7 @@ def _check_deadline_from_extraction(
     行為為照訴願法§14 的 30 日算,單一字串入口即走這條。
     """
     if extraction.facts is None:
-        return DeadlineCheck(review_note=f"期間未計算,{extraction.problem}")
+        return DeadlineCheck(review_note=f"期間未計算，{extraction.problem}")
 
     facts = extraction.facts
     rule = notice or NoticePeriodRule()
@@ -211,7 +211,7 @@ def _check_deadline_from_extraction(
         return DeadlineCheck(
             service_date=facts.service_date,
             detail=f"{prefix}送達生效日{format_roc(facts.service_date)}。",
-            review_note=";".join([f"期間未計算,{rule.review_note}"] + _caveats(facts, None)),
+            review_note=";".join([f"期間未計算，{rule.review_note}"] + _caveats(facts, None)),
         )
 
     if rule.basis == "one_year":
@@ -219,8 +219,8 @@ def _check_deadline_from_extraction(
         # 保護上限,語料無一件據以加計在途期間,故不加——也因此這一支不必卡在途期間查表。
         result = compute_one_year_deadline(facts.service_date, holidays=load_holidays())
         detail = (
-            f"{prefix}送達生效日{format_roc(facts.service_date)},起算日{format_roc(result.start_date)},"
-            f"依行政程序法第98條第3項期間一年,末日{format_roc(result.due_date)}"
+            f"{prefix}送達生效日{format_roc(facts.service_date)}，起算日{format_roc(result.start_date)}，"
+            f"依行政程序法第98條第3項期間一年，末日{format_roc(result.due_date)}"
         )
         return _with_filed_date(facts, result, detail, [rule.review_note])
 
@@ -235,7 +235,7 @@ def _check_deadline_from_extraction(
         # 而行政區被遮罩(lookup_note 講得出差幾日)。後者承辦人補一個行政區就算得出來,
         # 混成同一句「無法由住居所認定」會讓可救的案子看起來也沒救。
         reason = lookup_note or "在途期間卷內未載且無法由住居所查表認定"
-        return DeadlineCheck(review_note=f"期間未計算,{reason}")
+        return DeadlineCheck(review_note=f"期間未計算，{reason}")
 
     if rule.basis == "restart_from_correction":
         # §98 I:自更正通知送達之翌日起算法定期間,起點換成更正通知的送達日,期間仍為法定期間
@@ -246,9 +246,9 @@ def _check_deadline_from_extraction(
             transit_days=transit,
         )
         detail = (
-            f"{prefix}更正通知送達日{format_roc(rule.correction_service_date)},"
-            f"起算日{format_roc(result.start_date)},依行政程序法第98條第1項期間"
-            f"{APPEAL_PERIOD_DAYS}日、在途{transit}日,末日{format_roc(result.due_date)}"
+            f"{prefix}更正通知送達日{format_roc(rule.correction_service_date)}，"
+            f"起算日{format_roc(result.start_date)}，依行政程序法第98條第1項期間"
+            f"{APPEAL_PERIOD_DAYS}日、在途{transit}日，末日{format_roc(result.due_date)}"
         )
         return _with_filed_date(facts, result, detail, [rule.review_note])
 
@@ -263,15 +263,15 @@ def _check_deadline_from_extraction(
         transit_days=transit,
     )
     detail = (
-        f"{prefix}送達生效日{format_roc(facts.service_date)},起算日{format_roc(result.start_date)},"
-        f"期間{period_days}日、在途{transit}日,末日{format_roc(result.due_date)}"
+        f"{prefix}送達生效日{format_roc(facts.service_date)}，起算日{format_roc(result.start_date)}，"
+        f"期間{period_days}日、在途{transit}日，末日{format_roc(result.due_date)}"
     )
     notes = [rule.review_note]
     if rule.basis == "stated_longer" and facts.filed_date is not None and result.is_overdue(facts.filed_date):
         # §98 II 的保護以「於原告知之期間內為之」為要件;連告知的較長期間都逾越時本項不適用,
         # 但此時仍可能落入同條第3項的一年,故不得以此逕認逾期。
         notes.append(
-            "訴願人未於原告知之期間內提起,行政程序法第98條第2項不適用,"
+            "訴願人未於原告知之期間內提起，行政程序法第98條第2項不適用，"
             "是否落入同條第3項之一年期間須人工認定"
         )
     return _with_filed_date(facts, result, detail, notes)
@@ -308,7 +308,7 @@ def _flag_ocr_slots(case: Case, check: DeadlineCheck) -> DeadlineCheck:
     ocr_slots = [DOCUMENT_SLOT_LABELS[slot] for slot, doc in case.documents.items() if doc.ocr]
     if not ocr_slots:
         return check
-    note = f"{'、'.join(ocr_slots)}文字由 OCR 取得,日期須人工核對原件"
+    note = f"{'、'.join(ocr_slots)}文字由 OCR 取得，日期須人工核對原件"
     return check.model_copy(
         update={
             "review_note": ";".join(n for n in (check.review_note, note) if n),
@@ -324,7 +324,7 @@ def reconcile_deadline(
     if check.overdue is True and check.override_blocked:
         # 算式本身還要人工確認,就不該拿去覆寫審查結果,更不該進草稿理由;但被質疑的是
         # 「本案未逾期」這個結論,註記只落在期間欄的話,單看程序審查區塊的人會把它當可逕採
-        note = f"期間算得出逾期但{check.review_note},結論未經期間算式確認"
+        note = f"期間算得出逾期但{check.review_note}，結論未經期間算式確認"
         return (
             screening.model_copy(
                 update={"review_note": join_review_notes(screening.review_note, note)}
@@ -334,11 +334,11 @@ def reconcile_deadline(
             ),
         )
     if check.overdue is True:
-        reasoning = f"{check.detail}依訴願法第77條第2款應不受理。程序審查意見:{screening.reasoning}"
+        reasoning = f"{check.detail}依訴願法第77條第2款應不受理。程序審查意見：{screening.reasoning}"
         update = {"passed": False, "matched_clause": _OVERDUE_CLAUSE, "reasoning": reasoning}
         return screening.model_copy(update=update), check
     if check.overdue is False and parse_clause(screening.matched_clause) == _OVERDUE_CLAUSE_KEY:
-        note = "計算結果未逾期,與程序審查認定之第2款不符,須人工確認"
+        note = "計算結果未逾期，與程序審查認定之第2款不符，須人工確認"
         # 附加而非取代:既有的 review_note 裡是算式本身的保留事項(公示送達、採自述送達日、
         # §98 期間分支),那些正是解釋歧異從何而來的線索,覆蓋掉會讓承辦人只看到結論不一致。
         merged = join_review_notes(check.review_note, note)
@@ -346,7 +346,7 @@ def reconcile_deadline(
             return screening, check.model_copy(update={"review_note": merged})
         # 算式乾淨且明說未逾期:撤銷第2款認定。算式已被授權單方面把案件打成不受理
         # (上一個分支),不讓它擋下一個它明說不成立的不受理,就是只在對機關有利的方向信任它。
-        withdrawn = join_review_notes(screening.review_note, "第2款認定經期間算式否定,已撤銷,須人工確認")
+        withdrawn = join_review_notes(screening.review_note, "第2款認定經期間算式否定，已撤銷，須人工確認")
         return (
             screening.model_copy(
                 update={"passed": True, "matched_clause": None, "review_note": withdrawn}

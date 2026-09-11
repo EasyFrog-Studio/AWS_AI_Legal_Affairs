@@ -170,14 +170,14 @@ def _service_date(text: str) -> tuple[Optional[date], bool, str]:
     if _PUBLIC_NOTICE.search(text):
         posted = _dates(_POSTED_PATTERNS, text)
         if len(posted) != 1:
-            return None, True, f"公示送達之公告日無法認定:抽到 {len(posted)} 個"
+            return None, True, f"公示送達之公告日無法認定：抽到 {len(posted)} 個"
         if _PUBLIC_NOTICE_VARIANT.search(text):
-            return None, True, "公示送達之種類無法認定:卷內同時出現§78 I③或§79 之文字,等待期非 20 日"
+            return None, True, "公示送達之種類無法認定：卷內同時出現§78 I③或§79 之文字，等待期非 20 日"
         return public_notice_service_date(posted[0]), True, ""
 
     service = _dates(_SERVICE_PATTERNS, text)
     if len(service) != 1:
-        return None, False, f"送達日無法認定:抽到 {len(service)} 個"
+        return None, False, f"送達日無法認定：抽到 {len(service)} 個"
     return service[0], False, ""
 
 
@@ -207,14 +207,14 @@ def _service_date_from_certificate(text: str) -> tuple[Optional[date], bool, str
     if _PUBLIC_NOTICE.search(text):
         posted = _dates(_POSTED_PATTERNS, text)
         if len(posted) != 1:
-            return None, True, f"公示送達之公告日無法認定:抽到 {len(posted)} 個"
+            return None, True, f"公示送達之公告日無法認定：抽到 {len(posted)} 個"
         if _PUBLIC_NOTICE_VARIANT.search(text):
-            return None, True, "公示送達之種類無法認定:卷內同時出現§78 I③或§79 之文字,等待期非 20 日"
+            return None, True, "公示送達之種類無法認定：卷內同時出現§78 I③或§79 之文字，等待期非 20 日"
         return public_notice_service_date(posted[0]), True, ""
 
     service = _dates(_SERVICE_CERT_PATTERNS, text)
     if len(service) != 1:
-        return None, False, f"送達日無法認定:抽到 {len(service)} 個"
+        return None, False, f"送達日無法認定：抽到 {len(service)} 個"
     return service[0], False, ""
 
 
@@ -257,7 +257,7 @@ def extract_from_documents(appeal_text: str, service_text: str) -> DeadlineExtra
         public_notice = False
         self_reported = True
     elif service_date is None:
-        return DeadlineExtraction(problem=f"期間未計算,{service_problem or '送達日無法認定'}")
+        return DeadlineExtraction(problem=f"期間未計算，{service_problem or '送達日無法認定'}")
 
     transit = _transit_days(appeal_text)
     filed = _filed_date(appeal_text)

@@ -43,7 +43,7 @@ def test_plain_text_carries_the_real_document():
     text = decision_plain_text(case)
 
     assert "新北市政府訴願決定書" in text
-    assert "案　　號:1141021559" in text
+    assert "案　　號：1141021559" in text
     assert "主　文" in text and "訴願駁回。" in text
     assert "理　由" in text and "理由欄內容。" in text
 

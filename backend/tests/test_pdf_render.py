@@ -120,7 +120,7 @@ def test_dismissed_and_inadmissible_decisions_carry_the_administrative_litigatio
     """語料 18 件不受理/駁回案全部附此教示,逐字相同。"""
     for draft_type in ("駁回", "不受理"):
         joined = "".join(_texts(build_decision_blocks(_case(f1=_info(), f4=_f4(draft_type)))))
-        assert "如不服本決定,得於決定書送達之次日起 2 個月內向臺北高等行政法院" in joined, draft_type
+        assert "如不服本決定，得於決定書送達之次日起 2 個月內向臺北高等行政法院" in joined, draft_type
         assert "臺北市士林區福國路 101 號" in joined, draft_type
 
 
@@ -224,4 +224,4 @@ def test_a_partially_inadmissible_partially_dismissed_decision_carries_the_notic
     joined = "".join(_texts(blocks))
 
     assert headings == ["主　文", "事　實", "理　由"]
-    assert "如不服本決定,得於決定書送達之次日起 2 個月內向臺北高等行政法院" in joined
+    assert "如不服本決定，得於決定書送達之次日起 2 個月內向臺北高等行政法院" in joined

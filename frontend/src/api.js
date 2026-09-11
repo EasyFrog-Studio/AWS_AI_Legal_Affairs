@@ -22,10 +22,10 @@ async function request(path, options = {}) {
   if (res.status === 401) {
     clearApiKey()
     window.location.href = '/login'
-    throw new Error('未授權,請重新登入。')
+    throw new Error('未授權，請重新登入。')
   }
   if (!res.ok) {
-    let message = `請求失敗(${res.status})`
+    let message = `請求失敗（${res.status}）`
     let detail = null
     try {
       const body = await res.json()
@@ -109,9 +109,9 @@ export async function openSourceFile(key) {
   if (res.status === 401) {
     clearApiKey()
     window.location.href = '/login'
-    throw new Error('未授權,請重新登入。')
+    throw new Error('未授權，請重新登入。')
   }
-  if (!res.ok) throw new Error(`找不到原文檔(${res.status})`)
+  if (!res.ok) throw new Error(`找不到原文檔（${res.status}）`)
   return URL.createObjectURL(await res.blob())
 }
 
@@ -122,9 +122,9 @@ async function downloadDraft(id, extension) {
   if (res.status === 401) {
     clearApiKey()
     window.location.href = '/login'
-    throw new Error('未授權,請重新登入。')
+    throw new Error('未授權，請重新登入。')
   }
-  if (!res.ok) throw new Error(`下載失敗(${res.status})`)
+  if (!res.ok) throw new Error(`下載失敗（${res.status}）`)
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

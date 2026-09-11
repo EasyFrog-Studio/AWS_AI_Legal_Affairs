@@ -23,10 +23,10 @@ def reference_data_status(today: Optional[date] = None) -> dict:
     needed = current.year + 1  # 今年的案子末日可能落在明年,故明年也必須已收錄
 
     if not years:
-        warning = f"國定假日表未收錄任何年度,末日是否須順延無從判斷,請執行 {_FETCH_SCRIPT} 重抓"
+        warning = f"國定假日表未收錄任何年度，末日是否須順延無從判斷，請執行 {_FETCH_SCRIPT} 重抓"
     elif max(years) < needed:
         warning = (
-            f"國定假日表僅收錄至 {max(years)} 年,未及 {needed} 年,"
+            f"國定假日表僅收錄至 {max(years)} 年，未及 {needed} 年，"
             f"請執行 {_FETCH_SCRIPT} 重抓"
         )
     else:

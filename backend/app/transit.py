@@ -108,7 +108,7 @@ def resolve_transit_days(residence_text: str, agency_location: str) -> TransitLo
     detail = "、".join(f"{key}{days}日" for key, days in sorted(groups.items()))
     return TransitLookup(
         review_note=(
-            f"住居所行政區不明,{city}附表分組日數不同({detail},相差{max(values) - min(values)}日),"
+            f"住居所行政區不明，{city}附表分組日數不同（{detail}，相差{max(values) - min(values)}日），"
             "在途期間無從認定"
         )
     )
