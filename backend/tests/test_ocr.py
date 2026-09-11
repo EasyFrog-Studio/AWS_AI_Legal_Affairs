@@ -1,5 +1,5 @@
 """掃描件逐頁抽字:呼叫形狀、重試、整槽拒收與頁數上限。
-真實 Bedrock/ollama 多模態呼叫未驗證(無憑證),這裡以 fake client 測呼叫形狀。"""
+真實多模態呼叫以 fake client 測呼叫形狀。"""
 import base64
 
 import fitz

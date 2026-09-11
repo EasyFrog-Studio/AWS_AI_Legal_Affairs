@@ -1,6 +1,6 @@
 """解析訴願答辯書 PDF → data/output/answer_chunks.jsonl
 
-三類來源:TEST_DATA 的合成測資、官方空白範本、彰化縣政府答辯要領手冊,
+三類來源:data_show/test_cases 的合成測資、官方空白範本、彰化縣政府答辯要領手冊,
 以 metadata.source_kind 區分(合成測資與真實語料混在一起檢索就是自問自答)。
 段落標記「答 辯 聲 明」「事    實」「理    由」「證物：」(字元間夾雜半形空白),
 切不出段落者(如要領手冊)退為全文,再依 chunk_text 分段。
@@ -12,7 +12,7 @@ from common import OUTPUT_DIR, extract_text, write_jsonl
 from parse_interpretations import chunk_text
 
 REPO_DATA_DIR = Path(__file__).resolve().parents[2] / "data"
-TESTDATA_DIR = REPO_DATA_DIR / "TEST_DATA"
+TESTDATA_DIR = Path(__file__).resolve().parents[1] / "data_show" / "test_cases"
 SAMPLE_DIR = REPO_DATA_DIR / "sample" / "04_訴願答辯書"
 TEMPLATE_DIR = REPO_DATA_DIR / "範本來源"
 # 原始下載檔是 Word 97 格式,已用 Word 轉存同名 PDF;此份與 sample/ 的行政院範例是同一份文件

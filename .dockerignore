@@ -8,7 +8,8 @@
 aws_setup
 deploy
 **/.env
-data_show/examples
+data_show/test_cases
+data_show/decisions_114
 *.md
 .venv
 finalized

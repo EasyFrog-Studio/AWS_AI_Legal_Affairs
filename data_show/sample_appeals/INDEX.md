@@ -21,4 +21,4 @@
 - `f_overdue_77_2_dated` 的 `appeal_text` 於附註載明送達日（本人簽收）與原處分機關收文日，供 `check_deadline` 以卷內日期實際算出末日（111/8/24 送達 → 111/9/23 屆滿 → 111/9/30 提起，逾期）；其餘樣本未載日期，期間認定會回報「未計算」。
 - `_fallback.json` 為泛用樣本，`appeal_text` 較簡短，`expected` 完整，作為 MockProvider 未命中任何樣本時的保底回應。
 - `expected.f1` 的六個文書欄位（`receipt_date`／`service_date`／`service_method`／`disposition_fine`／`disposition_notice_clause`／`disposition_recipient`）**只填卷內講得出來的**，其餘留空字串。樣本是用來驗抽取的，替它編一個日期會讓「抽不到」永遠測不出來；前端把空值顯示為「—」，看得出是沒抽到而不是沒這一欄。
-- `g_overdue_77_2_deposit` 與 `d_dismiss_waste` 是開箱示範案，`appeal_text` 與 `data_show/examples/` 的三槽 PDF 同一份內容（貼文字與上傳 PDF 兩條路徑結果一致）；兩案的卷內日期都算得出末日，前者逾期、後者未逾期。
+- `g_overdue_77_2_deposit` 與 `d_dismiss_waste` 是開箱示範案，`appeal_text` 自帶完整卷內日期；兩案都算得出末日，前者逾期、後者未逾期。

@@ -1,6 +1,6 @@
 """訴願書的「事實」「理由」兩段:照文件自己的標題切,不靠模型分。
 
-模型實測分不開(qwen3-4b 會把論點歸到爭點、理由留空,四種 prompt 寫法都一樣),
+模型分段不穩定(常把論點歸到爭點、理由留空,prompt 寫法無法可靠阻止),
 但訴願書格式本身就有這兩個標題,規則切得準而且是逐字照抄——法律文書不該被模型改寫。
 """
 from app.appeal_sections import split_appeal_sections
@@ -113,7 +113,7 @@ def _info(**overrides):
 
 
 def test_the_document_headings_win_over_the_model_split():
-    """模型把論點全歸到爭點、理由留空是實測常態;文件自己有標題時以文件為準,
+    """模型常把論點全歸到爭點、理由留空;文件自己有標題時以文件為準,
     而且是逐字照抄,不是模型改寫過的版本。"""
     from app.pipeline import apply_appeal_sections
 

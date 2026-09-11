@@ -1,4 +1,4 @@
-"""決定書草稿的版面:體例照 data/TEST_DATA/_參考-114年決定書全文 的 21 份真實決定書。
+"""決定書草稿的版面:體例照 data_show/decisions_114/ 的 21 份真實決定書。
 下載下來要是一份可直接送出的決定書,系統填得出來的填,填不出來的留空給承辦人。"""
 from app.models import Case, CaseInfo, DraftResult
 from app.pdf_render import build_decision_blocks

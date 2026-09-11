@@ -1,7 +1,7 @@
 """評測執行器:拿官方訴願決定書當答案,量這套系統在真實卷證上的正確率。
 
-手動執行,不進 pytest——它需要主機上的 ollama,而 `python -m pytest` 必須在沒有模型的
-機器上也跑得完。用法見同目錄 README.md。
+手動執行,不進 pytest——它需要呼叫真實模型(aws 模式的 Bedrock 或 local 模式的 ollama),
+而 `python -m pytest` 必須在沒有模型與憑證的機器上也跑得完。用法見同目錄 README.md。
 """
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from dotenv import load_dotenv
 
 _EVAL_DIR = Path(__file__).resolve().parent
 _CODE_ROOT = _EVAL_DIR.parent
-_DATA_PARENT = _CODE_ROOT.parent
 
 sys.path.insert(0, str(_EVAL_DIR))
 sys.path.insert(0, str(_CODE_ROOT / "backend"))
@@ -34,6 +33,7 @@ from app.config import settings  # noqa: E402
 from app.models import Case, CaseDocument, CaseInfo, build_input_text  # noqa: E402
 from app.pdf_extract import extract_text  # noqa: E402
 from app.pipeline import run_case  # noqa: E402
+from app.providers.aws import AWSProvider  # noqa: E402
 from app.providers.base import AIProvider  # noqa: E402
 from app.providers.local import LocalProvider  # noqa: E402
 from app.store import MemoryStore  # noqa: E402
@@ -42,11 +42,26 @@ from scoring import (  # noqa: E402
     CORRECT, UNSURE, WRONG, score_case_type, score_decision, score_field, score_screening, tally,
 )
 
-# 語料與報告都在 repo 之外,路徑因機器而異,故只當預設值,由 --cases / --out 覆寫
-_DEFAULT_CASES_DIR = _DATA_PARENT / "data" / "TEST_DATA"
-_DEFAULT_OUTPUT_DIR = _DATA_PARENT / "data" / "output"
-_DECISION_SUBDIR = "_參考-114年決定書全文"
+# 語料已內建於 data_show/,--cases / --decisions / --out 只用來覆寫成除錯或替代語料的路徑
+_DEFAULT_CASES_DIR = _CODE_ROOT / "data_show" / "test_cases"
+_DEFAULT_DECISIONS_DIR = _CODE_ROOT / "data_show" / "decisions_114"
+_DEFAULT_OUTPUT_DIR = _EVAL_DIR / "reports"
 _ANSWER_KEY = _EVAL_DIR / "answer_key.json"
+
+
+def _build_provider() -> AIProvider:
+    if settings.AI_PROVIDER == "aws":
+        return AWSProvider()
+    if settings.AI_PROVIDER == "local":
+        return LocalProvider()
+    raise SystemExit("評測需要真實模型,AI_PROVIDER 須為 aws 或 local")
+
+
+def _model_info() -> tuple[str, str]:
+    if settings.AI_PROVIDER == "aws":
+        return settings.BEDROCK_MODEL_ID, settings.AWS_REGION
+    return settings.LOCAL_LLM_MODEL, settings.LOCAL_LLM_BASE_URL
+
 
 _SLOT_FILES = {
     "appeal": "01_訴願書.pdf",
@@ -230,8 +245,8 @@ def _run_cases(provider: AIProvider, key: dict, only: str | None, cases_dir: Pat
     return results
 
 
-def _run_decisions(provider: AIProvider, key: dict, only: str | None, cases_dir: Path) -> list[dict]:
-    sources = {path.name[:2]: path for path in sorted((cases_dir / _DECISION_SUBDIR).glob("*.txt"))}
+def _run_decisions(provider: AIProvider, key: dict, only: str | None, decisions_dir: Path) -> list[dict]:
+    sources = {path.name[:2]: path for path in sorted(decisions_dir.glob("*.txt"))}
     results = []
     for doc_id, expected in key["decisions"].items():
         if doc_id.startswith("_") or (only and doc_id != only):
@@ -280,7 +295,7 @@ def _markdown(report: dict) -> str:
         "# 評測報告",
         "",
         f"- 產生時間:{report['generated_at']}",
-        f"- 受測模型:{report['model']}(ollama @ {report['base_url']})",
+        f"- 受測模型:{report['model']}({report['provider']} 模式 @ {report['location']})",
         f"- 答案來源:官方訴願決定書逐字記載;決定書未載或記載有歧義的欄位不計分",
         f"- 計分三格:✅ correct 對 / ❌ wrong 抽錯或判錯 / ⚠️ unsure 系統自陳不確定(誠實回報,不算失分)",
         "",
@@ -345,13 +360,17 @@ def _rows_table(rows: list[dict]) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="訴願審理 AI 系統評測(local 模式)")
+    parser = argparse.ArgumentParser(description="訴願審理 AI 系統評測(依 AI_PROVIDER 選 aws 或 local)")
     parser.add_argument("--only", help="只跑指定組別(線1 用 example4,線2 用 07),除錯用")
     parser.add_argument("--skip-cases", action="store_true", help="略過線1 的合成卷證")
     parser.add_argument("--skip-decisions", action="store_true", help="略過線2 的 21 份決定書")
     parser.add_argument(
         "--cases", type=Path, default=_DEFAULT_CASES_DIR,
-        help=f"卷證根目錄,底下為 example1..8 與 {_DECISION_SUBDIR}(預設 {_DEFAULT_CASES_DIR})",
+        help=f"卷證根目錄,底下為 example1..8(預設 {_DEFAULT_CASES_DIR})",
+    )
+    parser.add_argument(
+        "--decisions", type=Path, default=_DEFAULT_DECISIONS_DIR,
+        help=f"114 年決定書全文目錄(預設 {_DEFAULT_DECISIONS_DIR})",
     )
     parser.add_argument(
         "--out", type=Path, default=_DEFAULT_OUTPUT_DIR,
@@ -360,16 +379,18 @@ def main() -> int:
     args = parser.parse_args()
 
     key = json.loads(_ANSWER_KEY.read_text(encoding="utf-8"))
-    provider = StageNamedProvider(LocalProvider())
+    provider = StageNamedProvider(_build_provider())
+    model, location = _model_info()
 
-    print(f"模型 {settings.LOCAL_LLM_MODEL} @ {settings.LOCAL_LLM_BASE_URL}")
+    print(f"模型 {model} @ {location}")
     cases = [] if args.skip_cases else _run_cases(provider, key, args.only, args.cases)
-    decisions = [] if args.skip_decisions else _run_decisions(provider, key, args.only, args.cases)
+    decisions = [] if args.skip_decisions else _run_decisions(provider, key, args.only, args.decisions)
 
     report = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "model": settings.LOCAL_LLM_MODEL,
-        "base_url": settings.LOCAL_LLM_BASE_URL,
+        "model": model,
+        "provider": settings.AI_PROVIDER,
+        "location": location,
         "authority": key["_authority"],
         "summary": _summarize(_all_rows(cases) + _all_rows(decisions)),
         "cases": cases,

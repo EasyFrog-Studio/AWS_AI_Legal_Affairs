@@ -621,7 +621,7 @@ def _raise_on_list(exc):
 
 
 def test_missing_aws_credentials_answers_with_an_actionable_message(monkeypatch):
-    """Workshop 憑證數小時即過期。裸 500 讓承辦人以為整個站壞了,而處置方式其實只是換一組憑證。"""
+    """臨時憑證數小時即過期。裸 500 讓承辦人以為整個站壞了,而處置方式其實只是換一組憑證。"""
     from botocore.exceptions import NoCredentialsError
 
     monkeypatch.setattr(main_module.store, "list_cases", _raise_on_list(NoCredentialsError()))

@@ -255,7 +255,7 @@ def test_a_realistic_full_case_stays_well_under_the_size_threshold():
 
     size = item_size_bytes(store._to_item(full_case()))
 
-    assert size < MAX_ITEM_BYTES // 2, f"實測 {size} bytes 已超門檻一半,須調降草稿版本上限或提前排 S3 offload"
+    assert size < MAX_ITEM_BYTES // 2, f"{size} bytes 已超門檻一半,須調降草稿版本上限或提前排 S3 offload"
 
 
 def test_list_cases_paginates_with_last_evaluated_key():

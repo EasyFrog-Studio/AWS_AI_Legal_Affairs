@@ -230,8 +230,8 @@ def test_draft_result_rejects_a_typo_of_a_valid_draft_type():
 
 
 def test_admissible_track_cannot_offer_inadmissible_as_a_draft_type():
-    """prompt 早就寫明受理案三擇一,但 schema 五值全開,模型照樣挑得到「不受理」,
-    產出一份 track=admissible 而草稿寫不受理的自相矛盾案件(local 模式實測 2 件)。"""
+    """prompt 早就寫明受理案三擇一,但 schema 五值全開時模型仍可能挑到「不受理」,
+    產出 track=admissible 而草稿寫不受理的自相矛盾案件。"""
     assert "不受理" not in draft_types_for(passed=True)
 
 

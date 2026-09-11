@@ -5,26 +5,28 @@
 
 ## 為什麼不進 pytest
 
-評測需要主機上的 ollama,而 `python -m pytest`(backend/)必須在沒有模型的機器上也跑得完。
-把評測接進 pytest 等於讓整套單元測試從此依賴一個 4B 模型的當下心情。故手動執行。
+評測需呼叫真實模型(aws 模式的 Bedrock 或 local 模式的 ollama),而 `python -m pytest`
+(backend/、eval/)必須在沒有模型與憑證的機器上也跑得完。故手動執行。
 
 ## 執行
 
 ```bash
 cd AWS_AI_Legal_Affairs/eval
-python run_eval.py                       # 兩條線全跑;線1 每組約 70 秒(F1 與 F4 各佔近半)
-python run_eval.py --only example4       # 只跑一組,除錯用
-python run_eval.py --only 07 --skip-cases   # --skip-cases / --skip-decisions 各關掉一條線
-python run_eval.py --cases <卷證根目錄> --out <報告目錄>   # 語料不在預設位置時
-python -m pytest                         # 計分與執行器的測試,不需 ollama
+AI_PROVIDER=aws python run_eval.py                 # 兩條線全跑;線1 每組約 70 秒(F1 與 F4 各佔近半)
+AI_PROVIDER=aws python run_eval.py --only example4 # 只跑一組,除錯用
+AI_PROVIDER=aws python run_eval.py --only 07 --skip-cases   # --skip-cases / --skip-decisions 各關掉一條線
+python -m pytest                                   # 計分與執行器的測試,不需模型或憑證
 ```
 
-前置:主機 ollama 已 `ollama serve` 且已 pull `LOCAL_LLM_MODEL`;`.env` 的 `POSTGRES_URL_HOST` 已填(F2/F3 會真的查庫,`POSTGRES_URL` 那個位址只有容器內解析得到)。ollama 一次只跑一個生成,
-評測跑起來會把同時使用網站的請求餓死成 timeout,測站前先確認 `/api/ps` 是空的。
+前置(aws 模式):`~/.aws/credentials` 有效憑證,region 見 `AWS_REGION`。
+前置(local 模式,`AI_PROVIDER=local`):主機已 `ollama serve` 且已 pull `LOCAL_LLM_MODEL`,`.env` 的
+`POSTGRES_URL_HOST` 已填(F2/F3 會真的查庫,`POSTGRES_URL` 那個位址只有容器內解析得到);ollama 一次
+只跑一個生成,評測跑起來會把同時使用網站的請求擠成 timeout,測站前先確認 `/api/ps` 是空的。
 
-報告覆寫 `--out` 目錄下的 `eval_report.md`(給人看)與 `eval_report.json`(給程式讀),不累積歷史。
-`--cases` 與 `--out` 的預設值都指向 repo 之外的 `../data/`:語料體積大又會過期,不進版控,
-所以路徑因機器而異,兩個參數都留成可覆寫。
+卷證預設讀 `data_show/test_cases`,114 年決定書全文預設讀 `data_show/decisions_114`,兩者皆已內建於
+repo;語料不在預設位置時可用 `--cases`/`--decisions` 覆寫。報告寫到 `eval/reports/`
+(`.gitignore` 排除,不累積歷史,`--out` 可覆寫路徑):`eval_report.md`(給人看)與
+`eval_report.json`(給程式讀)。
 
 ## 答案從哪裡來
 
@@ -40,7 +42,7 @@ python -m pytest                         # 計分與執行器的測試,不需 ol
 
 ## 兩條線
 
-**線1:8 組合成卷證**(`data/TEST_DATA/example1..8`,各四份 PDF)。走真實的
+**線1:8 組合成卷證**(`data_show/test_cases/example1..8`,各四份 PDF)。走真實的
 `pipeline.run_case`,六層全跑真貨,量四層:程序審查分流(受理與否 + 訴願法§77 款次)、
 決定類型、F1 四欄、期間三要素(送達生效日 / 末日 / 機關收文日)。F2/F2+/F3 的檢索結果
 不單獨計分,但**必須真的跑**——F4 的輸入就是它們,抽掉等於量一條產品上不存在的路徑。
@@ -50,7 +52,7 @@ python -m pytest                         # 計分與執行器的測試,不需 ol
 `enforce_inadmissible_format` 依分流結果決定,不是 F4 自己判的,所以這個數字是
 「最後送到承辦人手上的決定類型對不對」,不等於 F4 的獨立準確率。
 
-**線2:21 份真實 114 年決定書全文**(`data/TEST_DATA/_參考-114年決定書全文/`)。只量 F1 對
+**線2:21 份真實 114 年決定書全文**(`data_show/decisions_114/`)。只量 F1 對
 真實文本的擷取與案類分類。**刻意不量分流**:決定書的理由欄逐字寫著「依訴願法第 77 條第 2 款」,
 把它抄回來不代表系統會判——那種題目量的是抄寫能力,不是判斷能力。
 

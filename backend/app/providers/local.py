@@ -33,7 +33,7 @@ from app.providers.aws import (
 from app.providers.base import AIProvider
 
 
-_MAX_OUTPUT_TOKENS = 2048  # 語料實測最長 f4 為 879 字,留兩倍餘裕;調小會攔腰砍掉正常草稿
+_MAX_OUTPUT_TOKENS = 2048  # 語料最長 f4 為 879 字,留兩倍餘裕;調小會攔腰砍掉正常草稿
 
 
 def _vector_literal(vec: list[float]) -> str:
@@ -82,7 +82,7 @@ class LocalProvider(AIProvider):
                 "format": schema,
                 # num_ctx:ollama 預設 4096,F4 輸入(案件+法規+案例 JSON)會超過而被靜默截斷。
                 # num_predict/repeat_penalty 是失控生成的煞車:模型曾在 schema 約束下無限重複,
-                # 拖到 client 300 秒逾時而伺服器端還在算。2048 取自語料實測(最長 f4 為 879 字)
+                # 拖到 client 300 秒逾時而伺服器端還在算。2048 取自語料統計(最長 f4 為 879 字)
                 "options": {
                     "temperature": 0,
                     "num_ctx": 16384,
@@ -125,8 +125,8 @@ class LocalProvider(AIProvider):
                 "disposition_date": {"type": "string"},
                 "disposition_no": {"type": "string"},
                 "disposition_summary": {"type": "string"},
-                # 理由排在事實前面:ollama 的 JSON grammar 照 schema 順序生成,事實先寫就會
-                # 把訴願書的內容吃光,理由只剩空陣列(實測如此),而 §77(1) 會據此誤報缺漏
+                # 理由排在事實前面:grammar-constrained JSON 生成照 schema 順序,事實先寫就會
+                # 把訴願書的內容吃光,理由只剩空陣列,而 §77(1) 會據此誤報缺漏
                 "appeal_reasons": {"type": "array", "items": {"type": "string"}},
                 "appeal_facts": {"type": "array", "items": {"type": "string"}},
                 "case_type": {"type": "string"},
@@ -156,8 +156,8 @@ class LocalProvider(AIProvider):
                 "disposition_notice_clause",  # notice_clause → 行政程序法§98 期間分支
                 "receipt_date",  # check_required_fields → 訴願法§56 I⑥
                 "appeal_reasons",  # check_required_fields → 訴願法§56 I⑤
-                # 這四欄選填時模型會整組省略(實測:餵了 1,592 字的答辯書,三欄仍全空),
-                # 列進 required 是要它「一定要回答」——沒有答辯書就明確回空值,不是當作沒看到
+                # 這四欄選填時模型會整組省略,列進 required 是要它「一定要回答」——
+                # 沒有答辯書就明確回空值,不是當作沒看到
                 "appeal_facts",
                 "answer_statement",
                 "answer_self_revoked",

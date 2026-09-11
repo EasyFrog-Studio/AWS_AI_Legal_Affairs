@@ -795,7 +795,7 @@ def test_default_http_client_uses_configured_timeout(monkeypatch):
 def test_f1_schema_requires_every_field_a_procedural_check_reads():
     """程式化檢核讀得到的欄位一律必填。schema 沒列必填時模型直接不輸出該鍵,
     欄位落回預設空字串,而吃它的檢核只看得到「空」——沒抽到與卷內沒有,結果是同一個空值,
-    檢核於是靜默停用(local 實測 9 件全缺 disposition_recipient,§77(3) 整組沒跑)。
+    檢核於是靜默停用(欄位缺漏時 §77(3) 整組不會跑)。
     抽不到要填「未載明」,那是誠實回報,與整個鍵消失不同。"""
     http = FakeHTTP(chat_payloads=[{
         "appellant": "王大明", "agency": "機關", "disposition_date": "112年1月1日",
@@ -848,7 +848,7 @@ def test_a_case_without_a_usable_url_gets_none_rather_than_a_dead_link():
 
 
 def test_extract_case_info_forces_the_answer_fields_to_be_answered():
-    """三欄選填時模型會整組省略——實測餵了 1,592 字的答辯書,三欄仍全空。
+    """三欄選填時模型會整組省略,即使答辯書內容不少。
     列進 required 是要模型「一定要回答」,沒有答辯書就明確回空值,不是當作沒看到。"""
     http = FakeHTTP(
         chat_payloads=[

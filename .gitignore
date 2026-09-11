@@ -15,6 +15,7 @@ backend/static/
 finalized/
 .coverage
 htmlcov/
+eval/reports/
 
 # 工具 / 編輯器 / OS
 .vscode/

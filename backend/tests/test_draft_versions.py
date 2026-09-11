@@ -143,7 +143,7 @@ def test_finalize_nonexistent_case_returns_404():
 def test_default_finalized_dir_is_writable_in_the_container():
     """容器只把 backend/app COPY 進 /app/app,所以 config 的 repo root 在容器內會算成 "/";
     定稿目錄若以它為基準會落成 /finalized,而 image 以 appuser 執行、無權在根目錄建資料夾
-    ——docker compose 實測回 500。預設值因此改以 backend/ 為基準(容器內即 /app,已 chown)。"""
+    ——docker compose 下會回 500。預設值因此改以 backend/ 為基準(容器內即 /app,已 chown)。"""
     from pathlib import Path
 
     from app.config import Settings

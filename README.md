@@ -12,7 +12,7 @@ docker compose --env-file .env -f docker/docker-compose.yml up --build
 # → http://localhost:8000,登入頁輸入 .env 的 API_KEY
 ```
 
-`data_show/examples/` 附兩組可直接拖進網站的示範卷證(PDF),mock 模式開箱即可跑完整條流程。
+`data_show/test_cases/` 附九組可直接拖進網站的合成卷證(PDF),mock 模式開箱即可跑完整條流程。
 
 ## 環境變數與機密
 
@@ -28,8 +28,8 @@ docker compose --env-file .env -f docker/docker-compose.yml up --build
 |---|---|---|
 | `../data/資料集/` | 競賽提供的歷史訴願決定書 101 份(110–114 年)、相關法規 11 部、行政函釋、司法院釋字及行政判解 | `preprocessing/parse_*.py` 讀 |
 | `../data/output/` | 前處理產出的 chunk JSONL 與 markdown | `preprocessing/` 寫,`aws_setup/04_ingest.py`、`local_setup/ingest.py` 讀 |
-| `../data/TEST_DATA/` | 合成測試卷證 example1–8、1b(每組四份輸入 PDF + 真實決定書)與 `_參考-114年決定書全文/` | `eval/run_eval.py` 讀 |
 
+合成測資(example1–8、1b)與 114 年決定書全文已內建於本 repo 的 `data_show/`,不必另外擺放。
 取得競賽資料集後照上表擺放即可;沒有語料時 `mock` 模式完全不受影響。**114 年的 21 件決定書是留出測試集**,`preprocessing`、`aws_setup/01_s3.py`、`04_ingest.py`、`local_setup/ingest*.py` 都以 `HOLDOUT_YEARS` 排除,不得灌進任何檢索庫。
 
 ## 目錄
@@ -38,20 +38,22 @@ docker compose --env-file .env -f docker/docker-compose.yml up --build
 |---|---|
 | `backend/app/` | FastAPI:`main.py` 路由、`pipeline.py` F1→程序審查→F2/F3→F4、`deadline*.py`/`procedural_checks.py`/`notice_clause.py`/`transit.py` 程序審查的可計算層、`providers/` 三模式、`store.py` 三種案件儲存 |
 | `backend/tests/` | pytest;`python -m pytest`(backend/) |
-| `backend/tools/` | `eval_ocr.py` OCR 辨識率 |
+| `backend/tools/` | `eval_ocr.py` OCR 辨識率(`AI_PROVIDER=aws` 或 `local`) |
 | `frontend/` | Vite + React 四頁 SPA;`npm test`、`npm run build` |
 | `preprocessing/` | PDF → chunk JSONL(一次性、地端) |
 | `aws_setup/` | S3 / DynamoDB / S3 Vectors / Bedrock KB 建置腳本 01–05 |
 | `local_setup/` | local 模式建索引(ollama embedding → pgvector) |
 | `docker/` | 多階段 Dockerfile + compose(web / postgres / pgadmin)+ `initdb/` schema |
 | `deploy/` | ECR 推送、ECS Fargate、ALB |
-| `data_show/` | mock 樣本與開箱示範卷證 |
+| `data_show/` | mock 樣本 `sample_appeals/`、合成測資 `test_cases/`(九組)、114 年決定書全文 `decisions_114/` |
 
 ## 評測
 
 ```bash
-cd eval && python run_eval.py          # 需主機 ollama 與 .env 的 POSTGRES_URL_HOST
+cd eval && AI_PROVIDER=aws python run_eval.py     # ~/.aws 需有效憑證
 ```
+
+local 模式亦可(`AI_PROVIDER=local`,需主機 ollama 與 `.env` 的 `POSTGRES_URL_HOST`)。
 
 答案鍵 `eval/answer_key.json` 由人工從官方訴願決定書逐字抄錄,決定書未載或有歧義的欄位填 `null` 整欄不計分。
 量分流(受理與否 + 訴願法§77 款次)、決定類型、F1 欄位與期間三要素,計分分 correct / wrong / unsure 三格;

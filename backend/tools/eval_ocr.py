@@ -1,23 +1,20 @@
 # -*- coding: utf-8 -*-
-"""量中文 OCR 的辨識率。
+"""量中文 OCR 的辨識率:把 data_show/test_cases 的合成 PDF 重新 render 成無文字層的
+影像版(模擬掃描件)→ 走 app/ocr.py → 與 PDF 自身的文字層(ground truth)逐字比對。
 
-「中文 OCR 準不準」不必等到有 AWS 憑證才知道:data_show/examples 的示範 PDF 是合成的,
-原文即 ground truth,所以字元錯誤率算得出來。做法是把示範 PDF 重新 render 成無文字層的
-影像版 PDF(模擬掃描件)→ 走 app/ocr.py → 與原文逐字比對。
-
-用法(local 模式,需先啟動 ollama 並拉好視覺模型):
+用法:
 
     cd backend
-    AI_PROVIDER=local ../.venv/Scripts/python.exe tools/eval_ocr.py
+    AI_PROVIDER=aws python tools/eval_ocr.py     # 走 Bedrock 多模態 OCR
+    AI_PROVIDER=local python tools/eval_ocr.py   # 走本機 ollama 視覺模型,需先 ollama serve
 
 輸出兩個數字,兩者都要看:
 1. CER(字元錯誤率):整體品質。
 2. 日期欄位逐欄正確率:關鍵指標。整體 CER 90% 但把「5月3日」讀成「5月8日」一樣是災難——
    這套系統的正確性建立在日期上。
 
-⚠️ 這個量測只涵蓋合成 PDF(字型工整、無歪斜、無手寫)。真實掃描件的辨識率仍未量測,
-兩者不可互相推論。沒有實測數字之前,OCR 這條路
-只能寫「跑得動」,不得寫成「可用」。
+限制:這個量測只涵蓋合成 PDF(字型工整、無歪斜、無手寫);真實掃描件的辨識率尚未量測,
+兩者不可互相推論。
 """
 import re
 import sys
@@ -30,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.ocr import get_ocr_client, ocr_pdf  # noqa: E402
 from app.pdf_extract import extract_text  # noqa: E402
 
-_EXAMPLES_DIR = Path(__file__).resolve().parents[2] / "data_show" / "examples"
+_CASES_DIR = Path(__file__).resolve().parents[2] / "data_show" / "test_cases"
 _DATE_RE = re.compile(r"\d{2,3}年\d{1,2}月\d{1,2}日")
 _RENDER_DPI = 200
 
@@ -85,14 +82,14 @@ def date_accuracy(reference: str, hypothesis: str) -> tuple[int, int]:
 def main() -> None:
     client = get_ocr_client()
     total_dates = total_hits = 0
-    for pdf_path in sorted(_EXAMPLES_DIR.rglob("*.pdf")):
+    for pdf_path in sorted(_CASES_DIR.rglob("*.pdf")):
         original = pdf_path.read_bytes()
         reference = extract_text(original)
         recognised = ocr_pdf(to_image_only_pdf(original), client)
 
         hits, dates = date_accuracy(reference, recognised)
         total_hits, total_dates = total_hits + hits, total_dates + dates
-        rel = pdf_path.relative_to(_EXAMPLES_DIR)
+        rel = pdf_path.relative_to(_CASES_DIR)
         print(f"{rel}\n  CER={cer(reference, recognised):.3f}  日期 {hits}/{dates}")
 
     if total_dates:

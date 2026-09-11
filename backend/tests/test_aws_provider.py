@@ -980,7 +980,7 @@ def test_extract_case_info_carries_the_answer_document_fields():
     for key in ("answer_statement", "answer_self_revoked", "answer_arguments"):
         assert key in schema["properties"], key
         # required 要求的是「一定要回答這個鍵」,不是「內容不得為空」。原本列為選填的理由是
-        # 「機關尚未答辯是常態」,但實測相反:餵了 1,592 字的答辯書,模型仍把三欄整組省略。
+        # 「機關尚未答辯是常態」,但選填時模型會把三欄整組省略,即使答辯書內容不少。
         # 沒有答辯書時 prompt 要求明確回空值,那是誠實回報;整組不回才是看不出有沒有讀到。
         assert key in schema["required"], key
 

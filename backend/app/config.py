@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     APPEAL_AGENCY_LOCATION: str = "新北市"  # 受理訴願機關所在地,查在途期間對照表用
     # 定稿 PDF 的落地位置(mock/local 模式;aws 模式落 S3 的 finalized/ 前綴)。
     # 以 backend/ 為基準而非 _REPO_ROOT:容器只把 backend/app COPY 進 /app/app,
-    # _REPO_ROOT 在容器內會算成 "/",落成 /finalized 而 appuser 無權建立(實測回 500)。
+    # _REPO_ROOT 在容器內會算成 "/",落成 /finalized 而 appuser 無權建立(回 500)。
     FINALIZED_DIR: str = str(_BACKEND_DIR / "finalized")
     CASE_STORE: str = ""  # memory|dynamodb|postgres; 空字串代表依 AI_PROVIDER 決定預設值
 
@@ -44,8 +44,8 @@ class Settings(BaseSettings):
     LOCAL_LLM_MODEL: str = "kamekichi128/qwen3-4b-instruct-2507"
     LOCAL_VISION_MODEL: str = "qwen2.5vl:7b"  # 掃描件逐頁抽字用(app/ocr.py),與文字模型分開設
     LOCAL_EMBED_MODEL: str = "bge-m3"
-    # ollama 單次請求的逾時秒數。地端 4B 模型在慢機器上生一份 F4 草稿可達數分鐘,
-    # 評測整批跑更久;調小會讓正常的慢生成被誤判成失敗
+    # ollama 單次請求的逾時秒數。地端模型在慢機器上生一份 F4 草稿可達數分鐘,
+    # 批次執行更久;調小會讓正常的慢生成被誤判成失敗
     LOCAL_LLM_TIMEOUT: float = 300
     POSTGRES_URL: str = ""  # 空字串=未設定,連線前由呼叫端(store.py/providers/local.py)拒絕
     # 決定書 PDF 的內嵌字型;檔案不存在時 pdf_render 退回 fitz 內建 china-t
