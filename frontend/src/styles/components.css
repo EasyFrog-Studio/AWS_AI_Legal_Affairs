@@ -626,6 +626,12 @@ table.list-table {
   gap: var(--space-xl);
 }
 
+/* 直排:F1 分組卡、程序審查兩張卡與參考依據各條目一欄到底,卷證工作檯(收案 / 待確認)才保留兩欄 */
+.doc-grid--stack {
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-lg);
+}
+
 /* 並排後每格自成一塊,共用樣式的分隔線與外距在格線裡是多餘的 */
 .doc-grid .doc-slot {
   margin: 0;

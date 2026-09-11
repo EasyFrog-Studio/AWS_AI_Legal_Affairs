@@ -399,7 +399,7 @@ function F1Section({ info, system, editable, onSave }) {
       {!editable && (
         <p className="f1-summary__note">分析進行中，此時不開放修改案件資訊。</p>
       )}
-      <div className="doc-grid">
+      <div className="doc-grid doc-grid--stack">
         {F1_GROUPS.map((group) => {
           const empty = group.fields.every((f) => !fieldText(info, f))
           return (
@@ -629,7 +629,7 @@ function F2Section({ laws, track, screening, running, onViewSource }) {
     return <div className="state-message state-message--empty">未檢索到相關法規。</div>
   }
   return (
-    <div className="doc-grid">
+    <div className="doc-grid doc-grid--stack">
       {laws.map((law, i) => (
         <div className="doc-slot doc-slot--card law-ref" key={i}>
           <div className="doc-slot__head">
@@ -662,7 +662,7 @@ function F2RefsSection({ refs, running, onViewSource }) {
     return <div className="state-message state-message--empty">未檢索到相關參考見解。</div>
   }
   return (
-    <div className="doc-grid">
+    <div className="doc-grid doc-grid--stack">
       {refs.map((ref, i) => (
         <div className="doc-slot doc-slot--card reference-ref" key={i}>
           <div className="doc-slot__head">
@@ -697,7 +697,7 @@ function F3Section({ cases, running, onViewSource }) {
     return <div className="state-message state-message--empty">未檢索到相似案例。</div>
   }
   return (
-    <div className="doc-grid">
+    <div className="doc-grid doc-grid--stack">
       {cases.map((c, i) => (
         <div className="doc-slot doc-slot--card similar-case" key={i}>
           <div className="doc-slot__head">
@@ -764,7 +764,7 @@ function stageContent(key, caseData, onViewSource, onDocumentsChanged) {
   }
   if (key === 'screening') {
     return caseData.screening ? (
-      <div className="doc-grid">
+      <div className="doc-grid doc-grid--stack">
         <ScreeningSection caseData={caseData} onChanged={onDocumentsChanged} />
         <DeadlineSection deadline={caseData.deadline} />
       </div>
