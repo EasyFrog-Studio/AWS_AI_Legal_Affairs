@@ -19,6 +19,15 @@
   margin-bottom: var(--space-md);
 }
 
+/* 待人工確認提示,不用印章形式以免與狀況欄的決定結果章混淆 */
+.case-list-result__note {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--color-review);
+  display: block;
+  margin-top: var(--space-2xs);
+}
+
 /* 「尚無案件」空狀態的天秤線稿浮水印 */
 .case-list-watermark {
   width: 160px;

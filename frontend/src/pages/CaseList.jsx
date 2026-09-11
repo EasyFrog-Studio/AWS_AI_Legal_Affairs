@@ -3,22 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { listCases } from '../api'
 import AppShell from '../components/AppShell.jsx'
 import Icon from '../components/Icon.jsx'
-import Seal, { resolveCaseSeal } from '../components/Seal.jsx'
+import Seal, { resolveProgressSeal, resolveResultSeal } from '../components/Seal.jsx'
 import './CaseList.css'
 
-const STATUS_OPTIONS = [
-  '全部',
-  '待確認',
-  '審理中',
-  '待人工確認',
-  '已審結',
-  '不受理',
-  '駁回',
-  '撤銷另處',
-  '原處分撤銷',
-  '部分不受理部分駁回',
-  '處理失敗',
-]
+const STATUS_OPTIONS = ['全部', '待確認', '審理中', '處理失敗', '已審結']
+const RESULT_OPTIONS = ['全部', '不受理', '駁回', '撤銷另處', '原處分撤銷', '部分不受理部分駁回', '待人工確認']
 const ALL = '全部'
 
 const PERIOD_OPTIONS = [
@@ -57,6 +46,7 @@ export default function CaseList() {
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState(ALL)
+  const [result, setResult] = useState(ALL)
   const [caseType, setCaseType] = useState(ALL)
   const [period, setPeriod] = useState(ALL)
   const [page, setPage] = useState(1)
@@ -94,7 +84,8 @@ export default function CaseList() {
     return Array.from(set).sort()
   }, [cases])
 
-  const isFiltering = search.trim() !== '' || status !== ALL || caseType !== ALL || period !== ALL
+  const isFiltering =
+    search.trim() !== '' || status !== ALL || result !== ALL || caseType !== ALL || period !== ALL
 
   const filtered = useMemo(() => {
     if (!cases) return []
@@ -107,7 +98,14 @@ export default function CaseList() {
         const inTitle = (c.title || '').toLowerCase().includes(q)
         if (!inId && !inTitle) return false
       }
-      if (status !== ALL && resolveCaseSeal(c).text !== status) return false
+      if (status !== ALL && resolveProgressSeal(c).text !== status) return false
+      if (result !== ALL) {
+        if (result === '待人工確認') {
+          if (c.needs_review !== true) return false
+        } else if (resolveResultSeal(c)?.text !== result) {
+          return false
+        }
+      }
       if (caseType !== ALL && c.case_type !== caseType) return false
       if (since !== null) {
         const at = Date.parse(c.created_at)
@@ -115,7 +113,7 @@ export default function CaseList() {
       }
       return true
     })
-  }, [cases, search, status, caseType, period])
+  }, [cases, search, status, result, caseType, period])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   // 篩選變動後筆數可能不夠翻到原本那頁,夾回範圍才不會停在空白頁
@@ -124,11 +122,12 @@ export default function CaseList() {
 
   useEffect(() => {
     setPage(1)
-  }, [search, status, caseType, period])
+  }, [search, status, result, caseType, period])
 
   function clearFilters() {
     setSearch('')
     setStatus(ALL)
+    setResult(ALL)
     setCaseType(ALL)
     setPeriod(ALL)
   }
@@ -160,6 +159,23 @@ export default function CaseList() {
           onChange={(e) => setStatus(e.target.value)}
         >
           {STATUS_OPTIONS.map((opt) => (
+            <option key={opt} value={opt}>
+              {opt}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="case-list-filter-group">
+        <label htmlFor="case-list-result" className="rail-label">
+          狀況
+        </label>
+        <select
+          id="case-list-result"
+          className="rail-field"
+          value={result}
+          onChange={(e) => setResult(e.target.value)}
+        >
+          {RESULT_OPTIONS.map((opt) => (
             <option key={opt} value={opt}>
               {opt}
             </option>
@@ -256,12 +272,14 @@ export default function CaseList() {
                 <th>訴願書檔名</th>
                 <th>案件類別</th>
                 <th>進度</th>
+                <th>狀況</th>
                 <th>建立時間</th>
               </tr>
             </thead>
             <tbody>
               {pageRows.map((c) => {
-                const seal = resolveCaseSeal(c)
+                const progressSeal = resolveProgressSeal(c)
+                const resultSeal = resolveResultSeal(c)
                 return (
                   <tr
                     key={c.case_id}
@@ -279,9 +297,19 @@ export default function CaseList() {
                     <td>{c.title || '（未命名案件）'}</td>
                     <td>{c.case_type || '—'}</td>
                     <td>
-                      <Seal kind={seal.kind} size="sm">
-                        {seal.text}
+                      <Seal kind={progressSeal.kind} size="sm">
+                        {progressSeal.text}
                       </Seal>
+                    </td>
+                    <td>
+                      {resultSeal ? (
+                        <Seal kind={resultSeal.kind} size="sm">
+                          {resultSeal.text}
+                        </Seal>
+                      ) : (
+                        '—'
+                      )}
+                      {c.needs_review && <span className="case-list-result__note">待人工確認</span>}
                     </td>
                     <td className="mono">{formatDate(c.created_at)}</td>
                   </tr>

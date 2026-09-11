@@ -54,9 +54,9 @@ describe('案件清單', () => {
     expect(dataRows()).toHaveLength(1)
     await user.clear(screen.getByRole('textbox', { name: '搜尋' }))
 
-    await user.selectOptions(screen.getByRole('combobox', { name: '進度' }), '不受理')
+    await user.selectOptions(screen.getByRole('combobox', { name: '進度' }), '審理中')
     expect(dataRows()).toHaveLength(1)
-    expect(dataRows()[0]).toHaveTextContent('c-0001')
+    expect(dataRows()[0]).toHaveTextContent('c-0003')
     await user.selectOptions(screen.getByRole('combobox', { name: '進度' }), '全部')
 
     await user.selectOptions(screen.getByRole('combobox', { name: '案件類別' }), '交通')
@@ -82,13 +82,12 @@ describe('案件清單', () => {
     expect(screen.getByRole('button', { name: '新增案件' })).toBeInTheDocument()
   })
 
-  it('needs_review 的案件蓋「待人工確認」章,並可據此篩選', async () => {
+  it('needs_review 的案件在狀況欄印「待人工確認」提示,並可據此篩選', async () => {
     const user = userEvent.setup()
     await renderList([{ ...listRows[0], needs_review: true }, listRows[1]])
 
     expect(dataRows()[0]).toHaveTextContent('待人工確認')
-    expect(dataRows()[0]).not.toHaveTextContent('不受理') // 結案章不能蓋在待複核的案子上
-    await user.selectOptions(screen.getByRole('combobox', { name: '進度' }), '待人工確認')
+    await user.selectOptions(screen.getByRole('combobox', { name: '狀況' }), '待人工確認')
     expect(dataRows()).toHaveLength(1)
     expect(dataRows()[0]).toHaveTextContent('c-0001')
   })
@@ -96,7 +95,7 @@ describe('案件清單', () => {
   it('建立時間只到分,不顯示秒', async () => {
     await renderList([{ ...listRows[0], created_at: '2026-08-27T01:02:03+00:00' }])
     const cells = within(dataRows()[0]).getAllByRole('cell')
-    expect(cells[4]).toHaveTextContent(/^\d{4}\/\d{1,2}\/\d{1,2} \d{1,2}:\d{2}$/)
+    expect(cells[5]).toHaveTextContent(/^\d{4}\/\d{1,2}\/\d{1,2} \d{1,2}:\d{2}$/)
   })
 
   it('一頁 20 筆,上下頁切換,首末頁按鈕停用', async () => {
@@ -169,8 +168,8 @@ describe('案件清單', () => {
     rows[0].created_at = null
     rows[1].created_at = '不是日期'
     await renderList([...rows, ...rowsAgo(1).map((r) => ({ ...r, case_id: 'c-9999' }))])
-    expect(within(dataRows()[0]).getAllByRole('cell')[4]).toHaveTextContent('')
-    expect(within(dataRows()[1]).getAllByRole('cell')[4]).toHaveTextContent('不是日期')
+    expect(within(dataRows()[0]).getAllByRole('cell')[5]).toHaveTextContent('')
+    expect(within(dataRows()[1]).getAllByRole('cell')[5]).toHaveTextContent('不是日期')
 
     await user.selectOptions(screen.getByRole('combobox', { name: '時間' }), '7 天')
     expect(dataRows()).toHaveLength(1)
@@ -209,23 +208,176 @@ describe('案件清單', () => {
     expect(dataRows()).toHaveLength(3)
   })
 
-  it('進度篩選含五種決定類型(不受理/駁回/撤銷另處/原處分撤銷/部分不受理部分駁回)', async () => {
+  it('進度篩選只有四種進度值(待確認/審理中/處理失敗/已審結)', async () => {
     await renderList(listRows)
     const options = within(screen.getByRole('combobox', { name: '進度' }))
       .getAllByRole('option')
       .map((o) => o.textContent)
+    expect(options).toEqual(['全部', '待確認', '審理中', '處理失敗', '已審結'])
+  })
+
+  it('狀況篩選含五種決定類型與待人工確認', async () => {
+    await renderList(listRows)
+    const options = within(screen.getByRole('combobox', { name: '狀況' }))
+      .getAllByRole('option')
+      .map((o) => o.textContent)
     expect(options).toEqual([
       '全部',
-      '待確認',
-      '審理中',
-      '待人工確認',
-      '已審結',
       '不受理',
       '駁回',
       '撤銷另處',
       '原處分撤銷',
       '部分不受理部分駁回',
-      '處理失敗',
+      '待人工確認',
     ])
+  })
+
+  it('collecting 案件依 documents_failed 決定進度是「待確認」還是「處理失敗」', async () => {
+    const rows = [
+      {
+        case_id: 'c-0101',
+        created_at: new Date().toISOString(),
+        title: '文件不符案',
+        status: 'collecting',
+        documents_failed: true,
+        track: null,
+        current_stage: 'f1',
+        case_type: null,
+      },
+      {
+        case_id: 'c-0102',
+        created_at: new Date().toISOString(),
+        title: '正常收案',
+        status: 'collecting',
+        documents_failed: false,
+        track: null,
+        current_stage: 'f1',
+        case_type: null,
+      },
+    ]
+    await renderList(rows)
+    expect(within(dataRows()[0]).getAllByRole('cell')[3]).toHaveTextContent('處理失敗')
+    expect(within(dataRows()[1]).getAllByRole('cell')[3]).toHaveTextContent('待確認')
+  })
+
+  it('進度與狀況分欄:done 案件進度顯示已審結,狀況如實顯示 result,無 result 顯示「—」', async () => {
+    const rows = [
+      {
+        case_id: 'c-0201',
+        created_at: new Date().toISOString(),
+        title: '撤銷另處案',
+        status: 'done',
+        result: '撤銷另處',
+        track: 'admissible',
+        current_stage: 'done',
+        case_type: '環保',
+      },
+      {
+        case_id: 'c-0202',
+        created_at: new Date().toISOString(),
+        title: '尚無結果案',
+        status: 'done',
+        result: null,
+        track: 'admissible',
+        current_stage: 'done',
+        case_type: '環保',
+      },
+    ]
+    await renderList(rows)
+    const row0 = within(dataRows()[0]).getAllByRole('cell')
+    expect(row0[3]).toHaveTextContent('已審結')
+    expect(row0[4]).toHaveTextContent('撤銷另處')
+
+    const row1 = within(dataRows()[1]).getAllByRole('cell')
+    expect(row1[3]).toHaveTextContent('已審結')
+    expect(row1[4]).toHaveTextContent('—')
+  })
+
+  it('狀況篩選:選駁回只留 result=駁回,選待人工確認只留 needs_review', async () => {
+    const rows = [
+      {
+        case_id: 'c-0301',
+        created_at: new Date().toISOString(),
+        title: '駁回案',
+        status: 'done',
+        result: '駁回',
+        track: 'admissible',
+        current_stage: 'done',
+        case_type: '環保',
+      },
+      {
+        case_id: 'c-0302',
+        created_at: new Date().toISOString(),
+        title: '待複核案',
+        status: 'done',
+        result: null,
+        needs_review: true,
+        track: 'admissible',
+        current_stage: 'done',
+        case_type: '環保',
+      },
+      {
+        case_id: 'c-0303',
+        created_at: new Date().toISOString(),
+        title: '不受理案',
+        status: 'done',
+        result: '不受理',
+        track: 'inadmissible',
+        current_stage: 'done',
+        case_type: '環保',
+      },
+    ]
+    const user = userEvent.setup()
+    await renderList(rows)
+
+    await user.selectOptions(screen.getByRole('combobox', { name: '狀況' }), '駁回')
+    expect(dataRows()).toHaveLength(1)
+    expect(dataRows()[0]).toHaveTextContent('c-0301')
+    await user.selectOptions(screen.getByRole('combobox', { name: '狀況' }), '全部')
+
+    await user.selectOptions(screen.getByRole('combobox', { name: '狀況' }), '待人工確認')
+    expect(dataRows()).toHaveLength(1)
+    expect(dataRows()[0]).toHaveTextContent('c-0302')
+  })
+
+  it('進度篩選:選處理失敗同時涵蓋 error 案件與文件不符的收案', async () => {
+    const rows = [
+      {
+        case_id: 'c-0401',
+        created_at: new Date().toISOString(),
+        title: '系統錯誤案',
+        status: 'error',
+        track: null,
+        current_stage: 'f1',
+        case_type: null,
+      },
+      {
+        case_id: 'c-0402',
+        created_at: new Date().toISOString(),
+        title: '文件不符案',
+        status: 'collecting',
+        documents_failed: true,
+        track: null,
+        current_stage: 'f1',
+        case_type: null,
+      },
+      {
+        case_id: 'c-0403',
+        created_at: new Date().toISOString(),
+        title: '正常收案',
+        status: 'collecting',
+        documents_failed: false,
+        track: null,
+        current_stage: 'f1',
+        case_type: null,
+      },
+    ]
+    const user = userEvent.setup()
+    await renderList(rows)
+    await user.selectOptions(screen.getByRole('combobox', { name: '進度' }), '處理失敗')
+    expect(dataRows()).toHaveLength(2)
+    const ids = dataRows().map((r) => r.textContent)
+    expect(ids.some((t) => t.includes('c-0401'))).toBe(true)
+    expect(ids.some((t) => t.includes('c-0402'))).toBe(true)
   })
 })
