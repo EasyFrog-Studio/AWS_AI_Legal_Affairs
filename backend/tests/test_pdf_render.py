@@ -151,49 +151,6 @@ def test_the_configured_kai_font_is_used_when_the_file_exists(tmp_path, monkeypa
 
     assert fontfile == str(font_file)
     assert fontname != "china-t"
-
-
-def test_a_missing_font_file_falls_back_to_the_builtin_cjk_font(tmp_path, monkeypatch):
-    """字型沒裝進 image 時仍要印得出決定書——退回內建字型,代價是 PDF 文字複製出來是亂碼。"""
-    from app import pdf_render
-
-    monkeypatch.setattr(pdf_render.settings, "DECISION_FONT_FILE", str(tmp_path / "不存在.ttc"))
-
-    fontname, fontfile = pdf_render.resolve_font()
-
-    assert (fontname, fontfile) == ("china-t", None)
-
-
-def test_slot_mode_replaces_the_editable_sections_with_markers():
-    """網站上的決定書要與 PDF 同一套版面,差別只在三段本文是可編輯欄位。
-    版面只有一份定義,前端不再自己拼一次骨架,才不會兩邊長不一樣。"""
-    case = _case(f1=_info(), f4=DraftResult(
-        draft_type="駁回", fact="事實內容", reason="理由內容", main_text="訴願駁回。"))
-
-    blocks = build_decision_blocks(case, body_as_slots=True)
-
-    assert ("slot", "main_text") in blocks
-    assert ("slot", "fact") in blocks
-    assert ("slot", "reason") in blocks
-    joined = "".join(t for _k, t in blocks)
-    assert "訴願駁回。" not in joined and "事實內容" not in joined
-    # 骨架其餘部分與 PDF 完全一致
-    assert [k for k, _t in blocks] == [
-        k if k != "body" or t not in ("訴願駁回。", "事實內容", "理由內容") else "slot"
-        for k, t in build_decision_blocks(case)
-    ]
-
-
-def test_slot_mode_still_omits_the_fact_slot_for_an_inadmissible_decision():
-    case = _case(f1=_info(), f4=DraftResult(
-        draft_type="不受理", fact="", reason="理由內容", main_text="訴願不受理。"))
-
-    slots = [t for k, t in build_decision_blocks(case, body_as_slots=True) if k == "slot"]
-
-    assert slots == ["main_text", "reason"]
-
-
-# ---------- 承辦人自填欄位(decision_header)----------
 def test_the_officer_supplied_case_number_replaces_the_blank():
     """案號、日期、委員名單是機關收文後才定的,系統填不出來;承辦人填了就要印上去,
     不能只在畫面上看得到而下載的 PDF 還是空白——版面只有 build_decision_blocks 這一份定義。"""

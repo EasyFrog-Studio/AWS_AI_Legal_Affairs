@@ -175,3 +175,76 @@
 .decision__gap {
   height: var(--space-md);
 }
+
+/* ---------- 兩種編輯模式 ---------- */
+
+.draft-modes {
+  display: flex;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-md);
+}
+
+.btn-tab {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  padding: var(--space-xs) var(--space-md);
+  background: transparent;
+  border: 1px solid var(--color-rule-soft);
+  border-radius: 2px;
+  color: var(--color-ink-soft);
+  cursor: pointer;
+}
+
+.btn-tab--current {
+  color: var(--color-ink);
+  border-color: var(--color-gold);
+  border-bottom-width: 3px;
+}
+
+.draft-modes__warning {
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  max-width: var(--measure);
+  margin-bottom: var(--space-md);
+  padding: var(--space-md);
+  border-left: 3px solid var(--color-review);
+}
+
+.textarea--document {
+  font-family: var(--font-body);
+  line-height: 1.9;
+  min-height: 60vh;
+}
+
+/* ---------- 決定書表頭 ---------- */
+
+.draft-header-form {
+  margin-top: var(--space-xl);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-rule-soft);
+}
+
+.draft-header-form__note,
+.draft-header-form__hint {
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+  max-width: var(--measure);
+}
+
+.draft-header-form__row {
+  display: grid;
+  grid-template-columns: 7em minmax(0, 1fr);
+  gap: var(--space-sm);
+  align-items: start;
+  margin-bottom: var(--space-sm);
+}
+
+.draft-header-form__row label {
+  font-family: var(--font-display);
+  padding-top: var(--space-xs);
+}
+
+.draft-header-form__hint {
+  grid-column: 2;
+}

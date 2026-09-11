@@ -5,7 +5,9 @@ import re
 from datetime import date
 from typing import Literal, Optional, get_args
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
+
+from app.law_urls import interpretation_url, law_article_url
 
 
 # 送達方式的法定值域(訴願法準用行政程序法§72-74)。送達證書是勾選式表單,六個選項的文字
@@ -20,6 +22,7 @@ class CaseInfo(BaseModel):
     disposition_date: str
     disposition_no: str
     disposition_summary: str
+    appeal_facts: list[str] = []  # 訴願人自述的事實經過(§56 I⑤「訴願之事實及理由」的前半)
     appeal_reasons: list[str] = []
     case_type: str
     issues: list[str] = []
@@ -44,6 +47,11 @@ class ScreeningResult(BaseModel):
     matched_clause: Optional[str] = None  # 如 "77條第2款"
     reasoning: str
     review_note: str = ""  # 需人工複核的原因,空字串代表結論可逕採(語意同 DeadlineCheck.review_note)
+
+
+def join_review_notes(*notes: Optional[str]) -> str:
+    """保留事項一律附加:多個檢核同時成立時整段覆寫,承辦人就只看得到最後一個複核理由。"""
+    return ";".join(n for n in notes if n)
 
 
 # 款次由 LLM 產出,條文本身以「一、二、…」列款,故中文數字與阿拉伯數字都要收
@@ -101,6 +109,13 @@ class LawRef(BaseModel):
     source_key: Optional[str] = None
     relevance: str
 
+    @computed_field
+    @property
+    def source_url(self) -> Optional[str]:
+        """全國法規資料庫的條文連結。算出來而不是逐點填:F2 檢索、不受理法源精查、
+        DynamoDB 補全三處都生 LawRef,任一處忘了填就是少一個連結而不會有人發現。"""
+        return law_article_url(self.law_name, self.article_no)
+
 
 class ReferenceRef(BaseModel):
     """F2+ 參考見解。與 LawRef 平行而非共用:函釋/釋字/裁判填不出 law_name#article_no,
@@ -115,6 +130,12 @@ class ReferenceRef(BaseModel):
     source_key: Optional[str] = None
     relevance: str
 
+    @computed_field
+    @property
+    def source_url(self) -> Optional[str]:
+        """釋字推得出,函釋與裁判推不出來(見 law_urls.interpretation_url)。"""
+        return interpretation_url(self.doc_kind, self.name)
+
 
 class SimilarCase(BaseModel):
     case_no: str
@@ -126,6 +147,7 @@ class SimilarCase(BaseModel):
     summary: str
     similarity_note: str
     source_key: Optional[str] = None
+    source_url: Optional[str] = None  # 爬蟲語料帶的原始查詢系統深連結,官方語料沒有
 
 
 class DraftResult(BaseModel):
@@ -137,8 +159,8 @@ class DraftResult(BaseModel):
 
 
 class DecisionHeader(BaseModel):
-    """決定書上系統填不出來、由承辦人自己填的欄位。空字串代表維持留白給手寫。
-    訴願人/原處分機關填了就蓋過 f1——改決定書上的字不該連帶改動程序審查與檢索所依據的 f1。"""
+    """決定書上系統填不出來的欄位,一律留白。決定書產出時攤平成全文(decision_plain_text),
+    承辦人直接在那份全文裡填——欄位本身沒有寫入端點,改表頭就是改那份文字。"""
 
     case_no: str = ""
     appellant: str = ""
@@ -149,23 +171,17 @@ class DecisionHeader(BaseModel):
 
 
 class DraftVersion(BaseModel):
-    """草稿的一個歷史版本。每次 PATCH 存一版,定稿後的修訂也一樣存——定稿只是標記,不鎖。"""
+    """草稿的一個歷史版本。每次 PATCH 存一版,定稿後的修訂也一樣存——定稿只是標記,不鎖。
+    存的是整份決定書全文:編輯單位就是這一整份,拆成三欄存會對不上承辦人實際改的東西。"""
 
     saved_at: str
-    fact: str
-    reason: str
-    main_text: str
+    text: str
 
 
-class DraftPatch(BaseModel):
-    """PATCH /api/cases/{id}/draft 的 body。"""
+class DraftTextPatch(BaseModel):
+    """決定書全文的一次修改。base_version 用來擋兩個視窗互相無聲覆寫,語意同原本的 DraftPatch。"""
 
-    fact: str
-    reason: str
-    main_text: str
-    # 送出時前端帶目前的版本數;與伺服器端不符即回 409。三種 store 對 Case 都是整包
-    # read-modify-write,兩個視窗同時 PATCH 的結果是後送出的那份無聲蓋掉前一份,而兩邊都
-    # 以為自己存成功了。None 代表呼叫端未帶版本(舊前端),不檢查。
+    text: str
     base_version: Optional[int] = None
 
 
@@ -257,6 +273,9 @@ class Case(BaseModel):
     # 承辦人改過 f1 之後重跑,不得再呼叫 extract_case_info——人剛改的欄位會被模型改回去,
     # 與 screening_system 擋的是同一種失效
     f1_edited: bool = False
+    # 第一次被人工修改時把模型原本抽的整份搬進來,f1 留現行(人工)值。前端據此逐欄標出
+    # 「這一欄被改過」——改完若與模型抽的長得一樣,承辦人下次就分不出哪些字是自己確認過的
+    f1_system: Optional["CaseInfo"] = None
     screening: Optional[ScreeningResult] = None
     # 第一次被人工推翻時把系統原判搬進來,screening 留現行(人工)結論。事後看得出「系統判什麼、
     # 人改成什麼」,而且「有沒有被推翻過」變成可判斷的事實(非 None 即是),不必另立旗標。
@@ -268,6 +287,8 @@ class Case(BaseModel):
     f3: Optional[list[SimilarCase]] = None
     f4: Optional[DraftResult] = None
     decision_header: DecisionHeader = DecisionHeader()
+    # 決定書全文。承辦人實際編輯與下載的就是這一份;f4 三欄是模型產出的原始素材,產出時攤平成這份文字
+    draft_plain_text: str = ""
     draft_versions: list[DraftVersion] = []
     draft_versions_truncated: bool = False  # 有版本被丟掉這件事要看得見,不是靜默消失
     finalized_at: Optional[str] = None  # 定稿只是標記,不鎖;定稿後仍可 PATCH,改了再存一版

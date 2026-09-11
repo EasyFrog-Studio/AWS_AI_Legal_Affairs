@@ -17,6 +17,7 @@ export const F1_GROUPS = [
     fields: [
       { label: '訴願人', key: 'appellant', kind: 'text' },
       { label: '收受或知悉日', key: 'receipt_date', kind: 'mono' },
+      { label: '訴願事實', key: 'appeal_facts', kind: 'list' },
       { label: '訴願理由', key: 'appeal_reasons', kind: 'list' },
     ],
   },

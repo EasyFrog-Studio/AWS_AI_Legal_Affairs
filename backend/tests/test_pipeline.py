@@ -1286,3 +1286,33 @@ def test_the_screening_caveat_is_appended_to_an_existing_one():
 
     assert result.review_note.startswith("原有保留事項")
     assert "期間" in result.review_note
+
+
+def test_guard_unsupported_clause_appends_to_an_existing_review_note():
+    """款次守門是最後一道,覆寫的話前面所有檢核留下的理由都會在這裡消失。"""
+    screening = ScreeningResult(
+        passed=False, matched_clause="77條第5款", reasoning="模型判第5款", review_note="先前的保留事項"
+    )
+    result = guard_unsupported_clause(screening)
+
+    assert "先前的保留事項" in result.review_note
+    assert "第5款" in result.review_note
+
+
+def test_run_case_keeps_every_reason_when_two_checks_flag_the_same_case():
+    """矛盾守門與§77(1)同時成立:承辦人要看得到兩個理由,不是只看到最後一個。"""
+    store = MemoryStore()
+    _new_case(store, "c-88888888")
+
+    class _TwoFlagProvider(StubInadmissibleProvider):
+        def extract_case_info(self, text):
+            return _info(case_type="社會救助")  # 缺訴願理由與收受日 -> §77(1) 可補正分支
+
+        def screen_admissibility(self, info, text) -> ScreeningResult:
+            return ScreeningResult(passed=True, matched_clause="77條第2款", reasoning="模型理由")
+
+    run_case("c-88888888", store, _TwoFlagProvider())
+
+    note = store.get("c-88888888").screening.review_note
+    assert "矛盾" in note
+    assert "應依訴願法第62條通知" in note

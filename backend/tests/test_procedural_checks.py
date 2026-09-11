@@ -235,3 +235,74 @@ def test_resolve_standing_assessment_accepts_sub_article_number():
     """條號可含「-1」等細分款格式(如 44-1),不應被誤判為指不出條號。"""
     assessment = StandingAssessment(referenced_norm="行政罰法#44-1", has_standing=True)
     assert resolve_standing_assessment(assessment) is True
+
+
+# ---------- 保留事項附加而非覆寫 ----------
+
+
+def test_article_77_1_appends_to_an_existing_review_note():
+    """兩個檢核同時成立時整段覆寫會讓承辦人只看到最後一個理由,而複核靠的就是那些理由。"""
+    screening = ScreeningResult(
+        passed=False, matched_clause="77條第2款", reasoning="逾期", review_note="先前的保留事項"
+    )
+    # 姓名與機關皆缺 -> 不能補正,走自動判第1款那條路
+    both_missing = check_required_fields(_info(appellant="", agency=""))
+    result = apply_article_77_1(screening, both_missing, None)
+
+    assert result.matched_clause == "77條第1款"
+    assert "先前的保留事項" in result.review_note
+    assert "自動判第1款不受理" in result.review_note
+
+
+def test_article_77_1_appends_when_it_only_flags_without_overriding():
+    """缺漏可補正但卷內無補正通知:不覆寫結論,仍要把原有保留事項留著。"""
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="無", review_note="先前的保留事項")
+    correctable = check_required_fields(_info(appeal_reasons=[]))
+    result = apply_article_77_1(screening, correctable, None)
+
+    assert result.passed is True
+    assert "先前的保留事項" in result.review_note
+    assert "應依訴願法第62條通知" in result.review_note
+
+
+def test_article_77_3_appends_in_both_the_override_and_the_flag_branch():
+    for check, expect in (
+        (StandingCheck(consistent=False, has_standing=False), "自動判第3款不受理"),
+        (StandingCheck(consistent=False, has_standing=None), "利害關係判斷依據不足"),
+        (StandingCheck(consistent=False, has_standing=True), "仍具法律上利害關係"),
+    ):
+        screening = ScreeningResult(
+            passed=True, matched_clause=None, reasoning="無", review_note="先前的保留事項"
+        )
+        result = apply_article_77_3(screening, check)
+        assert "先前的保留事項" in result.review_note
+        assert expect in result.review_note
+
+
+def test_a_clean_screening_gets_only_the_new_note():
+    """原本沒有保留事項時不得留下空段或多餘的分號。"""
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="無")
+    result = apply_article_77_3(screening, StandingCheck(consistent=False, has_standing=None))
+    assert not result.review_note.startswith(";")
+    assert ";;" not in result.review_note
+
+
+# ---------- §56 I⑤「訴願之事實及理由」是一款兩件事 ----------
+
+
+def test_facts_alone_satisfy_the_fifth_item():
+    """法條把事實與理由寫成同一款;訴願人只寫了經過、沒有另闢理由段,不等於這一款缺漏。
+    只認 appeal_reasons 的話,模型把內容全放進事實欄時就會誤報「訴願書不合法定程式」。"""
+    check = check_required_fields(_info(appeal_facts=["114年6月27日遭稽查"], appeal_reasons=[]))
+    assert not [m for m in check.missing if "第五款" in m]
+
+
+def test_reasons_alone_also_satisfy_it():
+    check = check_required_fields(_info(appeal_facts=[], appeal_reasons=["原處分認事用法有誤"]))
+    assert not [m for m in check.missing if "第五款" in m]
+
+
+def test_both_empty_is_still_a_missing_item():
+    """兩邊都空才是真的沒寫——這一款不能因為放寬而失效。"""
+    check = check_required_fields(_info(appeal_facts=[], appeal_reasons=[]))
+    assert any("第五款" in m for m in check.missing)

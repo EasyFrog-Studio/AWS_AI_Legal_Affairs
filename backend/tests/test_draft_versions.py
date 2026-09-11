@@ -38,10 +38,11 @@ def _seed(case_id: str):
 
 
 def _patch(client, case_id: str, reason: str, base_version=None):
-    body = {"fact": "", "reason": reason, "main_text": "訴願不受理。"}
+    """一次修改 = 一份新的決定書全文;編輯單位是整份,不是三欄。"""
+    body = {"text": f"新北市政府訴願決定書 理由 {reason}"}
     if base_version is not None:
         body["base_version"] = base_version
-    return client.patch(f"/api/cases/{case_id}/draft", json=body, headers=_headers())
+    return client.patch(f"/api/cases/{case_id}/draft-text", json=body, headers=_headers())
 
 
 def test_each_patch_saves_a_version():
@@ -52,8 +53,11 @@ def test_each_patch_saves_a_version():
     _patch(client, "c-ver0001", "第二次修改。")
 
     case = client.get("/api/cases/c-ver0001", headers=_headers()).json()
-    assert [v["reason"] for v in case["draft_versions"]] == ["第一次修改。", "第二次修改。"]
-    assert case["f4"]["reason"] == "第二次修改。"
+    assert [v["text"].split("理由 ")[-1] for v in case["draft_versions"]] == [
+        "第一次修改。",
+        "第二次修改。",
+    ]
+    assert case["draft_plain_text"].endswith("第二次修改。")
 
 
 def test_stale_base_version_returns_409_and_does_not_write():
@@ -67,9 +71,9 @@ def test_stale_base_version_returns_409_and_does_not_write():
     assert resp.status_code == 409
     body = resp.json()
     assert "已被他人更新" in body["detail"]["message"]
-    assert body["detail"]["draft"]["reason"] == "甲的修改。"  # 回最新內容,前端才提示得出差異
+    assert "甲的修改。" in body["detail"]["text"]  # 回最新內容,前端才提示得出差異
     case = client.get("/api/cases/c-ver0002", headers=_headers()).json()
-    assert case["f4"]["reason"] == "甲的修改。"  # 未被寫入
+    assert case["draft_plain_text"].endswith("甲的修改。")  # 未被寫入
 
 
 def test_matching_base_version_is_accepted():
@@ -161,7 +165,7 @@ def test_version_history_is_capped_and_says_so():
 
     case = client.get("/api/cases/c-ver0007", headers=_headers()).json()
     assert len(case["draft_versions"]) == MAX_DRAFT_VERSIONS
-    assert case["draft_versions"][0]["reason"] == "第2次修改。"  # 最舊兩版已丟
+    assert case["draft_versions"][0]["text"].endswith("第2次修改。")  # 最舊兩版已丟
     assert case["draft_versions_truncated"] is True
 
 

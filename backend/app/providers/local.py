@@ -26,6 +26,7 @@ from app.providers.aws import (
     _retrieval_query,
     _valid_cited_articles,
     build_references,
+    external_source_url,
     viewable_source_key,
     case_summary,
 )
@@ -122,7 +123,10 @@ class LocalProvider(AIProvider):
                 "disposition_date": {"type": "string"},
                 "disposition_no": {"type": "string"},
                 "disposition_summary": {"type": "string"},
+                # 理由排在事實前面:ollama 的 JSON grammar 照 schema 順序生成,事實先寫就會
+                # 把訴願書的內容吃光,理由只剩空陣列(實測如此),而 §77(1) 會據此誤報缺漏
                 "appeal_reasons": {"type": "array", "items": {"type": "string"}},
+                "appeal_facts": {"type": "array", "items": {"type": "string"}},
                 "case_type": {"type": "string"},
                 "issues": {"type": "array", "items": {"type": "string"}},
                 "cited_articles": {"type": "array", "items": {"type": "string"}},
@@ -143,6 +147,13 @@ class LocalProvider(AIProvider):
                 "disposition_no",
                 "disposition_summary",
                 "case_type",
+                # 這四欄選填時模型會整組省略(實測:餵了 1,592 字的答辯書,三欄仍全空),
+                # 列進 required 是要它「一定要回答」——沒有答辯書就明確回空值,不是當作沒看到
+                "appeal_reasons",
+                "appeal_facts",
+                "answer_statement",
+                "answer_self_revoked",
+                "answer_arguments",
             ],
         }
         data = self._chat_json(_load_prompt("f1_extract.txt"), text, schema)
@@ -313,6 +324,7 @@ class LocalProvider(AIProvider):
                 summary=case_summary(text_),
                 similarity_note="向量檢索命中(pgvector case_chunks)",
                 source_key=viewable_source_key(metadata),
+                source_url=external_source_url(metadata),
             )
         return list(cases.values())[:_TOP_K]
 

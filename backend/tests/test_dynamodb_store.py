@@ -238,7 +238,7 @@ def full_case():
             * 5,
             "f4": draft,
             "draft_versions": [
-                DraftVersion(saved_at="2026-08-17T00:00:00", fact="", reason="理由" * 500, main_text="訴願不受理。")
+                DraftVersion(saved_at="2026-08-17T00:00:00", text="主　文 訴願不受理。 理　由 " + "理由" * 500)
             ]
             * 20,
         }

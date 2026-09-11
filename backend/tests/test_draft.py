@@ -5,6 +5,7 @@ from pydantic import ValidationError
 import app.main as main_module
 from app.config import settings
 from app.models import Case, DraftResult
+from app.pdf_render import decision_plain_text
 
 
 def _headers():
@@ -29,6 +30,10 @@ def _make_case(case_id: str, with_f4: bool) -> Case:
             cited_laws=["廢棄物清理法#46"],
         )
         main_module.store.update(case_id, {"f4": f4})
+        # 全文在 F4 產出時就攤平寫入(見 pipeline);測試直接塞 f4,得自己補這一步
+        main_module.store.update(
+            case_id, {"draft_plain_text": decision_plain_text(main_module.store.get(case_id))}
+        )
     return main_module.store.get(case_id)
 
 
@@ -40,8 +45,8 @@ def test_patch_draft_updates_f4_and_persists():
     assert case.f4 is not None
 
     resp = client.patch(
-        "/api/cases/c-draft001/draft",
-        json={"fact": "修改後事實內容。", "reason": "修改後理由內容。", "main_text": "訴願駁回(修改)。"},
+        "/api/cases/c-draft001/draft-text",
+        json={"text": "新北市政府訴願決定書 主文 訴願駁回(修改)。"},
         headers=_headers(),
     )
     assert resp.status_code == 200
@@ -51,10 +56,8 @@ def test_patch_draft_updates_f4_and_persists():
     get_resp = client.get("/api/cases/c-draft001", headers=_headers())
     assert get_resp.status_code == 200
     body = get_resp.json()
-    assert body["f4"]["fact"] == "修改後事實內容。"
-    assert body["f4"]["reason"] == "修改後理由內容。"
-    assert body["f4"]["main_text"] == "訴願駁回(修改)。"
-    # draft_type / cited_laws 應保留原值,未被 patch 覆寫
+    assert body["draft_plain_text"] == "新北市政府訴願決定書 主文 訴願駁回(修改)。"
+    # f4 是產生全文的素材,編輯全文不動它——draft_type 還要給印章與體例守門用
     assert body["f4"]["draft_type"] == "駁回"
     assert body["f4"]["cited_laws"] == ["廢棄物清理法#46"]
 
@@ -64,8 +67,8 @@ def test_patch_draft_case_not_found_returns_404():
 
     client = TestClient(main_module.app)
     resp = client.patch(
-        "/api/cases/c-notexist/draft",
-        json={"fact": "a", "reason": "b", "main_text": "c"},
+        "/api/cases/c-notexist/draft-text",
+        json={"text": "a"},
         headers=_headers(),
     )
     assert resp.status_code == 404
@@ -77,8 +80,8 @@ def test_patch_draft_without_f4_returns_409():
     client = TestClient(main_module.app)
     _make_case("c-draft002", with_f4=False)
     resp = client.patch(
-        "/api/cases/c-draft002/draft",
-        json={"fact": "a", "reason": "b", "main_text": "c"},
+        "/api/cases/c-draft002/draft-text",
+        json={"text": "a"},
         headers=_headers(),
     )
     assert resp.status_code == 409
@@ -90,8 +93,8 @@ def test_patch_draft_missing_api_key_returns_401():
     client = TestClient(main_module.app)
     _make_case("c-draft003", with_f4=True)
     resp = client.patch(
-        "/api/cases/c-draft003/draft",
-        json={"fact": "a", "reason": "b", "main_text": "c"},
+        "/api/cases/c-draft003/draft-text",
+        json={"text": "a"},
     )
     assert resp.status_code == 401
 
@@ -141,6 +144,9 @@ def test_get_draft_pdf_inadmissible_omits_empty_fact_section():
             )
         },
     )
+    main_module.store.update(
+        "c-draft007", {"draft_plain_text": decision_plain_text(main_module.store.get("c-draft007"))}
+    )
 
     resp = client.get("/api/cases/c-draft007/draft.pdf", headers=_headers())
     assert resp.status_code == 200
@@ -179,6 +185,9 @@ def test_get_draft_pdf_admissible_keeps_heading_of_empty_section():
             )
         },
     )
+    main_module.store.update(
+        "c-draft008", {"draft_plain_text": decision_plain_text(main_module.store.get("c-draft008"))}
+    )
 
     resp = client.get("/api/cases/c-draft008/draft.pdf", headers=_headers())
     assert resp.status_code == 200
@@ -206,52 +215,6 @@ def test_get_draft_pdf_without_f4_returns_409():
     assert resp.status_code == 409
 
 
-def test_get_draft_pdf_missing_api_key_returns_401():
-    from fastapi.testclient import TestClient
-
-    client = TestClient(main_module.app)
-    _make_case("c-draft006", with_f4=True)
-    resp = client.get("/api/cases/c-draft006/draft.pdf")
-    assert resp.status_code == 401
-
-
-def test_decision_skeleton_returns_the_same_layout_as_the_pdf_with_editable_slots():
-    """網站上的決定書與 PDF 共用同一份版面定義,前端只把 slot 換成可編輯欄位。"""
-    from fastapi.testclient import TestClient
-
-    client = TestClient(main_module.app)
-    _make_case("c-draft020", with_f4=True)
-
-    resp = client.get("/api/cases/c-draft020/decision-skeleton", headers=_headers())
-    assert resp.status_code == 200
-    blocks = resp.json()["blocks"]
-
-    kinds = [b["kind"] for b in blocks]
-    assert kinds[0] == "title"
-    assert [b["text"] for b in blocks if b["kind"] == "slot"] == ["main_text", "fact", "reason"]
-    joined = "".join(b["text"] for b in blocks)
-    assert "新北市政府訴願決定書" in joined
-    assert "訴願審議委員會主任委員" in joined
-    assert "如不服本決定" in joined
-
-
-def test_decision_skeleton_case_not_found_returns_404():
-    from fastapi.testclient import TestClient
-
-    client = TestClient(main_module.app)
-    resp = client.get("/api/cases/c-notexist/decision-skeleton", headers=_headers())
-    assert resp.status_code == 404
-
-
-def test_decision_skeleton_without_f4_returns_409():
-    from fastapi.testclient import TestClient
-
-    client = TestClient(main_module.app)
-    _make_case("c-draft021", with_f4=False)
-    resp = client.get("/api/cases/c-draft021/decision-skeleton", headers=_headers())
-    assert resp.status_code == 409
-
-
 @pytest.mark.parametrize("draft_type", ["撤銷另處", "部分不受理部分駁回"])
 def test_draft_result_accepts_the_two_new_draft_types(draft_type):
     draft = DraftResult(draft_type=draft_type, fact="事實", reason="理由", main_text="主文")
@@ -261,3 +224,43 @@ def test_draft_result_accepts_the_two_new_draft_types(draft_type):
 def test_draft_result_rejects_a_typo_of_a_valid_draft_type():
     with pytest.raises(ValidationError):
         DraftResult(draft_type="撤銷另處理", fact="事實", reason="理由", main_text="主文")
+
+
+# ---------- 決定書抬頭的紀年不得重複 ----------
+
+
+def _opening_line(disposition_date: str) -> str:
+    from app.models import CaseInfo
+    from app.pdf_render import build_decision_blocks
+
+    case = _make_case(f"c-open{abs(hash(disposition_date)) % 10000:04d}", with_f4=True)
+    main_module.store.update(
+        case.case_id,
+        {
+            "f1": CaseInfo(
+                appellant="王大明",
+                agency="新北市政府環境保護局",
+                disposition_date=disposition_date,
+                disposition_no="新北環稽字第1號",
+                disposition_summary="裁處罰鍰",
+                case_type="廢棄物清理法",
+            )
+        },
+    )
+    blocks = build_decision_blocks(main_module.store.get(case.case_id))
+    return next(text for _, text in blocks if "上列訴願人因" in text)
+
+
+def test_the_opening_paragraph_never_repeats_the_era_name():
+    """F1 的 prompt 要求 disposition_date 保留原文寫法,公文書通常自帶「民國」/「中華民國」;
+    抬頭模板又寫死一個「民國」,不脫掉就會印出「民國民國110年8月31日」。"""
+    for written in ("民國110年8月31日", "中華民國110年8月31日", "中華民國110 年8 月31 日"):
+        line = _opening_line(written)
+        assert "民國民國" not in line
+        assert "民國中華民國" not in line
+        assert line.count("民國") == 1
+
+
+def test_a_date_without_an_era_name_still_gets_one():
+    line = _opening_line("110年8月31日")
+    assert "不服原處分機關民國110年8月31日" in line

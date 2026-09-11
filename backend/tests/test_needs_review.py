@@ -240,3 +240,33 @@ def test_an_empty_reason_needs_review_on_either_track():
 
     assert needs_review(admissible) is True
     assert needs_review(inadmissible) is True
+
+
+def _with_empty_answer_slot(text=""):
+    """收案時 API 一律建出第四槽,沒上傳答辯書就是空文字 + matched=None(見 main.create_case)。"""
+    documents = _confirmed_documents()
+    documents["answer"] = CaseDocument(
+        slot="answer", source="text", text=text, check=DocumentCheck(matched=None, method="none")
+    )
+    return documents
+
+
+def test_an_empty_optional_answer_slot_does_not_need_review():
+    """答辯書是機關受理後才送來的,收案當下本來就沒有;空槽算待複核的話每一件新案都會恆亮,
+    「待複核」這個訊號就廢了。/analyze 的擋門早就放行空槽(main.py),兩處判準必須一致。"""
+    for text in ("", "   \n "):
+        assert needs_review(_case(documents=_with_empty_answer_slot(text))) is False
+
+
+def test_an_answer_slot_with_content_still_needs_confirmation():
+    """機關真的送了答辯書卻還沒確認文件型態 —— 那是有東西要確認,不得因為它是選填槽就放行。"""
+    documents = _with_empty_answer_slot("訴願答辯書 內容")
+    assert needs_review(_case(documents=documents)) is True
+
+
+def test_an_empty_slot_carrying_a_review_note_still_needs_review():
+    documents = _with_empty_answer_slot()
+    documents["answer"] = documents["answer"].model_copy(
+        update={"review_note": "本槽文字由 OCR 取得,日期須人工核對原件"}
+    )
+    assert needs_review(_case(documents=documents)) is True

@@ -8,17 +8,19 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from app.models import CaseInfo, StandingAssessment
+from app.models import CaseInfo, StandingAssessment, join_review_notes
 
 # 訴願法§56 I 九款,只列可靠對應 CaseInfo 欄位、或能合理判斷的四款;
 # 其餘五款(代理人-條件式、請求事項、受理機關、證據、年月日)CaseInfo 沒有對應欄位,
 # 硬用正則猜只會製造假的「缺漏」,寧可誠實不檢核,不假裝檢核得到——
 # 這是「說不準就不猜」原則在必要記載檢核上的體現。
-_CHECKED_ITEMS: list[tuple[str, str]] = [
-    ("appellant", "訴願人之姓名（第一款）"),
-    ("agency", "原行政處分機關（第三款）"),
-    ("appeal_reasons", "訴願之事實及理由（第五款）"),
-    ("receipt_date", "收受或知悉行政處分之年、月、日（第六款）"),
+# 每項可對應多個欄位:任一有值即視為該款齊備。§56 I⑤ 把「事實」與「理由」寫成同一款,
+# 只認 appeal_reasons 的話,模型把訴願書內容全放進事實欄時會誤報「訴願書不合法定程式」。
+_CHECKED_ITEMS: list[tuple[tuple[str, ...], str]] = [
+    (("appellant",), "訴願人之姓名（第一款）"),
+    (("agency",), "原行政處分機關（第三款）"),
+    (("appeal_facts", "appeal_reasons"), "訴願之事實及理由（第五款）"),
+    (("receipt_date",), "收受或知悉行政處分之年、月、日（第六款）"),
 ]
 _UNCHECKED_NOTE = (
     "本版僅檢核訴願法第56條第1項第一、三、五、六款(對應CaseInfo已擷取欄位);"
@@ -49,7 +51,11 @@ class CorrectionNotice(BaseModel):
 
 def check_required_fields(info: CaseInfo) -> RequiredFieldsCheck:
     """比對 CaseInfo 已擷取欄位是否齊備本版可檢核的四款。"""
-    missing = [label for field, label in _CHECKED_ITEMS if not _has_value(getattr(info, field))]
+    missing = [
+        label
+        for fields, label in _CHECKED_ITEMS
+        if not any(_has_value(getattr(info, field)) for field in fields)
+    ]
     if not missing:
         return RequiredFieldsCheck(missing=[], correctable=True, note=_UNCHECKED_NOTE)
 
@@ -59,7 +65,7 @@ def check_required_fields(info: CaseInfo) -> RequiredFieldsCheck:
 
 
 def _has_value(value) -> bool:
-    """appeal_reasons 是 list,其餘是 str;「未載明」是 F1 對抽不到欄位的制式填法,視為缺漏。"""
+    """appeal_facts/appeal_reasons 是 list,其餘是 str;「未載明」是 F1 對抽不到欄位的制式填法,視為缺漏。"""
     if isinstance(value, list):
         return len(value) > 0
     return bool(value) and value != "未載明"
@@ -103,13 +109,13 @@ def apply_article_77_1(
                 "passed": False,
                 "matched_clause": "77條第1款",
                 "reasoning": reasoning,
-                "review_note": "自動判第1款不受理(不能補正),請人工確認",
+                "review_note": join_review_notes(screening.review_note, "自動判第1款不受理(不能補正),請人工確認"),
             }
         )
 
     if notice is None or not notice.notified:
         note = f"訴願書缺漏{missing_text},應依訴願法第62條通知訴願人於20日內補正,尚無補正通知,不得逕為不受理。"
-        return screening.model_copy(update={"review_note": note})
+        return screening.model_copy(update={"review_note": join_review_notes(screening.review_note, note)})
 
     if notice.corrected:
         return screening  # 已補正齊備,不覆寫也不留標記
@@ -121,13 +127,13 @@ def apply_article_77_1(
                 "passed": False,
                 "matched_clause": "77條第1款",
                 "reasoning": reasoning,
-                "review_note": "自動判第1款不受理(逾期未補正),請人工確認",
+                "review_note": join_review_notes(screening.review_note, "自動判第1款不受理(逾期未補正),請人工確認"),
             }
         )
 
     # 已通知但補正期限未過、尚未補正:結果未定,不得預先判不受理
     note = f"訴願書缺漏{missing_text},已通知補正,補正期限尚未屆至,結果未定。"
-    return screening.model_copy(update={"review_note": note})
+    return screening.model_copy(update={"review_note": join_review_notes(screening.review_note, note)})
 
 
 class StandingCheck(BaseModel):
@@ -179,11 +185,11 @@ def apply_article_77_3(screening, check: StandingCheck):
 
     if check.has_standing is None:
         note = "處分相對人與訴願人不一致,利害關係判斷依據不足,須人工認定當事人適格。"
-        return screening.model_copy(update={"review_note": note})
+        return screening.model_copy(update={"review_note": join_review_notes(screening.review_note, note)})
 
     if check.has_standing:
         note = "處分相對人與訴願人不一致,但訴願人依訴願法第18條仍具法律上利害關係,須人工確認當事人適格爭點。"
-        return screening.model_copy(update={"review_note": note})
+        return screening.model_copy(update={"review_note": join_review_notes(screening.review_note, note)})
 
     reasoning = "處分相對人與訴願人不一致,且訴願人對原處分無法律上利害關係,依訴願法第18條不符訴願人適格要件。"
     return screening.model_copy(
@@ -191,6 +197,6 @@ def apply_article_77_3(screening, check: StandingCheck):
             "passed": False,
             "matched_clause": "77條第3款",
             "reasoning": reasoning,
-            "review_note": "自動判第3款不受理(利害關係屬價值判斷),請人工確認",
+            "review_note": join_review_notes(screening.review_note, "自動判第3款不受理(利害關係屬價值判斷),請人工確認"),
         }
     )
