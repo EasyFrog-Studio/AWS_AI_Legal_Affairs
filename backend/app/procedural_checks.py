@@ -163,7 +163,7 @@ def apply_article_77_3(screening, check: StandingCheck):
 
     | 情況 | 動作 |
     |---|---|
-    | consistent 為 None(任一欄空白) | 不覆寫,不猜——見 check_standing |
+    | consistent 為 None(任一欄空白) | 不覆寫,但標記未檢核——沒檢核過與檢核通過是兩件事 |
     | consistent=True(一致) | 不覆寫 |
     | consistent=False 且 has_standing=True(有利害關係) | 不覆寫,只標記爭點待確認 |
     | consistent=False 且 has_standing=False(無利害關係) | 覆寫為第3款不受理 |
@@ -173,7 +173,9 @@ def apply_article_77_3(screening, check: StandingCheck):
     即使覆寫成不受理,也不是可逕採的結論。
     """
     if check.consistent is None:
-        return screening
+        note = "處分相對人或訴願人欄位缺漏,當事人適格未經檢核,須人工認定。"
+        merged = ";".join(n for n in (screening.review_note, note) if n)
+        return screening.model_copy(update={"review_note": merged})
     if check.consistent:
         return screening
 

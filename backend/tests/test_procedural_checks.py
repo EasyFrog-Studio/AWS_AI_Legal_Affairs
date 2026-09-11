@@ -172,10 +172,21 @@ def test_check_standing_unknown_when_recipient_is_placeholder():
 # ---------- apply_article_77_3:五種路徑 ----------
 
 
-def test_apply_77_3_unknown_consistency_does_not_override():
+def test_apply_77_3_unknown_consistency_does_not_override_but_says_it_never_checked():
+    """欄位缺漏時不猜適格,但也不能靜默放行——沒檢核過與檢核通過是兩件事。"""
     screening = _screening()
     result = apply_article_77_3(screening, StandingCheck(consistent=None))
-    assert result == screening
+    assert result.passed == screening.passed
+    assert result.matched_clause == screening.matched_clause
+    assert result.review_note
+
+
+def test_apply_77_3_unknown_consistency_keeps_an_existing_note():
+    """既有註記是別的檢核留下的保留事項,覆蓋掉會讓承辦人少看到一條。"""
+    screening = _screening().model_copy(update={"review_note": "期間算式待確認"})
+    result = apply_article_77_3(screening, StandingCheck(consistent=None))
+    assert "期間算式待確認" in result.review_note
+    assert result.review_note != "期間算式待確認"
 
 
 def test_apply_77_3_consistent_does_not_override():
