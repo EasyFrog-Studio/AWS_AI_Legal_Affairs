@@ -1,9 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { updateDraftText, downloadDraftPdf, downloadDraftDocx, finalizeCase } from '../api'
 import AutoTextarea from '../components/AutoTextarea.jsx'
 import SourceSiteLink from '../components/SourceSiteLink.jsx'
 import { useNavGuard } from '../navGuard.js'
+import { splitDraft, joinDraft } from './draftSections.js'
 import './DraftWorkspace.css'
+
+const SECTION_ARIA = { head: '決定書表頭', main: '主文', fact: '事實', reason: '理由', tail: '決定書結尾' }
 
 
 function BasisPanel({ laws, refs, cases, track, onViewSource }) {
@@ -151,6 +154,12 @@ export default function DraftWorkspace({
 
   useNavGuard(dirty, '草稿有未儲存的修改，離開後將遺失。確定要離開？')
 
+  const sections = useMemo(() => splitDraft(plain), [plain])
+
+  function updateSection(key, body) {
+    setPlain(joinDraft(sections.map((s) => (s.key === key ? { ...s, body } : s))))
+  }
+
   async function handleSave() {
     setState('saving')
     setMessage('')
@@ -195,48 +204,49 @@ export default function DraftWorkspace({
     }
   }
 
+  const isWhole = sections.length === 1 && sections[0].key === 'whole'
+
   return (
     <div className="draft-workspace" hidden={hidden}>
-      <div className="draft-paper">
-        <label htmlFor="draft-plain" className="draft-paper__section-title">
-          決定書全文
-        </label>
-        <p className="draft-paper__hint">
+      <div className="draft-paper" role="group" aria-label="決定書稿紙">
+        <p className="doc-intro">
           這一份就是決定書本身：系統依案件資訊與檢索結果先擬好，承辦人直接在這裡改，下載的 PDF 與 Word 印的都是它。
         </p>
-        <AutoTextarea
-          id="draft-plain"
-          aria-label="決定書全文"
-          className="textarea--document"
-          value={plain}
-          onChange={setPlain}
-          hidden={hidden}
-        />
+        {isWhole ? (
+          <AutoTextarea
+            id="draft-plain"
+            aria-label="決定書全文"
+            className="textarea--document"
+            value={plain}
+            onChange={setPlain}
+            hidden={hidden}
+          />
+        ) : (
+          sections.map((s) => (
+            <div className={`draft-section draft-section--${s.key}`} key={s.key}>
+              {s.title && (
+                <label htmlFor={`draft-${s.key}`} className="decision__heading">
+                  {s.title}
+                </label>
+              )}
+              <AutoTextarea
+                id={`draft-${s.key}`}
+                aria-label={SECTION_ARIA[s.key]}
+                className="textarea--document draft-section__text"
+                value={s.body}
+                onChange={(v) => updateSection(s.key, v)}
+                hidden={hidden}
+              />
+            </div>
+          ))
+        )}
         {draft.cited_laws?.length > 0 && (
           <div className="draft-field">
             <span className="draft-paper__section-title">引用法條</span>
             <p className="mono">{draft.cited_laws.join('、')}</p>
           </div>
         )}
-        <div className="draft-actions">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={handleSave}
-            disabled={state === 'saving' || !dirty}
-          >
-            {state === 'saving' ? '儲存中…' : '儲存修改'}
-          </button>
-          <button type="button" className="btn btn-primary" onClick={() => handleDownload('pdf')}>
-            下載 PDF 寄審
-          </button>
-          <button type="button" className="btn btn-secondary" onClick={() => handleDownload('docx')}>
-            下載 Word
-          </button>
-          {/* 定稿只是標記,不鎖:定稿後仍可修改,改了再存一版 */}
-          <button type="button" className="btn btn-secondary" onClick={handleFinalize}>
-            {finalizedAt ? '重新定稿' : '標記定稿'}
-          </button>
+        <div className="action-row draft-actions">
           <span className="draft-actions__meta">
             已存 {versionCount} 版{versionsTruncated ? '（最舊版本已捨棄）' : ''}
             {finalizedAt ? ` · 定稿於 ${finalizedAt}` : ''}
@@ -250,6 +260,26 @@ export default function DraftWorkspace({
               {message}
             </span>
           )}
+          <div className="draft-actions__buttons">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={handleSave}
+              disabled={state === 'saving' || !dirty}
+            >
+              {state === 'saving' ? '儲存中…' : '儲存修改'}
+            </button>
+            <button type="button" className="btn btn-secondary" onClick={() => handleDownload('docx')}>
+              下載 Word
+            </button>
+            {/* 定稿只是標記,不鎖:定稿後仍可修改,改了再存一版 */}
+            <button type="button" className="btn btn-secondary" onClick={handleFinalize}>
+              {finalizedAt ? '重新定稿' : '標記定稿'}
+            </button>
+            <button type="button" className="btn btn-primary btn-submit" onClick={() => handleDownload('pdf')}>
+              下載 PDF 寄審
+            </button>
+          </div>
         </div>
       </div>
       <BasisPanel

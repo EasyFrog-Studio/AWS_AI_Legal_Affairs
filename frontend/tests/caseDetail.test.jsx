@@ -8,12 +8,15 @@ import { api } from './apiMock.js'
 import {
   doneAdmissible,
   doneInadmissible,
+  doneAdmissibleSectioned,
+  doneInadmissibleSectioned,
   processingAt,
   errorAtF2,
   listRows,
   collectingAllMatched,
   collectingWithMismatch,
 } from './fixtures.js'
+import { splitDraft, joinDraft } from '../src/pages/draftSections.js'
 
 vi.mock('../src/api', async () => (await import('./apiMock.js')).api)
 
@@ -681,6 +684,73 @@ describe('決定書草稿:整份可改、兩種下載', () => {
 
     await user.click(screen.getByRole('button', { name: '下載 PDF 寄審' }))
     expect(api.downloadDraftPdf).toHaveBeenCalledWith('c-1')
+  })
+})
+
+describe('決定書草稿分段', () => {
+  it('受理案件分成主文、事實、理由、表頭、結尾五格，各格值對應全文對應段落', async () => {
+    api.getCase.mockResolvedValue(doneAdmissibleSectioned)
+    renderDetail('c-7')
+
+    const sections = splitDraft(doneAdmissibleSectioned.draft_plain_text)
+    await screen.findByLabelText('主文')
+    expect(screen.getByLabelText('主文')).toHaveValue(sections.find((s) => s.key === 'main').body)
+    expect(screen.getByLabelText('事實')).toHaveValue(sections.find((s) => s.key === 'fact').body)
+    expect(screen.getByLabelText('理由')).toHaveValue(sections.find((s) => s.key === 'reason').body)
+    expect(screen.getByLabelText('決定書表頭')).toBeInTheDocument()
+    expect(screen.getByLabelText('決定書結尾')).toBeInTheDocument()
+    expect(screen.queryByLabelText('決定書全文')).toBeNull()
+  })
+
+  it('不受理案件沒有「事實」格，其餘四格照常', async () => {
+    api.getCase.mockResolvedValue(doneInadmissibleSectioned)
+    renderDetail('c-8')
+
+    await screen.findByLabelText('主文')
+    expect(screen.queryByLabelText('事實')).toBeNull()
+    expect(screen.getByLabelText('決定書表頭')).toBeInTheDocument()
+    expect(screen.getByLabelText('理由')).toBeInTheDocument()
+    expect(screen.getByLabelText('決定書結尾')).toBeInTheDocument()
+  })
+
+  it('在理由末尾打字後儲存，送出的全文是 join 回去的完整逐字結果', async () => {
+    api.getCase.mockResolvedValue(doneAdmissibleSectioned)
+    const user = userEvent.setup()
+    renderDetail('c-7')
+
+    const reasonBox = await screen.findByLabelText('理由')
+    await user.type(reasonBox, '，本件另予敘明。')
+    await user.click(screen.getByRole('button', { name: '儲存修改' }))
+
+    const original = splitDraft(doneAdmissibleSectioned.draft_plain_text)
+    const expectedText = joinDraft(
+      original.map((s) => (s.key === 'reason' ? { ...s, body: s.body + '，本件另予敘明。' } : s)),
+    )
+    // 合併結果要對得上原全文:理由段末尾的空行之後多了打進去的字,其餘逐字不變
+    expect(expectedText).toBe(
+      doneAdmissibleSectioned.draft_plain_text.replace('應予駁回。\n', '應予駁回。\n，本件另予敘明。'),
+    )
+    expect(api.updateDraftText).toHaveBeenCalledWith('c-7', {
+      text: expectedText,
+      base_version: 0,
+    })
+  })
+
+  it('儲存失敗(版本衝突)時畫面顯示錯誤，理由格保留剛打的字', async () => {
+    api.getCase.mockResolvedValue(doneAdmissibleSectioned)
+    api.updateDraftText.mockRejectedValue(Object.assign(new Error('版本衝突'), { status: 409 }))
+    const user = userEvent.setup()
+    renderDetail('c-7')
+
+    const reasonBox = await screen.findByLabelText('理由')
+    await user.type(reasonBox, '我打的字')
+    await user.click(screen.getByRole('button', { name: '儲存修改' }))
+
+    expect(await screen.findByText('版本衝突')).toBeInTheDocument()
+    expect(screen.getByLabelText('理由')).toHaveValue(
+      splitDraft(doneAdmissibleSectioned.draft_plain_text).find((s) => s.key === 'reason').body +
+        '我打的字',
+    )
   })
 })
 
