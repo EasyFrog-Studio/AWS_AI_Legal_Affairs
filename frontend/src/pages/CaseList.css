@@ -26,6 +26,7 @@
   color: var(--color-review);
   display: block;
   margin-top: var(--space-2xs);
+  white-space: nowrap;
 }
 
 /* 「尚無案件」空狀態的天秤線稿浮水印 */
