@@ -54,7 +54,9 @@ _TRANSIT_DAYS_PATTERNS = [
 _TRANSIT_NONE = re.compile(r"(?:毋須|無須|不須)[^，。]{0,12}?在途期間(?!辦法)|無在途期間之適用")
 _CORRECTION_PERIOD = re.compile(r"(\d+)\s*日\s*之?\s*補正期間")
 _START = re.compile(rf"應\s*(?:分別)?自[^。]{{0,40}}?{ROC_DATE_PATTERN}[^。]{{0,12}}?起?算")
-_STATEMENT_END = re.compile(r"[惟然]")
+# 認定段在此結束:「惟/然訴願人遲至」是決定書的轉折,「退步言之/至遲/縱」是訴願書
+# 追加備位主張的引導詞——備位主張裡的起算日不是末日,收進來會與算式對不上
+_STATEMENT_END = re.compile(r"[惟然]|退步言|退萬步|至遲|縱認|縱使")
 _STATEMENT_SPAN = 200  # 起算日之後到「惟/然訴願人遲至」為止即認定段,超出則視為離題
 # 公示送達的生效日另有等待期(行政程序法§81),與一般送達分開抽
 _PUBLIC_NOTICE = re.compile(r"公示送達")
@@ -145,15 +147,21 @@ def _transit_days(text: str) -> Optional[int]:
 
 
 def _stated(text: str) -> tuple[Optional[date], Optional[date]]:
-    """卷內自述的起算日與末日;末日取認定段最後出現的日期,順延後的日期恆寫在該段最末。"""
+    """卷內自述的起算日與末日。
+
+    末日取認定段最後出現的日期:順延後的日期恆寫在該段最末,且常無屆滿語可錨
+    (「以114年4月21日(星期一)代之」)。認定段的結束由 _STATEMENT_END 界定——訴願書
+    會在主張之後追加備位主張(「退步言之…至遲亦應自C起算」),那一段的日期不是末日。
+    """
     match = _START.search(text)
     if match is None:
         return None, None
     start = _to_date(match)
     tail = text[match.end() : match.end() + _STATEMENT_SPAN]
     end = _STATEMENT_END.search(tail)
+    segment = tail[: end.start()] if end else tail
     # 此處不可去重:「至 3/4 屆滿(原末日 3/3…順延至 3/4)」去重後末筆會變成 3/3
-    dates = [_to_date(m) for m in re.finditer(ROC_DATE_PATTERN, tail[: end.start()] if end else tail)]
+    dates = [_to_date(m) for m in re.finditer(ROC_DATE_PATTERN, segment)]
     return start, dates[-1] if dates else None
 
 

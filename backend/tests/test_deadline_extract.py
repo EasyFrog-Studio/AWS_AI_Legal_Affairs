@@ -297,3 +297,20 @@ def test_agency_receipt_stamp_wins_over_narrative_dates_in_the_appeal():
 
     assert facts is not None
     assert facts.filed_date == date(2023, 3, 15)
+
+
+def test_a_fallback_argument_is_not_part_of_the_stated_period():
+    """訴願書會在主張之後追加備位主張(「退步言之…至遲亦應自C起算」)。備位主張裡的起算日
+    不是卷內自述的末日,收進來會與算式對不上而生出一個假的待確認註記,把正確的算式壓住。"""
+    text = (
+        "原處分書於112年2月7日送達。"
+        "本件寄存送達應自寄存之日起經十日始發生送達效力,訴願期間應自112年2月18日起算,"
+        "訴願人住居所位於本市,無在途期間可資扣除,其30日訴願期間至112年3月19日屆滿。"
+        "退步言之,訴願人實際知悉處分內容之日為112年2月13日,訴願期間至遲亦應自112年2月14日起算。"
+    )
+    result = extract_deadline_facts(text)
+    facts = result.facts
+    assert facts is not None, result.problem
+
+    assert facts.stated_start_date == date(2023, 2, 18)
+    assert facts.stated_due_date == date(2023, 3, 19)
