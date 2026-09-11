@@ -2,7 +2,7 @@
 
 期間計算的正確性靠這兩份表,但它們會過期:辦公日曆表由人事行政總處逐年公布,末日落在
 未收錄年度時 compute_deadline 只能標 review_note。那道網是對的,但沒有任何地方告訴維護者
-「該重抓了」——這支模組就是那個觸發點(見實作計畫 Ticket 14)。
+「該重抓了」——這支模組就是那個觸發點。
 """
 from datetime import date
 from typing import Optional

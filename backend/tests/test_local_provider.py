@@ -1,6 +1,9 @@
 """LocalProvider 單元測試:注入 fake http_client/connect,不打真實 ollama/Postgres。"""
 import json as json_mod
 
+import pytest
+
+from app.config import settings
 from app.models import SERVICE_METHODS, CaseInfo, LawRef, ScreeningResult
 from app.providers.local import LocalProvider
 
@@ -200,7 +203,7 @@ def test_assess_standing_returns_none_when_evidence_insufficient():
 
 
 def test_assess_standing_is_deterministic_across_repeated_calls():
-    """同一輸入連跑兩次要得到同一結果(實作計畫§Ticket 6 約束3)——這裡驗證的是呼叫形狀
+    """同一輸入連跑兩次要得到同一結果——這裡驗證的是呼叫形狀
     固定 temperature=0,兩次呼叫用同一份 fake payload 模擬「模型在溫度0下的穩定輸出」。"""
     payload = {"referenced_norm": "廢棄物清理法#27", "has_standing": False, "reasoning": "僅單純事實上利害關係"}
     provider = _provider(http_client=FakeHTTP(chat_payloads=[payload, dict(payload)]))
@@ -423,7 +426,6 @@ def test_generate_draft_calls_chat_and_strips_disallowed_laws():
 
     path, body = http.calls[0]
     assert path == "/api/chat"
-    assert body["format"]["properties"]["draft_type"]["enum"] == ["不受理", "駁回", "原處分撤銷"]
 
 
 # ---------- f. 建構子注入 fake 完全不觸碰 settings 新欄位與 psycopg ----------
@@ -434,6 +436,12 @@ def test_constructor_with_injected_fakes_never_imports_psycopg():
     provider = _provider()
     assert isinstance(provider, LocalProvider)
     assert "psycopg" not in sys.modules
+
+
+def test_constructor_raises_runtime_error_when_postgres_url_unset(monkeypatch):
+    monkeypatch.setattr(settings, "POSTGRES_URL", "")
+    with pytest.raises(RuntimeError, match="POSTGRES_URL"):
+        LocalProvider(http_client=FakeHTTP())
 
 
 # ---------- get_law_articles:條號精查 ----------
@@ -730,3 +738,27 @@ def test_extract_case_info_keeps_a_service_method_outside_the_enum_instead_of_dr
     info = _provider(http_client=http).extract_case_info("訴願書原文")
 
     assert info.service_method == "寄存於板橋郵局"
+
+
+def test_generate_draft_schema_enum_matches_draft_types():
+    from app.models import DRAFT_TYPES
+
+    http = FakeHTTP(
+        chat_payloads=[
+            {
+                "draft_type": "駁回",
+                "fact": "事實",
+                "reason": "理由",
+                "main_text": "訴願駁回。",
+                "cited_laws": [],
+            }
+        ]
+    )
+    provider = _provider(http_client=http)
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
+
+    provider.generate_draft(_info(), screening, [], [])
+
+    path, body = http.calls[0]
+    assert path == "/api/chat"
+    assert body["format"]["properties"]["draft_type"]["enum"] == list(DRAFT_TYPES)

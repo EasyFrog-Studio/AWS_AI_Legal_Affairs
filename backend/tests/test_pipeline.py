@@ -309,6 +309,30 @@ def test_enforce_inadmissible_format_admissible_left_untouched():
     assert result == draft
 
 
+def test_enforce_inadmissible_format_keeps_partial_decision_as_the_model_wrote_it():
+    """部分不受理部分駁回的主文逐標的分項、事實欄要留給駁回那一部分,套固定不受理套語就錯了。"""
+    screening = ScreeningResult(passed=False, matched_clause="77條第8款", reasoning="限期改善部分非行政處分")
+    draft = _draft(
+        draft_type="部分不受理部分駁回",
+        main_text="原處分關於新臺幣12萬元罰鍰部分,訴願駁回。原處分關於限期改善部分,訴願不受理。",
+        fact="罰鍰部分之事實",
+    )
+
+    result = enforce_inadmissible_format(draft, screening)
+
+    assert result == draft
+
+
+def test_enforce_inadmissible_format_still_coerces_other_admissible_types_on_inadmissible_track():
+    """只有部分不受理部分駁回例外;不受理側跑出撤銷另處,一樣視為分流與草稿矛盾,照舊覆寫。"""
+    screening = ScreeningResult(passed=False, matched_clause="77條第2款", reasoning="逾期")
+    draft = _draft(draft_type="撤銷另處", main_text="原處分撤銷,由原處分機關於2個月內另為適法之處分。")
+
+    result = enforce_inadmissible_format(draft, screening)
+
+    assert (result.draft_type, result.main_text, result.fact) == ("不受理", "訴願不受理。", "")
+
+
 def test_run_case_exception_sets_error_status():
     store = MemoryStore()
     _new_case(store, "c-33333333")
@@ -347,10 +371,24 @@ def test_inadmissible_law_keys_disposition_gone_includes_article_1():
 
 
 def test_inadmissible_law_keys_clause_without_corpus_falls_back_to_77_only():
-    """§77(4)(5)(7) 語料 0 件,不猜對應法條,只給款次本身。"""
-    assert inadmissible_law_keys("77條第4款") == ["訴願法#77"]
+    """§77(5) 語料 0 件,不猜對應法條,只給款次本身。"""
     assert inadmissible_law_keys("77條第5款") == ["訴願法#77"]
-    assert inadmissible_law_keys("77條第7款") == ["訴願法#77"]
+
+
+def test_inadmissible_law_keys_clause_4_includes_corpus_derived_articles():
+    """§77(4) 語料 6 件:訴願法#19、行政程序法#72 各 67%,行政程序法#74、民法#12 各 50%。"""
+    keys = inadmissible_law_keys("77條第4款")
+
+    assert keys[0] == "訴願法#77"
+    assert keys == ["訴願法#77", "訴願法#19", "行政程序法#72", "行政程序法#74", "民法#12"]
+    assert len(keys) == len(set(keys))
+
+
+def test_inadmissible_law_keys_clause_7_has_no_article_meeting_threshold():
+    """§77(7) 語料 8 件:除訴願法#77(100%)外沒有其他鍵達到 >=50% 且至少 2 件的門檻。"""
+    keys = inadmissible_law_keys("77條第7款")
+
+    assert keys == ["訴願法#77"]
 
 
 def test_inadmissible_law_keys_unparsable_clause_falls_back_to_77_only():
@@ -382,21 +420,31 @@ def test_inadmissible_law_keys_has_no_duplicates():
         assert len(keys) == len(set(keys))
 
 
-# ---------- guard_unsupported_clause:款次白名單守門(Ticket 7) ----------
+# ---------- guard_unsupported_clause:款次白名單守門 ----------
 
 
 def test_guard_unsupported_clause_leaves_supported_clauses_untouched():
-    """語料驗證過的五款(1/2/3/6/8)照原樣通過,不動 passed 也不加 review_note。"""
-    for n in (1, 2, 3, 6, 8):
+    """語料驗證過的七款(1/2/3/4/6/7/8)照原樣通過,不動 passed 也不加 review_note。"""
+    for n in (1, 2, 3, 4, 6, 7, 8):
         screening = ScreeningResult(passed=False, matched_clause=f"77條第{n}款", reasoning="理由")
         result = guard_unsupported_clause(screening)
         assert result.passed is False
         assert result.review_note == ""
 
 
+def test_guard_unsupported_clause_now_supports_clauses_4_and_7():
+    """§77(4)(7) 語料各有 6/8 件,不再是「本版不判」的款次。"""
+    for n in (4, 7):
+        screening = ScreeningResult(passed=False, matched_clause=f"77條第{n}款", reasoning="模型理由")
+        result = guard_unsupported_clause(screening)
+        assert result.passed is False
+        assert result.review_note == ""
+        assert result.reasoning == "模型理由"
+
+
 def test_guard_unsupported_clause_flags_unsupported_clauses_without_flipping_passed():
-    """§77(4)(5)(7) 語料 0 件,模型判這三款時 passed 不動,只加 review_note 待人工認定。"""
-    for n in (4, 5, 7):
+    """§77(5) 語料 0 件,模型判這款時 passed 不動,只加 review_note 待人工認定。"""
+    for n in (5,):
         screening = ScreeningResult(passed=False, matched_clause=f"77條第{n}款", reasoning="模型理由")
         result = guard_unsupported_clause(screening)
         assert result.passed is False  # 不逕採,但也不偷改成受理——那同樣是臆造結論
@@ -433,24 +481,24 @@ def test_run_case_flags_unsupported_clause_but_still_produces_a_draft():
 
     class _UnsupportedClauseProvider(StubInadmissibleProvider):
         def screen_admissibility(self, info, text) -> ScreeningResult:
-            return ScreeningResult(passed=False, matched_clause="77條第7款", reasoning="模型判第7款")
+            return ScreeningResult(passed=False, matched_clause="77條第5款", reasoning="模型判第5款")
 
         def generate_draft(self, info, screening, laws, cases) -> DraftResult:
-            # §77(7) 語料 0 件,inadmissible_law_keys 只給訴願法#77,不驗證清單內容,只確保流程能跑完
+            # §77(5) 語料 0 件,inadmissible_law_keys 只給訴願法#77,不驗證清單內容,只確保流程能跑完
             return DraftResult(
-                draft_type="不受理", fact="", reason="模型判第7款", main_text="訴願不受理。"
+                draft_type="不受理", fact="", reason="模型判第5款", main_text="訴願不受理。"
             )
 
     run_case("c-55555555", store, _UnsupportedClauseProvider())
 
     case = store.get("c-55555555")
     assert case.status == "done"
-    assert case.screening.matched_clause == "77條第7款"
+    assert case.screening.matched_clause == "77條第5款"
     assert "須人工認定" in case.screening.review_note
     assert case.f4 is not None
 
 
-# ---------- run_case 串接§77(1)自動判(Ticket 5) ----------
+# ---------- run_case 串接§77(1)自動判 ----------
 
 
 def test_run_case_auto_overrides_to_77_1_when_appellant_and_agency_both_missing():
@@ -513,7 +561,7 @@ def test_run_case_auto_overrides_to_77_1_when_appellant_and_agency_both_missing(
     assert case.track == "inadmissible"
 
 
-# ---------- run_case 串接§77(3)自動判(Ticket 6) ----------
+# ---------- run_case 串接§77(3)自動判 ----------
 
 
 def test_run_case_calls_assess_standing_only_when_recipient_inconsistent():
@@ -578,7 +626,7 @@ def test_run_case_calls_assess_standing_only_when_recipient_inconsistent():
 
 def test_run_case_does_not_override_when_model_cites_no_protective_norm():
     """模型指不出具體保護規範(referenced_norm 空)時,即使 has_standing=False,
-    也不得覆寫為第3款不受理——這是實作計畫§Ticket 6 約束2 的端到端驗證。"""
+    也不得覆寫為第3款不受理。"""
     store = MemoryStore()
     _new_case(store, "c-88888888")
 
@@ -680,7 +728,7 @@ _OVERDUE_TEXT = (
 )
 
 
-# 完整教示條款(法定 30 日):不放這句的原處分書會被 Ticket 8 判為未告知救濟期間而改算一年,
+# 完整教示條款(法定 30 日):不放這句的原處分書會被教示條款分支判為未告知救濟期間而改算一年,
 # 那是正確行為,但會蓋掉本組測試真正要驗的分槽讀法,故 fixture 一律附上完整教示。
 _FULL_NOTICE_CLAUSE = "如不服本處分,得於本處分書送達之次日起三十日內,繕具訴願書向本府提起訴願。"
 
@@ -770,7 +818,7 @@ _MASKED_RESIDENCE_TEXT = (
 
 def test_check_deadline_computes_with_a_masked_district_when_both_groups_agree():
     """住居所被遮罩成「臺中市○○區」不必整筆棄權:附表臺中市(一)(二)對新北市都是 5 日,
-    之分一天都不差(見實作計畫 Ticket 13)。"""
+    之分一天都不差。"""
     check = check_deadline(_MASKED_RESIDENCE_TEXT)
 
     assert "在途5日" in check.detail
@@ -817,7 +865,7 @@ def test_reconcile_deadline_records_conflict_instead_of_flipping_silently():
 
 def test_dates_from_an_ocr_slot_never_override_the_screening():
     """經 OCR 取得文字的槽,日期一律不得據以覆寫程序審查:模型抽字會編字,而這套系統的
-    正確性建立在日期上(見實作計畫 Ticket 4)。算得出逾期也只能標待人工。"""
+    正確性建立在日期上。算得出逾期也只能標待人工。"""
     documents = _overdue_documents()
     documents["service"] = documents["service"].model_copy(
         update={"ocr": True, "review_note": "本槽文字由 OCR 取得,日期須人工核對原件"}
@@ -878,7 +926,7 @@ def test_reconcile_deadline_does_not_override_while_the_note_stands():
     assert result.matched_clause is None
     assert "未據以覆寫程序審查" in check.review_note
 
-# --- 教示條款 -> 行政程序法§98 三分支(Ticket 8)---------------------------------
+# --- 教示條款 -> 行政程序法§98 三分支 ---------------------------------
 # 共同前提:送達生效日 114年5月28日、機關收文日 114年10月31日、在途 0 日。
 # 依訴願法§14 的 30 日算末日為 114年6月27日 -> 已逾期;三分支各自把這個結論推翻或懸置。
 
@@ -910,7 +958,7 @@ def test_full_notice_clause_still_computes_the_thirty_day_period():
 
 
 def test_disposition_without_a_notice_clause_uses_the_one_year_period():
-    """§98 III:未教示案不得被當一般 30 日案算——誤判方向不利人民,這是 Ticket 8 的主症狀。"""
+    """§98 III:未教示案不得被當一般 30 日案算——誤判方向不利人民。"""
     check = check_deadline_from_case(_case_with_disposition("主旨:裁處罰鍰。"))
 
     assert check.due_date == date(2026, 5, 28)  # 起算日 114年5月29日 -> 一年後前一日

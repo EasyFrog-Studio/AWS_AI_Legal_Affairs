@@ -1,6 +1,8 @@
 """PostgresStore 單元測試:注入 fake DB-API connection,驗證 SQL 組裝與序列化,不做真實連線。"""
 import json
 
+import pytest
+
 from app.config import Settings
 from app.models import Case
 from app.store import PostgresStore, get_store
@@ -110,6 +112,11 @@ def test_init_does_not_import_psycopg_when_connect_injected():
     conn = FakeConnection()
     PostgresStore("postgresql://fake", connect=lambda: conn)
     assert "psycopg" not in sys.modules
+
+
+def test_init_raises_runtime_error_when_url_is_empty():
+    with pytest.raises(RuntimeError, match="POSTGRES_URL"):
+        PostgresStore("")
 
 
 # ---------- CRUD ----------
@@ -223,6 +230,7 @@ def test_get_store_returns_postgres_store_for_postgres_kind(monkeypatch):
     import app.store as store_module
 
     monkeypatch.setattr(store_module.settings, "CASE_STORE", "postgres")
+    monkeypatch.setattr(store_module.settings, "POSTGRES_URL", "postgresql://u:p@h/db")
     fake_conn = FakeConnection()
     monkeypatch.setattr(
         store_module, "PostgresStore", lambda url, connect=None: PostgresStore(url, connect=lambda: fake_conn)

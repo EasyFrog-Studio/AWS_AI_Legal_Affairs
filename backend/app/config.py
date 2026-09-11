@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
 
     AI_PROVIDER: str = "mock"  # mock|aws|local
-    API_KEY: str = "demo-key-2026"
+    API_KEY: str = ""  # 空字串=未設定,require_api_key 一律拒絕(見 app/auth.py)
     AWS_REGION: str = "us-west-2"
     BEDROCK_MODEL_ID: str = "us.anthropic.claude-sonnet-4-6"
     KB_LAW_ID: str = ""
@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     LOCAL_LLM_MODEL: str = "kamekichi128/qwen3-4b-instruct-2507"
     LOCAL_VISION_MODEL: str = "qwen2.5vl:7b"  # 掃描件逐頁抽字用(app/ocr.py),與文字模型分開設
     LOCAL_EMBED_MODEL: str = "bge-m3"
-    POSTGRES_URL: str = "postgresql://appeal:appeal@postgres:5432/appeal"
+    POSTGRES_URL: str = ""  # 空字串=未設定,連線前由呼叫端(store.py/providers/local.py)拒絕
     # 決定書 PDF 的內嵌字型;檔案不存在時 pdf_render 退回 fitz 內建 china-t
     DECISION_FONT_FILE: str = "/usr/share/fonts/truetype/ukai-tw.ttf"
 

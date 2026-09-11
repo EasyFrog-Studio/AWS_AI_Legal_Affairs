@@ -7,7 +7,7 @@
 **/.pytest_cache
 aws_setup
 deploy
-docker/.env
+**/.env
 data_show/examples
 *.md
 .venv

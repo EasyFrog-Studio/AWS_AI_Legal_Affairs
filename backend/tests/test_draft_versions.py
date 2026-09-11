@@ -1,4 +1,4 @@
-"""草稿版本留存與定稿標記(不鎖),見實作計畫 Ticket 10:改得動、追得回,但不擋人。"""
+"""草稿版本留存與定稿標記(不鎖):改得動、追得回,但不擋人。"""
 from fastapi.testclient import TestClient
 
 import app.main as main_module

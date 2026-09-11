@@ -1,7 +1,9 @@
 """ECS Fargate 部署(App Runner 被 SCP 封鎖的替代):跑現有 ECR image,task 直接以 public IP:8000 對外,資源已存在就沿用。"""
 import json
+import os
 import sys
 import time
+from pathlib import Path
 
 import boto3
 from botocore.exceptions import ClientError
@@ -18,9 +20,11 @@ TASK_ROLE = "appeal-ecs-task"
 SG_NAME = "appeal-ai-sg"
 PORT = 8000
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_ENV_FILE = _REPO_ROOT / ".env"
+
 ENV = {
     "AI_PROVIDER": "aws",
-    "API_KEY": "demo-key-2026",
     "AWS_REGION": REGION,
     "BEDROCK_MODEL_ID": "us.anthropic.claude-sonnet-4-6",
     "KB_LAW_ID": "Y3REHA6HNN",
@@ -34,6 +38,33 @@ iam = boto3.client("iam")
 ec2 = boto3.client("ec2", region_name=REGION)
 ecs = boto3.client("ecs", region_name=REGION)
 logs = boto3.client("logs", region_name=REGION)
+
+
+def _parse_env_file(path: Path) -> dict:
+    """極簡 KEY=VALUE 逐行解析:忽略 # 開頭整行與行內「  #」之後的註解。"""
+    values = {}
+    if not path.exists():
+        return values
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        key, sep, value = line.split("  #", 1)[0].partition("=")
+        if sep:
+            values[key.strip()] = value.strip()
+    return values
+
+
+def resolve_api_key(environ, env_file) -> str:
+    """API_KEY 一律不硬編:environ 優先,其次 .env 檔,都無則中止部署。"""
+    api_key = environ.get("API_KEY")
+    if api_key:
+        return api_key
+    if env_file is not None:
+        api_key = _parse_env_file(Path(env_file)).get("API_KEY")
+        if api_key:
+            return api_key
+    raise SystemExit("API_KEY 未設定:請在 .env 或環境變數提供")
 
 
 def ensure_role(name, policy_arns=None, inline=None):
@@ -117,6 +148,7 @@ def get_public_ip(task_arn):
 
 
 def main():
+    ENV["API_KEY"] = resolve_api_key(os.environ, _ENV_FILE)
     try:
         exec_arn = ensure_role(EXEC_ROLE,
             policy_arns=["arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"])
@@ -161,7 +193,7 @@ def main():
             ip = get_public_ip(tasks[0])
             if ip:
                 print(f"\n[DONE] 公開網址: http://{ip}:{PORT}")
-                print(f"       API Key: {ENV['API_KEY']}")
+                print("       API Key: 見 .env")
                 return
     print("[WARN] task 尚未進入 RUNNING,請稍後用 AWS console 查 ECS 服務 appeal-ai-svc")
 

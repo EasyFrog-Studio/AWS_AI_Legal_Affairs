@@ -6,6 +6,7 @@ from typing import Optional
 
 from app.config import settings
 from app.models import (
+    DRAFT_TYPES,
     SERVICE_METHODS,
     CaseInfo,
     DraftResult,
@@ -50,6 +51,8 @@ class LocalProvider(AIProvider):
         self._http = http_client
 
         if connect is None:
+            if not settings.POSTGRES_URL:
+                raise RuntimeError("POSTGRES_URL 未設定,local 模式需要 Postgres 連線字串")
 
             def _default_connect():
                 import psycopg
@@ -161,7 +164,7 @@ class LocalProvider(AIProvider):
 
     def assess_standing(self, info: CaseInfo, text: str) -> StandingAssessment:
         """_chat_json 的 options 已固定 temperature=0(見上),同一卷證跑兩次得到同一結果
-        (實作計畫 §Ticket 6 約束3)不需要在這裡額外處理。"""
+        不需要在這裡額外處理。"""
         schema = {
             "type": "object",
             "properties": {
@@ -323,7 +326,7 @@ class LocalProvider(AIProvider):
         schema = {
             "type": "object",
             "properties": {
-                "draft_type": {"type": "string", "enum": ["不受理", "駁回", "原處分撤銷"]},
+                "draft_type": {"type": "string", "enum": list(DRAFT_TYPES)},
                 "fact": {"type": "string"},
                 "reason": {"type": "string"},
                 "main_text": {"type": "string"},

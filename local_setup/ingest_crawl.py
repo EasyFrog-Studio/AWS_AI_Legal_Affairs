@@ -159,6 +159,8 @@ def reference_rows() -> list[dict]:
 
 
 def main() -> None:
+    if not POSTGRES_URL:
+        raise SystemExit("POSTGRES_URL 未設定")
     case_rows, case_refused = collect_cases()
     law_rows, law_refused = collect_laws()
     ref_rows = reference_rows()

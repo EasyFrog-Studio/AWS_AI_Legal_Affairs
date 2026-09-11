@@ -1,4 +1,4 @@
-"""§77(1) 必要記載事項自動判(Ticket 5)、§77(3) 當事人適格自動判(Ticket 6)。"""
+"""§77(1) 必要記載事項自動判、§77(3) 當事人適格自動判。"""
 from app.models import CaseInfo, ScreeningResult, StandingAssessment
 from app.procedural_checks import (
     CorrectionNotice,
@@ -145,7 +145,7 @@ def test_apply_77_1_correctable_with_notice_not_yet_overdue_does_not_override():
     assert result.review_note != ""
 
 
-# ---------- check_standing:比對相對人與訴願人(Ticket 6) ----------
+# ---------- check_standing:比對相對人與訴願人 ----------
 
 
 def test_check_standing_consistent_when_recipient_matches_appellant():
@@ -193,7 +193,7 @@ def test_apply_77_3_inconsistent_with_standing_flags_but_does_not_override():
 
 
 def test_apply_77_3_inconsistent_without_standing_overrides_to_third_clause():
-    """不一致且無利害關係,覆寫為第3款不受理,但仍標記待人工確認(語料僅2件)。"""
+    """不一致且無利害關係,覆寫為第3款不受理,但仍標記待人工確認(利害關係屬價值判斷)。"""
     screening = _screening()
     result = apply_article_77_3(screening, StandingCheck(consistent=False, has_standing=False))
     assert result.passed is False
@@ -209,7 +209,7 @@ def test_apply_77_3_inconsistent_with_unknown_standing_does_not_override():
     assert result.review_note != ""
 
 
-# ---------- resolve_standing_assessment:指不出保護規範就視同無法判斷(Ticket 6 約束2) ----------
+# ---------- resolve_standing_assessment:指不出保護規範就視同無法判斷 ----------
 
 
 def test_resolve_standing_assessment_keeps_has_standing_when_norm_cited():

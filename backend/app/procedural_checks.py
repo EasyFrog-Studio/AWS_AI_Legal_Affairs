@@ -1,5 +1,5 @@
 """程序審查的自動判邏輯,獨立於擷取(F1)與檢索(F2/F3)——這裡判的是程序,不是內容。
-含§77(1)必要記載事項(Ticket 5)與§77(3)當事人適格(Ticket 6)。
+含§77(1)必要記載事項與§77(3)當事人適格。
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from app.models import CaseInfo, StandingAssessment
 # 訴願法§56 I 九款,只列可靠對應 CaseInfo 欄位、或能合理判斷的四款;
 # 其餘五款(代理人-條件式、請求事項、受理機關、證據、年月日)CaseInfo 沒有對應欄位,
 # 硬用正則猜只會製造假的「缺漏」,寧可誠實不檢核,不假裝檢核得到——
-# 這是「說不準就不猜」原則在必要記載檢核上的體現,見 glossary.md 三態空狀態同一精神。
+# 這是「說不準就不猜」原則在必要記載檢核上的體現。
 _CHECKED_ITEMS: list[tuple[str, str]] = [
     ("appellant", "訴願人之姓名（第一款）"),
     ("agency", "原行政處分機關（第三款）"),
@@ -74,7 +74,7 @@ def apply_article_77_1(
     required_check: RequiredFieldsCheck,
     notice: CorrectionNotice | None,
 ):
-    """§77(1) 兩層判斷,見階段一文書規格與期間計算.md §三:缺欄位不等於直接不受理,
+    """§77(1) 兩層判斷:缺欄位不等於直接不受理,
     必須「不能補正」或「經通知補正逾期不補正」才成立。
 
     | 情況 | 動作 |
@@ -86,7 +86,7 @@ def apply_article_77_1(
     | 缺漏可補正,卷內無補正通知 | 不覆寫,標記「應通知補正」——不得逕採不受理結論 |
 
     無論哪一層動用了自動判,`review_note` 一律非空——自動判之後承辦人只做確認,
-    這是自動判必須可被推翻的具體落實(見實作計畫 §三「兩條不可動的線」)。
+    這是自動判必須可被推翻的具體落實。
     注意:必要記載事項是客觀事實檢核,**不管模型原本判 `passed` 是 True 或 False**都適用——
     模型誤判受理但卷內缺法定要件時,一樣要覆寫成不受理;只有「本版檢核的四款皆齊備」才會
     直接放行不動,那時 `screening` 才不受影響。
@@ -131,7 +131,7 @@ def apply_article_77_1(
 
 
 class StandingCheck(BaseModel):
-    """§77(3) 當事人適格檢核結果。語料只有 2 件,不論哪個分支都一律待人工確認
+    """§77(3) 當事人適格檢核結果。語料 10 件,不論哪個分支都一律待人工確認
     (見 apply_article_77_3),這裡的欄位只記錄「查到了什麼」,不做結論性判斷。"""
 
     consistent: Optional[bool] = None  # 處分相對人與訴願人是否一致;任一欄空白時為 None,不猜
@@ -151,8 +151,7 @@ _ARTICLE_KEY_RE = re.compile(r".+#\d+(-\d+)?$")  # 「法規名稱#條號」,條
 
 def resolve_standing_assessment(assessment: StandingAssessment) -> Optional[bool]:
     """§77(3) 的核心攔阻:模型指不出具體保護規範(法規名稱＋條號)時,視同「無法判斷」,
-    不論 has_standing 填了什麼都不採用——這是防「說得很順但沒有依據」的唯一有效攔法,
-    見實作計畫 §Ticket 6「這個節點的變異必須被壓住」約束2。"""
+    不論 has_standing 填了什麼都不採用——這是防「說得很順但沒有依據」的唯一有效攔法。"""
     if not _ARTICLE_KEY_RE.match(assessment.referenced_norm or ""):
         return None
     return assessment.has_standing
@@ -170,8 +169,8 @@ def apply_article_77_3(screening, check: StandingCheck):
     | consistent=False 且 has_standing=False(無利害關係) | 覆寫為第3款不受理 |
     | consistent=False 且 has_standing=None(LLM 判斷不出來) | 不覆寫,標記待人工認定 |
 
-    語料只有 2 件(見階段一文書規格與期間計算.md §六「§77(3) 樣本少」),**任何一種
-    不一致的情形都一律 `review_note` 非空**——即使覆寫成不受理,也不是可逕採的結論。
+    有無利害關係屬個案價值判斷,**任何一種不一致的情形都一律 `review_note` 非空**——
+    即使覆寫成不受理,也不是可逕採的結論。
     """
     if check.consistent is None:
         return screening
@@ -192,6 +191,6 @@ def apply_article_77_3(screening, check: StandingCheck):
             "passed": False,
             "matched_clause": "77條第3款",
             "reasoning": reasoning,
-            "review_note": "自動判第3款不受理(語料僅2件),請人工確認",
+            "review_note": "自動判第3款不受理(利害關係屬價值判斷),請人工確認",
         }
     )

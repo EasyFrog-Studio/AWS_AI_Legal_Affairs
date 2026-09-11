@@ -1,4 +1,4 @@
-"""在途期間對照表查表:遮罩地址不必整筆棄權,見實作計畫 Ticket 13。"""
+"""在途期間對照表查表:遮罩地址不必整筆棄權。"""
 import pytest
 
 from app.transit import lookup_transit_days, resolve_transit_days, residence_key

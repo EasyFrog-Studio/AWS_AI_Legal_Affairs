@@ -182,7 +182,7 @@ def test_assess_standing_returns_none_when_evidence_insufficient():
 
 
 def test_assess_standing_is_deterministic_across_repeated_calls():
-    """同一輸入連跑兩次要得到同一結果(實作計畫§Ticket 6 約束3):這裡驗證呼叫形狀本身是
+    """同一輸入連跑兩次要得到同一結果:這裡驗證呼叫形狀本身是
     決定性的(固定 temperature=0),用同一份回應模擬模型在溫度0下的穩定輸出。"""
     payload = {"referenced_norm": "廢棄物清理法#27", "has_standing": False, "reasoning": "僅單純事實上利害關係"}
     brt = MagicMock()
@@ -1015,3 +1015,28 @@ def test_extract_case_info_constrains_service_method_to_statutory_options():
     _, kwargs = brt.converse.call_args
     schema = kwargs["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
     assert schema["properties"]["service_method"].get("enum") == list(SERVICE_METHODS)
+
+
+def test_generate_draft_schema_enum_matches_draft_types():
+    from app.models import DRAFT_TYPES
+
+    brt = MagicMock()
+    brt.converse.return_value = _toolUse_response(
+        "generate_draft",
+        {
+            "draft_type": "駁回",
+            "fact": "事實",
+            "reason": "理由",
+            "main_text": "訴願駁回。",
+            "cited_laws": [],
+        },
+    )
+    provider = _provider(bedrock_runtime=brt)
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
+
+    provider.generate_draft(_info(), screening, [], [])
+
+    _, kwargs = brt.converse.call_args
+    tool_spec = kwargs["toolConfig"]["tools"][0]["toolSpec"]
+    schema = tool_spec["inputSchema"]["json"]
+    assert schema["properties"]["draft_type"]["enum"] == list(DRAFT_TYPES)

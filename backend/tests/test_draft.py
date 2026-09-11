@@ -1,4 +1,6 @@
 import fitz
+import pytest
+from pydantic import ValidationError
 
 import app.main as main_module
 from app.config import settings
@@ -248,3 +250,14 @@ def test_decision_skeleton_without_f4_returns_409():
     _make_case("c-draft021", with_f4=False)
     resp = client.get("/api/cases/c-draft021/decision-skeleton", headers=_headers())
     assert resp.status_code == 409
+
+
+@pytest.mark.parametrize("draft_type", ["撤銷另處", "部分不受理部分駁回"])
+def test_draft_result_accepts_the_two_new_draft_types(draft_type):
+    draft = DraftResult(draft_type=draft_type, fact="事實", reason="理由", main_text="主文")
+    assert draft.draft_type == draft_type
+
+
+def test_draft_result_rejects_a_typo_of_a_valid_draft_type():
+    with pytest.raises(ValidationError):
+        DraftResult(draft_type="撤銷另處理", fact="事實", reason="理由", main_text="主文")

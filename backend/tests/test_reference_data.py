@@ -1,4 +1,4 @@
-"""外部對照資料的涵蓋度回報:讓「假日表過期了」有觸發點,見實作計畫 Ticket 14。"""
+"""外部對照資料的涵蓋度回報:讓「假日表過期了」有觸發點。"""
 from datetime import date
 
 from app.reference_data import reference_data_status

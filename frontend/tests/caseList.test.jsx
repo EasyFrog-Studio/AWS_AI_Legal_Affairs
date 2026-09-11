@@ -92,4 +92,24 @@ describe('案件清單', () => {
     await screen.findByRole('table')
     expect(dataRows()).toHaveLength(3)
   })
+
+  it('狀態篩選含五種決定類型(不受理/駁回/撤銷另處/原處分撤銷/部分不受理部分駁回)', async () => {
+    await renderList(listRows)
+    const options = within(screen.getByRole('combobox', { name: '狀態' }))
+      .getAllByRole('option')
+      .map((o) => o.textContent)
+    expect(options).toEqual([
+      '全部',
+      '待確認',
+      '審理中',
+      '待人工確認',
+      '已審結',
+      '不受理',
+      '駁回',
+      '撤銷另處',
+      '原處分撤銷',
+      '部分不受理部分駁回',
+      '處理失敗',
+    ])
+  })
 })

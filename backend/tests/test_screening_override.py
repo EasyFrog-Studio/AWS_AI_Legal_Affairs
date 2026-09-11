@@ -1,4 +1,4 @@
-"""承辦人推翻程序審查結論與重跑檢索,見實作計畫 Ticket 9。
+"""承辦人推翻程序審查結論與重跑檢索。
 自動判之後承辦人只做確認,那就必須有推翻的入口——否則自動判等於終局判斷。"""
 from fastapi.testclient import TestClient
 
@@ -110,7 +110,7 @@ def test_override_nonexistent_case_returns_404():
     assert resp.status_code == 404
 
 
-# ---------- POST /reanalyze:契約見實作計畫 Ticket 9 ----------
+# ---------- POST /reanalyze ----------
 
 
 def test_reanalyze_is_allowed_on_a_finished_case():
