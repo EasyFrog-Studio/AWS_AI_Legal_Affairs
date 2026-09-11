@@ -27,8 +27,11 @@ from app.models import (
     DeadlineCheck,
     DraftResult,
     ScreeningResult,
+    join_review_notes,
     parse_clause,
 )
+from app.appeal_sections import split_appeal_sections
+from app.pdf_render import decision_plain_text
 from app.providers.base import AIProvider
 from app.store import CaseStore
 
@@ -58,6 +61,20 @@ def inadmissible_law_keys(matched_clause: str | None) -> list[str]:
     return list(dict.fromkeys(["訴願法#77"] + (extra or [])))
 
 
+def apply_appeal_sections(info: CaseInfo, case) -> CaseInfo:
+    """訴願書自帶「事 實」「理 由」兩個標題時,兩欄改以文件原文為準。
+
+    模型分不開這兩段(實測 qwen3-4b 會把論點歸到爭點、理由留空,四種 prompt 寫法都一樣),
+    但格式本身切得準,而且切出來是逐字照抄——法律文書不該被模型改寫。只讀訴願書槽:
+    合併字串裡還有送達證書與原處分書,兩者也有「事實」「理由」字樣。切不出來就留模型的結果。
+    """
+    appeal = case.documents.get("appeal") if case.documents else None
+    facts, reasons = split_appeal_sections(appeal.text if appeal else "")
+    if not (facts and reasons):
+        return info
+    return info.model_copy(update={"appeal_facts": facts, "appeal_reasons": reasons})
+
+
 def guard_contradictory_screening(screening: ScreeningResult) -> ScreeningResult:
     """模型答「通過」卻同時指出不受理款次時,以款次為準:具體發現優於概括結論,原樣放行
     等於讓承辦人看到一個寫著不受理事由的「受理」。款次欄填非款次文字(「無」「不適用」)
@@ -65,8 +82,9 @@ def guard_contradictory_screening(screening: ScreeningResult) -> ScreeningResult
     if not screening.passed or parse_clause(screening.matched_clause) is None:
         return screening
     note = f"程序審查結論與款次矛盾(判通過卻指出{screening.matched_clause}),已以款次為準,須人工確認"
-    merged = ";".join(n for n in (screening.review_note, note) if n)
-    return screening.model_copy(update={"passed": False, "review_note": merged})
+    return screening.model_copy(
+        update={"passed": False, "review_note": join_review_notes(screening.review_note, note)}
+    )
 
 
 def guard_unsupported_clause(screening: ScreeningResult) -> ScreeningResult:
@@ -82,7 +100,7 @@ def guard_unsupported_clause(screening: ScreeningResult) -> ScreeningResult:
         note = f"本版不判訴願法第{parsed[1]}款,須人工認定"
     else:
         note = "訴願法款次解析不出,須人工認定"
-    return screening.model_copy(update={"review_note": note})
+    return screening.model_copy(update={"review_note": join_review_notes(screening.review_note, note)})
 
 
 def enforce_inadmissible_format(draft: DraftResult, screening: ScreeningResult) -> DraftResult:
@@ -307,10 +325,13 @@ def reconcile_deadline(
         # 算式本身還要人工確認,就不該拿去覆寫審查結果,更不該進草稿理由;但被質疑的是
         # 「本案未逾期」這個結論,註記只落在期間欄的話,單看程序審查區塊的人會把它當可逕採
         note = f"期間算得出逾期但{check.review_note},結論未經期間算式確認"
-        merged = ";".join(n for n in (screening.review_note, note) if n)
         return (
-            screening.model_copy(update={"review_note": merged}),
-            check.model_copy(update={"review_note": f"{check.review_note};未據以覆寫程序審查"}),
+            screening.model_copy(
+                update={"review_note": join_review_notes(screening.review_note, note)}
+            ),
+            check.model_copy(
+                update={"review_note": join_review_notes(check.review_note, "未據以覆寫程序審查")}
+            ),
         )
     if check.overdue is True:
         reasoning = f"{check.detail}依訴願法第77條第2款應不受理。程序審查意見:{screening.reasoning}"
@@ -320,14 +341,12 @@ def reconcile_deadline(
         note = "計算結果未逾期,與程序審查認定之第2款不符,須人工確認"
         # 附加而非取代:既有的 review_note 裡是算式本身的保留事項(公示送達、採自述送達日、
         # §98 期間分支),那些正是解釋歧異從何而來的線索,覆蓋掉會讓承辦人只看到結論不一致。
-        merged = ";".join(note for note in (check.review_note, note) if note)
+        merged = join_review_notes(check.review_note, note)
         if check.override_blocked:
             return screening, check.model_copy(update={"review_note": merged})
         # 算式乾淨且明說未逾期:撤銷第2款認定。算式已被授權單方面把案件打成不受理
         # (上一個分支),不讓它擋下一個它明說不成立的不受理,就是只在對機關有利的方向信任它。
-        withdrawn = ";".join(
-            n for n in (screening.review_note, "第2款認定經期間算式否定,已撤銷,須人工確認") if n
-        )
+        withdrawn = join_review_notes(screening.review_note, "第2款認定經期間算式否定,已撤銷,須人工確認")
         return (
             screening.model_copy(
                 update={"passed": True, "matched_clause": None, "review_note": withdrawn}
@@ -366,7 +385,11 @@ def _retrieval_and_draft(
     draft = enforce_inadmissible_format(
         provider.generate_draft(info, screening, laws, similar_cases), screening
     )
-    store.update(case_id, {"f4": draft, "current_stage": "done", "status": "done"})
+    store.update(case_id, {"f4": draft})
+    # 承辦人編輯與下載的是攤平後的全文,產出時就寫好;重跑會重新攤平,故先前的編輯要另存一版
+    # (見 main.reanalyze_case),不是在這裡保留。
+    plain = decision_plain_text(store.get(case_id))
+    store.update(case_id, {"draft_plain_text": plain, "current_stage": "done", "status": "done"})
 
 
 def rerun_case(case_id: str, store: CaseStore, provider: AIProvider) -> None:
@@ -430,7 +453,7 @@ def run_case(case_id: str, store: CaseStore, provider: AIProvider) -> None:
         raise ValueError(f"case not found: {case_id}")
 
     try:
-        info = provider.extract_case_info(case.input_text)
+        info = apply_appeal_sections(provider.extract_case_info(case.input_text), case)
         store.update(case_id, {"f1": info, "current_stage": "screening"})
         _screen_and_draft(case_id, store, provider, case, info)
     except Exception as exc:  # noqa: BLE001 - pipeline 需捕捉任何例外落庫,不中斷背景任務

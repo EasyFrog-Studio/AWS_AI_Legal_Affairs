@@ -47,6 +47,13 @@ def _seed(case_id: str, status="done", screening=None, with_f4=True, track="inad
     if with_f4:
         fields["f4"] = _draft()
     main_module.store.update(case_id, fields)
+    if with_f4:
+        # 全文在 F4 產出時就攤平寫入(見 pipeline);這裡直接塞 f4,得自己補這一步
+        from app.pdf_render import decision_plain_text
+
+        main_module.store.update(
+            case_id, {"draft_plain_text": decision_plain_text(main_module.store.get(case_id))}
+        )
     return main_module.store.get(case_id)
 
 
@@ -163,7 +170,7 @@ def test_reanalyze_saves_the_existing_draft_as_a_version_first():
 
     case = client.get("/api/cases/c-ovr0014", headers=_headers()).json()
     assert len(case["draft_versions"]) >= 1
-    assert case["draft_versions"][0]["main_text"] == "訴願不受理。"
+    assert "訴願不受理。" in case["draft_versions"][0]["text"]
 
 
 def test_reanalyze_after_an_override_keeps_the_human_verdict(monkeypatch):

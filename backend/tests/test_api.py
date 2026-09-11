@@ -611,54 +611,6 @@ def test_patch_f1_on_an_unknown_case_returns_404():
     assert resp.status_code == 404
 
 
-# ---------- PATCH /decision-header:承辦人自填決定書欄位 ----------
-def test_decision_header_shows_up_in_the_skeleton(monkeypatch):
-    """網頁上的版面與下載的 PDF 共用 build_decision_blocks;填了案號兩邊就都要有,
-    不能出現「畫面上改了、PDF 沒改」。"""
-    client = TestClient(main_module.app)
-    case_id = _analyzed_case(client, monkeypatch)
-
-    resp = client.patch(
-        f"/api/cases/{case_id}/decision-header",
-        json={"case_no": "1140700123", "chairman": "王主委", "committee": "李委員\n張委員"},
-        headers=_headers(),
-    )
-    assert resp.status_code == 200
-
-    blocks = client.get(f"/api/cases/{case_id}/decision-skeleton", headers=_headers()).json()["blocks"]
-    texts = [b["text"] for b in blocks]
-    assert any("1140700123" in t for t in texts)
-    assert any("王主委" in t for t in texts)
-    assert len([t for t in texts if t.startswith("委員")]) == 2
-
-
-def test_decision_header_survives_a_reload(monkeypatch):
-    client = TestClient(main_module.app)
-    case_id = _analyzed_case(client, monkeypatch)
-    client.patch(
-        f"/api/cases/{case_id}/decision-header",
-        json={"case_no": "1140700123"},
-        headers=_headers(),
-    )
-
-    case = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
-
-    assert case["decision_header"]["case_no"] == "1140700123"
-    assert case["decision_header"]["chairman"] == ""  # 沒填的欄位維持空白,不是 None
-
-
-def test_decision_header_rejects_a_case_without_a_draft(monkeypatch):
-    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
-    client = TestClient(main_module.app)
-    case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
-
-    resp = client.patch(
-        f"/api/cases/{case_id}/decision-header", json={"case_no": "1140700123"}, headers=_headers()
-    )
-
-    assert resp.status_code == 409
-
-
 # ---------- AWS 憑證失效:給得出處置方式的回應,不是裸 500 ----------
 
 

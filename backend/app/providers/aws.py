@@ -87,6 +87,29 @@ def viewable_source_key(metadata: dict) -> Optional[str]:
     return source_file if source_file.startswith(f"{_MARKDOWN_PREFIX}/") else None
 
 
+def external_source_url(metadata: dict) -> Optional[str]:
+    """chunk metadata -> 可直接點開的原始來源網址,推不出來就回 None。
+    只收 http(s):官方語料沒有這一欄,爬蟲語料也有少數缺漏,照收會畫出一個點下去必定失敗的連結。"""
+    url = (metadata.get("source_url") or "").strip()
+    return url if url.startswith(("https://", "http://")) else None
+
+
+_ARCHIVED_KINDS = ("行政函釋", "行政法院裁判", "司法院釋字")
+
+
+def archived_source_key(metadata: dict) -> Optional[str]:
+    """爬蟲語料的參考資料只有原始 PDF、沒有 markdown,`viewable_source_key` 因此一律回 None,
+    畫面上就變成一個可點的來源都沒有。這裡把它指回本機存檔的 PDF(`data/爬蟲集/…/參考資料/`)。
+    只收單純檔名:`source_file` 要組進路徑,帶目錄分隔或 `..` 的一律不收。"""
+    doc_kind = (metadata.get("doc_kind") or "").strip()
+    source_file = (metadata.get("source_file") or "").strip()
+    if doc_kind not in _ARCHIVED_KINDS or not source_file.endswith(".pdf"):
+        return None
+    if "/" in source_file or "\\" in source_file or source_file.startswith("."):
+        return None
+    return f"reference/{doc_kind}/{source_file}"
+
+
 def build_references(rows: list[tuple[str, str, dict]], relevance: str) -> list[ReferenceRef]:
     """(name, text, metadata) 列 -> 去重且截上限的 ReferenceRef;aws 與 local 共用同一份對應。
     name 為空的列直接跳過:認不出是哪一份文件的參考見解,給了也沒有用。"""
@@ -102,7 +125,7 @@ def build_references(rows: list[tuple[str, str, dict]], relevance: str) -> list[
             issued_date=metadata.get("amend_date") or "未收錄",
             topic=metadata.get("topic") or "",
             text=text,
-            source_key=viewable_source_key(metadata),
+            source_key=viewable_source_key(metadata) or archived_source_key(metadata),
             relevance=relevance,
         )
     return list(refs.values())[:_REF_TOP_K]
@@ -175,7 +198,10 @@ class AWSProvider(AIProvider):
                 "disposition_date": {"type": "string"},
                 "disposition_no": {"type": "string"},
                 "disposition_summary": {"type": "string"},
+                # 理由排在事實前面:ollama 的 JSON grammar 照 schema 順序生成,事實先寫就會
+                # 把訴願書的內容吃光,理由只剩空陣列(實測如此),而 §77(1) 會據此誤報缺漏
                 "appeal_reasons": {"type": "array", "items": {"type": "string"}},
+                "appeal_facts": {"type": "array", "items": {"type": "string"}},
                 "case_type": {"type": "string"},
                 "issues": {"type": "array", "items": {"type": "string"}},
                 "cited_articles": {"type": "array", "items": {"type": "string"}},
@@ -203,6 +229,12 @@ class AWSProvider(AIProvider):
                 "disposition_notice_clause",  # notice_clause → 行政程序法§98 期間分支
                 "receipt_date",  # check_required_fields → 訴願法§56 I⑥
                 "appeal_reasons",  # check_required_fields → 訴願法§56 I⑤
+                # 這四欄選填時模型會整組省略(實測:餵了 1,592 字的答辯書,三欄仍全空),
+                # 列進 required 是要它「一定要回答」——沒有答辯書就明確回空值,不是當作沒看到
+                "appeal_facts",
+                "answer_statement",
+                "answer_self_revoked",
+                "answer_arguments",
             ],
         }
         data = self._converse_json(_load_prompt("f1_extract.txt"), text, "extract_case_info", schema)
@@ -387,6 +419,7 @@ class AWSProvider(AIProvider):
                 summary=case_summary(r.get("content", {}).get("text", "")),
                 similarity_note="向量檢索命中(KB-CASE)",
                 source_key=viewable_source_key(metadata),
+                source_url=external_source_url(metadata),
             )
         return list(cases.values())[:_TOP_K]
 

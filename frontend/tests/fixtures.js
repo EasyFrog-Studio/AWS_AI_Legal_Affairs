@@ -39,6 +39,7 @@ const f3 = [
     summary: '摘要一',
     similarity_note: '備註一',
     source_key: null,
+    source_url: 'https://web.law.ntpc.gov.tw/Scripts/Su_contents03.aspx?EANO=1120001',
   },
   {
     case_no: '112-0002',
@@ -50,6 +51,7 @@ const f3 = [
     summary: '摘要二',
     similarity_note: '備註二',
     source_key: null,
+    source_url: null,
   },
 ]
 
@@ -99,6 +101,8 @@ export const doneAdmissible = {
   f2_refs: f2Refs,
   f3,
   f4: { draft_type: '駁回', fact: '事實原文', reason: '理由原文', main_text: '訴願駁回。' },
+  // 決定書全文:F4 產出時攤平寫入,承辦人改的就是它
+  draft_plain_text: '新北市政府訴願決定書 主文 訴願駁回。 事實 事實原文 理由 理由原文',
   error: null,
 }
 
@@ -119,6 +123,7 @@ export const doneInadmissible = {
   f2: null,
   f2_refs: f2Refs,
   f4: { draft_type: '不受理', fact: '事實原文B', reason: '理由原文B', main_text: '訴願不受理。' },
+  draft_plain_text: '新北市政府訴願決定書 主文 訴願不受理。 理由 理由原文B',
 }
 
 export const collectingAllMatched = {
@@ -162,7 +167,7 @@ export const collectingWithMismatch = {
 }
 
 export function processingAt(currentStage) {
-  const stages = ['f1', 'screening', 'f2', 'f3', 'f4']
+  const stages = ['f1', 'screening', 'f2', 'f2_refs', 'f3', 'f4']
   const idx = stages.indexOf(currentStage)
   return {
     ...doneAdmissible,
@@ -173,7 +178,9 @@ export function processingAt(currentStage) {
     f1: idx > 0 ? f1 : null,
     screening: idx > 1 ? doneAdmissible.screening : null,
     f2: idx > 2 ? f2 : null,
-    f3: idx > 3 ? f3 : null,
+    // f2_refs 也要照階段給值:從 doneAdmissible 整份帶過來的話,還沒跑到的階段會有結果
+    f2_refs: idx > 3 ? f2Refs : null,
+    f3: idx > 4 ? f3 : null,
     f4: null,
   }
 }

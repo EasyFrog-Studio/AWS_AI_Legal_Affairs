@@ -13,14 +13,13 @@ from app.auth import require_api_key
 from app.config import settings
 from app.document_check import check_document
 from app.models import (
+    DraftTextPatch,
     Case,
     CaseDocument,
     CaseInfo,
     CaseSummary,
-    DecisionHeader,
     DOCUMENT_SLOT_LABELS,
     DocumentSlot,
-    DraftPatch,
     DraftVersion,
     MAX_DRAFT_VERSIONS,
     OCR_REVIEW_NOTE,
@@ -36,7 +35,8 @@ from app.ocr import (
     ocr_pdf,
 )
 from app.pdf_extract import extract_text_quality
-from app.pdf_render import build_decision_blocks, render_draft_pdf
+from app.docx_render import render_draft_docx
+from app.pdf_render import render_draft_pdf
 from app.text_quality import is_unreadable
 from app.reference_data import reference_data_status
 from app.review import needs_review
@@ -324,6 +324,10 @@ def get_source(key: str):
         )
         return {"url": url}
 
+    # 參考見解的存檔 PDF 不能當文字塞進 overlay;回 file 讓前端改走下載後開新分頁那條路
+    if key.startswith("reference/"):
+        return {"file": key}
+
     # mock 模式:回傳本地前處理輸出的 markdown 內容(找不到則回提示文字)
     # key 為外部輸入,resolve 後必須仍在 data/output/ 內,防路徑穿越
     base = (_REPO_ROOT.parent / "data" / "output").resolve()
@@ -331,6 +335,28 @@ def get_source(key: str):
     if local_path.is_relative_to(base) and local_path.is_file():
         return {"text": local_path.read_text(encoding="utf-8")}
     return {"text": f"[mock 模式] 本地找不到對應檔案:{key}"}
+
+
+# 爬蟲語料的參考資料 PDF;容器內由 compose 掛在這裡,掛不上就每一份都回 404 而不是靜默給空白
+_REFERENCE_DIR = Path("/data/reference")
+
+
+@app.get("/api/source/file", dependencies=[Depends(require_api_key)])
+def get_source_file(key: str):
+    """參考見解的存檔 PDF。key 由 providers.archived_source_key 產生(`reference/<類別>/<檔名>.pdf`),
+    resolve 後必須仍在存放目錄內——那個值來自語料 metadata,不是使用者輸入,但它會被組成路徑。"""
+    if not key.startswith("reference/"):
+        raise HTTPException(status_code=404, detail="source not found")
+    base = _REFERENCE_DIR.resolve()
+    path = (base / key[len("reference/") :]).resolve()
+    if not path.is_relative_to(base) or not path.is_file():
+        raise HTTPException(status_code=404, detail="source not found")
+    filename = urllib.parse.quote(path.name)
+    return Response(
+        content=path.read_bytes(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{filename}"},
+    )
 
 
 def _appended_versions(case: Case, version: DraftVersion) -> dict:
@@ -341,44 +367,13 @@ def _appended_versions(case: Case, version: DraftVersion) -> dict:
     return {"draft_versions": versions[-MAX_DRAFT_VERSIONS:], "draft_versions_truncated": truncated}
 
 
-def _version_of(draft) -> DraftVersion:
-    return DraftVersion(
-        saved_at=datetime.now(timezone.utc).isoformat(),
-        fact=draft.fact,
-        reason=draft.reason,
-        main_text=draft.main_text,
-    )
+def _version_of(text: str) -> DraftVersion:
+    return DraftVersion(saved_at=datetime.now(timezone.utc).isoformat(), text=text)
 
 
-def _same_content(version: DraftVersion, draft) -> bool:
+def _same_content(version: DraftVersion, text: str) -> bool:
     """已經存過同一份內容就不再重複存一版:重複的版本讀起來像改過但沒改,只會干擾追溯。"""
-    return (version.fact, version.reason, version.main_text) == (draft.fact, draft.reason, draft.main_text)
-
-
-@app.patch("/api/cases/{case_id}/draft", dependencies=[Depends(require_api_key)])
-def update_draft(case_id: str, patch: DraftPatch):
-    """每次改存一版。定稿後仍然允許修改——定稿只是標記,不鎖。"""
-    case = store.get(case_id)
-    if case is None:
-        raise HTTPException(status_code=404, detail="case not found")
-    if case.f4 is None:
-        raise HTTPException(status_code=409, detail="此案件尚無草稿")
-    if patch.base_version is not None and patch.base_version != len(case.draft_versions):
-        # 兩個視窗同時改:三種 store 對 Case 都是整包 read-modify-write,不擋就是後送出的
-        # 那份無聲蓋掉前一份,而兩邊都以為自己存成功了。回最新內容讓前端提示得出差異。
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "message": "這份草稿已被他人更新,請重新載入後再改",
-                "current_version": len(case.draft_versions),
-                "draft": case.f4.model_dump(),
-            },
-        )
-
-    updated_f4 = case.f4.model_copy(update=patch.model_dump(exclude={"base_version"}))
-    fields = {"f4": updated_f4, **_appended_versions(case, _version_of(updated_f4))}
-    store.update(case_id, fields)
-    return {"ok": True, "version": len(fields["draft_versions"])}
+    return version.text == text
 
 
 _STALE_SCREENING_NOTE = "案件資訊經人工修改,程序審查結論尚未依修改後的資料重跑"
@@ -405,6 +400,9 @@ def update_case_info(case_id: str, info: CaseInfo) -> Case:
         "f1_edited": True,
         "deadline": check_deadline_from_case(case, info),
     }
+    # 只在第一次修改時留快照:第二次改若覆蓋掉,第一次改過的欄位就不再標記為已修改
+    if case.f1_system is None:
+        fields["f1_system"] = case.f1
     if case.screening is not None and _STALE_SCREENING_NOTE not in case.screening.review_note:
         merged = ";".join(n for n in (case.screening.review_note, _STALE_SCREENING_NOTE) if n)
         fields["screening"] = case.screening.model_copy(update={"review_note": merged})
@@ -412,18 +410,29 @@ def update_case_info(case_id: str, info: CaseInfo) -> Case:
     return store.get(case_id)
 
 
-@app.patch("/api/cases/{case_id}/decision-header", dependencies=[Depends(require_api_key)])
-def update_decision_header(case_id: str, header: DecisionHeader) -> Case:
-    """承辦人自填決定書上系統填不出來的欄位(案號、主任委員與委員名單、決定日期…)。
-    整份取代而不逐欄合併:前端送的是整張表單,部分更新會讓「清空某欄」與「沒送某欄」無法區分。"""
+@app.patch("/api/cases/{case_id}/draft-text", dependencies=[Depends(require_api_key)])
+def update_draft_text(case_id: str, patch: DraftTextPatch):
+    """決定書全文的修改,每次存一版。定稿後仍然允許修改——定稿只是標記,不鎖。"""
     case = store.get(case_id)
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
     if case.f4 is None:
-        raise HTTPException(status_code=409, detail="案件尚未產出草稿,沒有可填的決定書")
+        raise HTTPException(status_code=409, detail="此案件尚無草稿")
+    if patch.base_version is not None and patch.base_version != len(case.draft_versions):
+        # 兩個視窗同時改:三種 store 對 Case 都是整包 read-modify-write,不擋就是後送出的
+        # 那份無聲蓋掉前一份,而兩邊都以為自己存成功了。回最新內容讓前端提示得出差異。
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "這份草稿已被他人更新,請重新載入後再改",
+                "current_version": len(case.draft_versions),
+                "text": case.draft_plain_text,
+            },
+        )
 
-    store.update(case_id, {"decision_header": header})
-    return store.get(case_id)
+    fields = {"draft_plain_text": patch.text, **_appended_versions(case, _version_of(patch.text))}
+    store.update(case_id, fields)
+    return {"ok": True, "version": len(fields["draft_versions"])}
 
 
 @app.patch("/api/cases/{case_id}/screening", dependencies=[Depends(require_api_key)])
@@ -460,12 +469,13 @@ def reanalyze_case(case_id: str, background_tasks: BackgroundTasks):
     if case.status == "collecting":
         raise HTTPException(status_code=409, detail="此案件尚未開始分析,請改用 analyze")
 
-    fields = {"status": "processing", "error": None}
+    # 重跑會重新擷取,新結果不是承辦人改的;留著舊快照會讓整份都標成已修改
+    fields = {"status": "processing", "error": None, "f1_system": None}
     if case.f4 is not None:
-        # 重跑會覆蓋 f4,先存一版,否則承辦人編輯過的草稿會被無聲蓋掉
-        version = _version_of(case.f4)
-        if not (case.draft_versions and _same_content(case.draft_versions[-1], case.f4)):
-            fields.update(_appended_versions(case, version))
+        # 重跑會重新產生全文,先存一版,否則承辦人編輯過的草稿會被無聲蓋掉
+        text = case.draft_plain_text
+        if not (case.draft_versions and _same_content(case.draft_versions[-1], text)):
+            fields.update(_appended_versions(case, _version_of(text)))
     store.update(case_id, fields)
 
     background_tasks.add_task(rerun_case, case_id, store, get_provider())
@@ -514,18 +524,6 @@ def finalize_case(case_id: str):
     return {"finalized_at": finalized_at, "pdf_location": location}
 
 
-@app.get("/api/cases/{case_id}/decision-skeleton", dependencies=[Depends(require_api_key)])
-def get_decision_skeleton(case_id: str):
-    """決定書版面骨架;三段本文回 slot,由前端塞可編輯欄位。與 PDF 共用同一份定義。"""
-    case = store.get(case_id)
-    if case is None:
-        raise HTTPException(status_code=404, detail="case not found")
-    if case.f4 is None:
-        raise HTTPException(status_code=409, detail="此案件尚無草稿")
-    blocks = build_decision_blocks(case, body_as_slots=True)
-    return {"blocks": [{"kind": kind, "text": text} for kind, text in blocks]}
-
-
 @app.get("/api/cases/{case_id}/draft.pdf", dependencies=[Depends(require_api_key)])
 def get_draft_pdf(case_id: str):
     case = store.get(case_id)
@@ -538,6 +536,22 @@ def get_draft_pdf(case_id: str):
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
+@app.get("/api/cases/{case_id}/draft.docx", dependencies=[Depends(require_api_key)])
+def get_draft_docx(case_id: str):
+    """同一份草稿的 Word 版。與 draft.pdf 共用 build_decision_blocks,體例不會兩邊走鐘。"""
+    case = store.get(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    if case.f4 is None:
+        raise HTTPException(status_code=409, detail="此案件尚無草稿")
+    filename = urllib.parse.quote(f"決定書草稿_{case_id}.docx")
+    return Response(
+        content=render_draft_docx(case),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
     )
 

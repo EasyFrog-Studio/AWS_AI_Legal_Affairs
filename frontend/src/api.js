@@ -64,20 +64,8 @@ export function getCase(id) {
   return request(`/cases/${id}`)
 }
 
-export function getDecisionSkeleton(id) {
-  return request(`/cases/${id}/decision-skeleton`)
-}
-
 export function getSource(key) {
   return request(`/source?key=${encodeURIComponent(key)}`)
-}
-
-export function updateDraft(id, body) {
-  return request(`/cases/${id}/draft`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
 }
 
 export function updateCaseInfo(id, info) {
@@ -85,6 +73,14 @@ export function updateCaseInfo(id, info) {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(info),
+  })
+}
+
+export function updateDraftText(id, body) {
+  return request(`/cases/${id}/draft-text`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   })
 }
 
@@ -104,8 +100,23 @@ export function finalizeCase(id) {
   return request(`/cases/${id}/finalize`, { method: 'POST' })
 }
 
-export async function downloadDraftPdf(id) {
-  const res = await fetch(`/api/cases/${id}/draft.pdf`, {
+/** 參考見解的存檔 PDF:帶金鑰抓回 blob 再開新分頁。不能直接 window.open 端點——
+ *  那條路不會帶 X-API-Key,而把金鑰塞進網址等於把它留在瀏覽記錄與 referer 裡。 */
+export async function openSourceFile(key) {
+  const res = await fetch(`/api/source/file?key=${encodeURIComponent(key)}`, {
+    headers: { 'X-API-Key': getApiKey() },
+  })
+  if (res.status === 401) {
+    clearApiKey()
+    window.location.href = '/login'
+    throw new Error('未授權,請重新登入。')
+  }
+  if (!res.ok) throw new Error(`找不到原文檔(${res.status})`)
+  return URL.createObjectURL(await res.blob())
+}
+
+async function downloadDraft(id, extension) {
+  const res = await fetch(`/api/cases/${id}/draft.${extension}`, {
     headers: { 'X-API-Key': getApiKey() },
   })
   if (res.status === 401) {
@@ -118,11 +129,19 @@ export async function downloadDraftPdf(id) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `決定書草稿_${id}.pdf`
+  a.download = `決定書草稿_${id}.${extension}`
   document.body.appendChild(a)
   a.click()
   a.remove()
   URL.revokeObjectURL(url)
+}
+
+export function downloadDraftPdf(id) {
+  return downloadDraft(id, 'pdf')
+}
+
+export function downloadDraftDocx(id) {
+  return downloadDraft(id, 'docx')
 }
 
 export async function health() {

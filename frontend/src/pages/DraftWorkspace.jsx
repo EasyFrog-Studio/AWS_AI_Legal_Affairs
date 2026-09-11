@@ -1,36 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { updateDraft, downloadDraftPdf, finalizeCase, getDecisionSkeleton } from '../api'
+import { updateDraftText, downloadDraftPdf, downloadDraftDocx, finalizeCase } from '../api'
+import SourceSiteLink from '../components/SourceSiteLink.jsx'
 import { useNavGuard } from '../navGuard.js'
 import './DraftWorkspace.css'
 
 
-// 三段本文的欄位名 -> 可編輯欄位;其餘區塊照 kind 直接排版,版面定義只在後端一份
-const FALLBACK_BLOCKS = [
-  { kind: 'heading', text: '主　文' },
-  { kind: 'slot', text: 'main_text' },
-  { kind: 'heading', text: '事　實' },
-  { kind: 'slot', text: 'fact' },
-  { kind: 'heading', text: '理　由' },
-  { kind: 'slot', text: 'reason' },
-]
-
-function DecisionBlock({ block, labelFor, fields }) {
-  if (block.kind === 'blank') return <div className="decision__gap" />
-  if (block.kind === 'title') return <h3 className="decision__title">{block.text}</h3>
-  if (block.kind === 'heading') {
-    return labelFor ? (
-      <label htmlFor={`draft-${labelFor}`} className="decision__heading">
-        {block.text}
-      </label>
-    ) : (
-      <div className="decision__heading">{block.text}</div>
-    )
-  }
-  if (block.kind === 'slot') return fields[block.text] ?? null
-  return <p className="decision__body">{block.text}</p>
-}
-
-function BasisPanel({ laws, cases, track, onViewSource }) {
+function BasisPanel({ laws, refs, cases, track, onViewSource }) {
   return (
     <aside className="basis-panel" aria-label="承辦參考依據">
       {track !== 'inadmissible' && (
@@ -59,10 +34,40 @@ function BasisPanel({ laws, cases, track, onViewSource }) {
                     原文
                   </button>
                 )}
+                <SourceSiteLink url={law.source_url} />
               </div>
             ))}
         </div>
       )}
+      {/* 參考見解兩條 track 都跑,故沒有 track 條件;但它不進 F4 的可引用清單,標題要與法規分開 */}
+      <div className="basis-panel__group">
+        <div className="basis-panel__heading">參考見解(F2+)</div>
+        {refs === null && <div className="state-message state-message--pending">檢索中…</div>}
+        {refs !== null && refs !== undefined && refs.length === 0 && (
+          <div className="state-message state-message--empty">未檢索到相關參考見解。</div>
+        )}
+        {refs &&
+          refs.length > 0 &&
+          refs.map((ref, i) => (
+            <div className="basis-item" key={i}>
+              <span className="basis-item__title">{ref.name}</span>
+              <span className="basis-item__meta">
+                {ref.doc_kind}
+                {ref.issuer ? ` · ${ref.issuer}` : ''} · {ref.issued_date}
+              </span>
+              {ref.source_key && (
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => onViewSource(ref.source_key)}
+                >
+                  原文
+                </button>
+              )}
+              <SourceSiteLink url={ref.source_url} />
+            </div>
+          ))}
+      </div>
       <div className="basis-panel__group">
         <div className="basis-panel__heading">參考案例(F3)</div>
         {cases === null && (
@@ -90,6 +95,7 @@ function BasisPanel({ laws, cases, track, onViewSource }) {
                   原文
                 </button>
               )}
+              <SourceSiteLink url={c.source_url} />
             </div>
           ))}
       </div>
@@ -111,7 +117,9 @@ function useAutoGrow(ref, value, hidden) {
 export default function DraftWorkspace({
   caseId,
   draft,
+  text = '',
   laws,
+  refs,
   cases,
   track,
   versionCount = 0,
@@ -121,61 +129,44 @@ export default function DraftWorkspace({
   onSaved,
   hidden,
 }) {
-  const [fact, setFact] = useState(draft.fact || '')
-  const [reason, setReason] = useState(draft.reason || '')
-  const [mainText, setMainText] = useState(draft.main_text || '')
+  const [plain, setPlain] = useState(text || '')
   const [state, setState] = useState('idle') // idle | saving | saved | error
-  const [skeleton, setSkeleton] = useState(null) // null=載入中, []=載入失敗, 其餘=版面區塊
   const [message, setMessage] = useState('')
   const prevCaseIdRef = useRef(caseId)
-  const mainTextRef = useRef(null)
-  const factRef = useRef(null)
-  const reasonRef = useRef(null)
-  useAutoGrow(mainTextRef, mainText, hidden)
-  useAutoGrow(factRef, fact, hidden)
-  useAutoGrow(reasonRef, reason, hidden)
+  const syncedPlainRef = useRef(text || '')
+  const plainRef = useRef(null)
+  useAutoGrow(plainRef, plain, hidden)
 
   useEffect(() => {
     if (prevCaseIdRef.current !== caseId) {
       prevCaseIdRef.current = caseId
-      setFact(draft.fact || '')
-      setReason(draft.reason || '')
-      setMainText(draft.main_text || '')
+      setPlain(text || '')
+      syncedPlainRef.current = text || ''
       setState('idle')
       setMessage('')
     }
   }, [caseId, draft])
 
+  // 重跑會重新產生全文,那份內容要接得住;但使用者已經在改的字不能被輪詢回來的值蓋掉,
+  // 故只在「本地仍等於上次同步的值」時採用。
   useEffect(() => {
-    let cancelled = false
-    setSkeleton(null)
-    getDecisionSkeleton(caseId).then(
-      (data) => !cancelled && setSkeleton(data.blocks),
-      // 版面載不到就只顯示可編輯欄位,並在畫面上說明——不能讓它看起來像「決定書本來就長這樣」
-      () => !cancelled && setSkeleton([]),
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [caseId])
+    const next = text || ''
+    if (next === syncedPlainRef.current) return
+    // 先把上次同步的值抓下來:updater 是延後執行的,先改 ref 的話比對永遠不成立
+    const previous = syncedPlainRef.current
+    syncedPlainRef.current = next
+    setPlain((current) => (current === previous ? next : current))
+  }, [text])
 
-  const dirty =
-    fact !== (draft.fact || '') ||
-    reason !== (draft.reason || '') ||
-    mainText !== (draft.main_text || '')
+  const dirty = plain !== (text || '')
 
   useNavGuard(dirty, '草稿有未儲存的修改,離開後將遺失。確定要離開?')
-
-  function draftPatch() {
-    // base_version 帶目前的版本數:伺服器端不符即回 409,擋掉兩個視窗互相無聲覆寫
-    return { fact, reason, main_text: mainText, base_version: versionCount }
-  }
 
   async function handleSave() {
     setState('saving')
     setMessage('')
     try {
-      await updateDraft(caseId, draftPatch())
+      await updateDraftText(caseId, { text: plain, base_version: versionCount })
       setState('saved')
       setMessage('已儲存')
       onSaved?.()
@@ -187,10 +178,11 @@ export default function DraftWorkspace({
     }
   }
 
-  async function handleDownload() {
+  async function handleDownload(format) {
     try {
-      if (dirty) await updateDraft(caseId, draftPatch())
-      await downloadDraftPdf(caseId)
+      // 先存再下載:下載到的必須是畫面上這一份,不是上次存的那一份
+      if (dirty) await updateDraftText(caseId, { text: plain, base_version: versionCount })
+      await (format === 'docx' ? downloadDraftDocx(caseId) : downloadDraftPdf(caseId))
     } catch (err) {
       setState('error')
       setMessage(err.message || '下載失敗,請重試。')
@@ -202,7 +194,7 @@ export default function DraftWorkspace({
     setState('saving')
     setMessage('')
     try {
-      if (dirty) await updateDraft(caseId, draftPatch())
+      if (dirty) await updateDraftText(caseId, { text: plain, base_version: versionCount })
       const result = await finalizeCase(caseId)
       setState('saved')
       setMessage(`已標記定稿(${result.pdf_location || '已落地'})`)
@@ -214,61 +206,24 @@ export default function DraftWorkspace({
     }
   }
 
-  const fields = {
-    main_text: (
-      <textarea
-        id="draft-main_text"
-        aria-label="主文"
-        ref={mainTextRef}
-        className="textarea"
-        value={mainText}
-        onChange={(e) => setMainText(e.target.value)}
-        rows={2}
-      />
-    ),
-    fact: (
-      <textarea
-        id="draft-fact"
-        aria-label="事實"
-        ref={factRef}
-        className="textarea"
-        value={fact}
-        onChange={(e) => setFact(e.target.value)}
-        rows={8}
-      />
-    ),
-    reason: (
-      <textarea
-        id="draft-reason"
-        aria-label="理由"
-        ref={reasonRef}
-        className="textarea"
-        value={reason}
-        onChange={(e) => setReason(e.target.value)}
-        rows={10}
-      />
-    ),
-  }
-
   return (
     <div className="draft-workspace" hidden={hidden}>
       <div className="draft-paper">
-        {skeleton === null && <p className="state-message state-message--pending">版面載入中…</p>}
-        {skeleton !== null && skeleton.length === 0 && (
-          <p className="state-message state-message--error">
-            決定書版面載入失敗,以下僅為可編輯欄位,不是完整決定書。
-          </p>
-        )}
-        {/* 版面未到位時不先畫欄位:區塊數一變,textarea 的位置就變,React 會把它重新掛載,
-            使用者正在打的字會消失 */}
-        {(skeleton === null ? [] : skeleton.length === 0 ? FALLBACK_BLOCKS : skeleton).map((block, i, all) => (
-          <DecisionBlock
-            key={i}
-            block={block}
-            labelFor={all[i + 1]?.kind === 'slot' ? all[i + 1].text : null}
-            fields={fields}
-          />
-        ))}
+        <label htmlFor="draft-plain" className="draft-paper__section-title">
+          決定書全文
+        </label>
+        <p className="draft-paper__hint">
+          這一份就是決定書本身:系統依案件資訊與檢索結果先擬好,承辦人直接在這裡改,下載的 PDF 與 Word 印的都是它。
+        </p>
+        <textarea
+          id="draft-plain"
+          aria-label="決定書全文"
+          ref={plainRef}
+          className="textarea textarea--document"
+          value={plain}
+          onChange={(e) => setPlain(e.target.value)}
+          rows={30}
+        />
         {draft.cited_laws?.length > 0 && (
           <div className="draft-field">
             <span className="draft-paper__section-title">引用法條</span>
@@ -284,8 +239,11 @@ export default function DraftWorkspace({
           >
             {state === 'saving' ? '儲存中…' : '儲存修改'}
           </button>
-          <button type="button" className="btn btn-primary" onClick={handleDownload}>
+          <button type="button" className="btn btn-primary" onClick={() => handleDownload('pdf')}>
             下載 PDF 寄審
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={() => handleDownload('docx')}>
+            下載 Word
           </button>
           {/* 定稿只是標記,不鎖:定稿後仍可修改,改了再存一版 */}
           <button type="button" className="btn btn-secondary" onClick={handleFinalize}>
@@ -306,7 +264,13 @@ export default function DraftWorkspace({
           )}
         </div>
       </div>
-      <BasisPanel laws={laws} cases={cases} track={track} onViewSource={onViewSource} />
+      <BasisPanel
+        laws={laws}
+        refs={refs}
+        cases={cases}
+        track={track}
+        onViewSource={onViewSource}
+      />
     </div>
   )
 }

@@ -4,6 +4,7 @@ import {
   analyzeCase,
   getCase,
   getSource,
+  openSourceFile,
   overrideScreening,
   reanalyzeCase,
   replaceDocument,
@@ -15,16 +16,19 @@ import { DOCUMENT_SLOTS, F1_GROUPS } from '../components/documentSlots.js'
 import Icon from '../components/Icon.jsx'
 import Seal, { resolveCaseSeal } from '../components/Seal.jsx'
 import SourceOverlay from '../components/SourceOverlay.jsx'
+import SourceSiteLink from '../components/SourceSiteLink.jsx'
 import DraftWorkspace from './DraftWorkspace.jsx'
 import './CaseDetail.css'
 
 const STAGES = [
   { key: 'f1', label: 'F1 擷取' },
   { key: 'screening', label: '程序審查' },
-  { key: 'f2', label: 'F2 法規' },
-  { key: 'f2_refs', label: 'F2+ 參考見解' },
-  { key: 'f3', label: 'F3 案例' },
+  { key: 'refs', label: '參考依據' },
 ]
+
+/** 合併在「參考依據」底下的三個後端階段。後端仍逐階段跑,左欄只呈現一個節點。 */
+const REF_STAGES = ['f2', 'f2_refs', 'f3']
+const atRefStage = (caseData) => REF_STAGES.includes(caseData.current_stage)
 
 /** 這一階段此刻正在跑。與程序審查那兩處的判準同一個,不另立一套。 */
 function isRunning(key, caseData) {
@@ -37,11 +41,10 @@ function autoTarget(caseData) {
   if (caseData.status === 'collecting') return 'collecting'
   if (caseData.status === 'done') return 'draft'
   if (caseData.status === 'processing') {
-    return caseData.current_stage === 'f4' || caseData.current_stage === 'done'
-      ? 'draft'
-      : caseData.current_stage
+    if (caseData.current_stage === 'f4' || caseData.current_stage === 'done') return 'draft'
+    return atRefStage(caseData) ? 'refs' : caseData.current_stage
   }
-  if (caseData.status === 'error') return caseData.current_stage
+  if (caseData.status === 'error') return atRefStage(caseData) ? 'refs' : caseData.current_stage
   return 'f1'
 }
 
@@ -53,17 +56,17 @@ function parseClause(matchedClause) {
 }
 
 function stageMarker(key, caseData) {
-  const hasData = Boolean(caseData[key])
-  if (caseData.status === 'error' && key === caseData.current_stage) {
+  // 參考依據是三個後端階段的合併節點:F3 跑完才算這一組完成,「不適用」只屬於裡面的法規那一組
+  const isRefs = key === 'refs'
+  const hasData = isRefs ? caseData.f3 !== null && caseData.f3 !== undefined : Boolean(caseData[key])
+  const atThisStage = isRefs ? atRefStage(caseData) : key === caseData.current_stage
+  if (caseData.status === 'error' && atThisStage) {
     return { icon: 'square-error', modifier: 'error', note: '中斷' }
-  }
-  if (key === 'f2' && caseData.track === 'inadmissible') {
-    return { icon: 'square-hollow', modifier: 'na', note: '不適用' }
   }
   if (hasData) {
     return { icon: 'fishtail-solid', modifier: 'done', note: null }
   }
-  if (caseData.status === 'processing' && key === caseData.current_stage) {
+  if (caseData.status === 'processing' && atThisStage) {
     return { icon: 'fishtail-accent', modifier: 'active', note: '進行中' }
   }
   return { icon: 'fishtail-hollow', modifier: 'pending', note: null }
@@ -235,12 +238,15 @@ function fieldText(info, field) {
 }
 
 /** 卷證總匯表的一欄:唯讀顯示 + 就地編輯。編輯送出的是整份 CaseInfo,只有這一欄換了值。 */
-function F1Field({ info, field, editable, onSave }) {
+function F1Field({ info, system, field, editable, onSave }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const text = fieldText(info, field)
+  // 承辦人改過的欄位要看得出來:改完若與模型抽的長得一樣,下次回頭就分不清哪些字是自己確認過的
+  const original = system ? fieldText(system, field) : null
+  const edited = original !== null && original !== text
 
   async function save() {
     setBusy(true)
@@ -297,7 +303,7 @@ function F1Field({ info, field, editable, onSave }) {
   }
 
   return (
-    <div className="f1-field">
+    <div className={`f1-field ${edited ? 'f1-field--edited' : ''}`}>
       <dt>{field.label}</dt>
       <dd className={field.kind === 'mono' ? 'mono' : undefined}>
         {field.kind === 'list' && text ? (
@@ -308,6 +314,11 @@ function F1Field({ info, field, editable, onSave }) {
           </ul>
         ) : (
           text || '—'
+        )}
+        {edited && (
+          <span className="f1-field__original" title={`模型原本擷取:${original || '(空)'}`}>
+            {original || '(空)'}
+          </span>
         )}
         {editable && (
           <button
@@ -327,7 +338,7 @@ function F1Field({ info, field, editable, onSave }) {
 }
 
 /** F1 卷證總匯表:依四份文件分組,眼睛跟著卷宗走。第五組是不出自單一文件的綜合判讀。 */
-function F1Section({ info, editable, onSave }) {
+function F1Section({ info, system, editable, onSave }) {
   return (
     <div className="f1-summary">
       {!editable && (
@@ -351,6 +362,7 @@ function F1Section({ info, editable, onSave }) {
                   <F1Field
                     key={field.key}
                     info={info}
+                    system={system}
                     field={field}
                     editable={editable}
                     onSave={onSave}
@@ -574,6 +586,7 @@ function F2Section({ laws, track, screening, running, onViewSource }) {
               原文
             </button>
           )}
+          <SourceSiteLink url={law.source_url} />
         </div>
       ))}
     </div>
@@ -603,6 +616,7 @@ function F2RefsSection({ refs, running, onViewSource }) {
               原文
             </button>
           )}
+          <SourceSiteLink url={ref.source_url} />
         </div>
       ))}
     </div>
@@ -634,6 +648,7 @@ function F3Section({ cases, running, onViewSource }) {
               原文
             </button>
           )}
+          <SourceSiteLink url={c.source_url} />
         </div>
       ))}
     </div>
@@ -642,7 +657,9 @@ function F3Section({ cases, running, onViewSource }) {
 
 /** 選中階段的內容;status==='error' 且該階段正是 current_stage 時,一律顯示錯誤訊息。 */
 function stageContent(key, caseData, onViewSource, onDocumentsChanged) {
-  if (caseData.status === 'error' && key === caseData.current_stage) {
+  // 參考依據是三個後端階段的合併節點,錯誤落在其中任一個都算這一節點中斷
+  const atThisStage = key === 'refs' ? atRefStage(caseData) : key === caseData.current_stage
+  if (caseData.status === 'error' && atThisStage) {
     return (
       <div className="state-message state-message--error">
         {caseData.error || '審理過程發生錯誤。'}
@@ -662,6 +679,7 @@ function stageContent(key, caseData, onViewSource, onDocumentsChanged) {
     return caseData.f1 ? (
       <F1Section
         info={caseData.f1}
+        system={caseData.f1_system}
         editable={caseData.status !== 'processing'}
         onSave={async (next) => {
           await updateCaseInfo(caseData.case_id, next)
@@ -686,29 +704,39 @@ function stageContent(key, caseData, onViewSource, onDocumentsChanged) {
       </div>
     )
   }
-  if (key === 'f2') {
+  if (key === 'refs') {
+    // 三組同頁但各自標題:F2+ 參考見解沒有條號,湊不出引用格式、不進 F4 的可引用清單,
+    // 混成一鍋會讓承辦人把它當成可引用法條(見 glossary)。
     return (
-      <F2Section
-        laws={caseData.f2}
-        track={caseData.track}
-        screening={caseData.screening}
-        running={isRunning(key, caseData)}
-        onViewSource={onViewSource}
-      />
-    )
-  }
-  if (key === 'f2_refs') {
-    return (
-      <F2RefsSection
-        refs={caseData.f2_refs}
-        running={isRunning(key, caseData)}
-        onViewSource={onViewSource}
-      />
-    )
-  }
-  if (key === 'f3') {
-    return (
-      <F3Section cases={caseData.f3} running={isRunning(key, caseData)} onViewSource={onViewSource} />
+      <div className="refs-stack">
+        <section className="refs-group">
+          <h3 className="refs-group__title">推薦法規(F2)</h3>
+          <F2Section
+            laws={caseData.f2}
+            track={caseData.track}
+            screening={caseData.screening}
+            running={isRunning('f2', caseData)}
+            onViewSource={onViewSource}
+          />
+        </section>
+        <section className="refs-group">
+          <h3 className="refs-group__title">參考見解(F2+)</h3>
+          <p className="refs-group__note">釋字、函釋與法院裁判供論理參考,沒有條號,不列入決定書的引用法條。</p>
+          <F2RefsSection
+            refs={caseData.f2_refs}
+            running={isRunning('f2_refs', caseData)}
+            onViewSource={onViewSource}
+          />
+        </section>
+        <section className="refs-group">
+          <h3 className="refs-group__title">相似案例(F3)</h3>
+          <F3Section
+            cases={caseData.f3}
+            running={isRunning('f3', caseData)}
+            onViewSource={onViewSource}
+          />
+        </section>
+      </div>
     )
   }
   return null
@@ -719,7 +747,9 @@ function reviewNotes(caseData) {
   const reasons = []
   Object.entries(caseData.documents || {}).forEach(([slot, doc]) => {
     const label = DOCUMENT_SLOTS.find((s) => s.key === slot)?.label || slot
-    if (doc?.check?.matched !== true) reasons.push(`${label}尚未確認無誤`)
+    // 空槽沒有東西可確認:答辯書是機關受理後才送來的,收案當下本來就沒有,
+    // 算進來的話每一件新案都恆亮。判準與後端 review.needs_review 一致。
+    if (doc?.check?.matched !== true && doc?.text?.trim()) reasons.push(`${label}尚未確認無誤`)
     if (doc?.review_note) reasons.push(`${label}:${doc.review_note}`)
   })
   if (caseData.deadline?.review_note) reasons.push(`訴願期間:${caseData.deadline.review_note}`)
@@ -781,6 +811,11 @@ export default function CaseDetail() {
   async function handleViewSource(key) {
     try {
       const result = await getSource(key)
+      // 存檔 PDF 不能當文字塞進 overlay:帶金鑰抓回 blob 再開新分頁
+      if (result.file) {
+        window.open(await openSourceFile(result.file), '_blank', 'noopener')
+        return
+      }
       setOverlayContent(result)
     } catch (err) {
       setOverlayContent({ text: err.message || '原文讀取失敗。' })
@@ -807,7 +842,10 @@ export default function CaseDetail() {
   /** 這一階段跑出結果了、而且使用者還沒點進去看過。文件確認不算——那是輸入,不是分析結果。 */
   const hasNewResult = (key) => {
     if (!caseData || seen.has(key)) return false
-    return Boolean(key === 'draft' ? caseData.f4 : caseData[key])
+    if (key === 'draft') return Boolean(caseData.f4)
+    // 參考依據:三組任一跑出結果就算有新東西可看
+    if (key === 'refs') return REF_STAGES.some((stage) => Boolean(caseData[stage]))
+    return Boolean(caseData[key])
   }
 
   const railSlot = caseData && (
@@ -950,7 +988,9 @@ export default function CaseDetail() {
             <DraftWorkspace
               caseId={caseData.case_id}
               draft={caseData.f4}
+              text={caseData.draft_plain_text}
               laws={caseData.f2}
+              refs={caseData.f2_refs}
               cases={caseData.f3}
               track={caseData.track}
               versionCount={caseData.draft_versions?.length ?? 0}

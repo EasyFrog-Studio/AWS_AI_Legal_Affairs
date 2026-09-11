@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 import fitz
 
@@ -104,11 +105,10 @@ class _Writer:
         self.y += amount
 
 
-def build_decision_blocks(case, body_as_slots: bool = False) -> list[tuple[str, str]]:
+def build_decision_blocks(case) -> list[tuple[str, str]]:
     """決定書草稿的版面區塊 [(kind, text)];kind ∈ title/heading/body/blank。
     體例照語料 21 份真實決定書,系統填不出來的欄位留空給承辦人。
-    body_as_slots=True 時三段本文改回 ("slot", 欄位名),供前端塞可編輯欄位——
-    版面只有這一份定義,前端不自己再拼一次骨架。"""
+    唯一的消費者是 decision_plain_text 與 docx_render:版面只有這一份定義。"""
     f1 = case.f1
     header = case.decision_header
     blocks: list[tuple[str, str]] = [
@@ -132,7 +132,7 @@ def build_decision_blocks(case, body_as_slots: bool = False) -> list[tuple[str, 
         if field == "fact" and f4.draft_type == "不受理" and not (f4.fact or "").strip():
             continue
         blocks.append(("heading", heading))
-        blocks.append(("slot", field) if body_as_slots else ("body", body or ""))
+        blocks.append(("body", body or ""))
         blocks.append(("blank", ""))
 
     blocks.append(("body", f"訴願審議委員會主任委員　{_value(header.chairman)}"))
@@ -154,9 +154,18 @@ def _value(text) -> str:
     return text if text else _BLANK
 
 
+_ERA_PREFIX_RE = re.compile(r"^\s*(?:中華)?民國\s*")
+
+
+def _strip_era(date: str) -> str:
+    """抬頭模板自己寫了「民國」,而 F1 的 disposition_date 保留原文寫法、公文書多半自帶紀年,
+    不脫掉就會印出「民國民國110年8月31日」。"""
+    return _ERA_PREFIX_RE.sub("", date)
+
+
 def _opening_paragraph(f1) -> str:
     case_type = _value(f1 and f1.case_type)
-    date = _value(f1 and f1.disposition_date)
+    date = _strip_era(_value(f1 and f1.disposition_date))
     doc_no = _value(f1 and f1.disposition_no)
     return (
         f"上列訴願人因{case_type}事件,不服原處分機關民國{date}{doc_no}"
@@ -164,20 +173,26 @@ def _opening_paragraph(f1) -> str:
     )
 
 
-def render_draft_pdf(case) -> bytes:
-    """依 case.f4 產生決定書草稿 PDF bytes(case.f4 必須非 None)。"""
+def decision_plain_text(case) -> str:
+    """把版面攤平成承辦人實際編輯的那一份全文。F4 產出時呼叫一次寫進 draft_plain_text;
+    之後這份文字就是決定書本身,f4 三欄只是產生它的素材。"""
+    lines = []
+    for kind, text in build_decision_blocks(case):
+        lines.append("" if kind == "blank" else text)
+    return "\n".join(lines)
+
+
+def _render_plain_pdf(text: str) -> bytes:
+    """純文字照打的樣子印,不套任何體例套語。走 write_paragraph 是為了過長的行會折行——
+    write_line 不折,超出版心就直接被裁掉。"""
     doc = fitz.open()
     w = _Writer(doc)
-    for kind, text in build_decision_blocks(case):
-        if kind == "blank":
-            w.gap(10)
-        elif kind == "title":
-            w.write_line(text, _TITLE_SIZE, align="center")
-            w.gap(8)
-        elif kind == "heading":
-            w.write_line(text, _HEADING_SIZE, align="center")
-            w.gap(4)
-        else:
-            w.write_paragraph(text)
-    doc.subset_fonts()  # 內嵌字型只留用到的字,否則每份 PDF 多背 5MB
+    w.write_paragraph(text or "")
+    doc.subset_fonts()
     return doc.tobytes()
+
+
+def render_draft_pdf(case) -> bytes:
+    """依 case.draft_plain_text 產生決定書草稿 PDF bytes。
+    承辦人編輯與下載的都是那一份全文;f4 只是產生它的素材,不再直接印。"""
+    return _render_plain_pdf(case.draft_plain_text)

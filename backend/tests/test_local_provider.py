@@ -807,3 +807,75 @@ def test_f1_schema_requires_every_field_a_procedural_check_reads():
     required = http.calls[0][1]["format"]["required"]
     for field in ("disposition_recipient", "disposition_notice_clause", "receipt_date", "appeal_reasons"):
         assert field in required, field
+
+
+# ---------- F3 相似案例帶出原始來源網址 ----------
+
+
+def _url_case_row(**metadata_overrides):
+    metadata = {
+        "case_no": "1141021559",
+        "year": "114",
+        "case_type": "噪音管制法",
+        "appeal_article": "77(2)",
+        "issue": "逾期提起",
+        "result": "不受理",
+    }
+    metadata.update(metadata_overrides)
+    return ("case1", "相似案例全文", metadata, 0.8)
+
+
+def _one_case(row):
+    http = FakeHTTP(chat_payloads=[])
+    connect, _ = _fake_connect_factory([row])
+    provider = _provider(http_client=http, connect=connect)
+    screening = ScreeningResult(passed=False, matched_clause="77條第2款", reasoning="逾期")
+    return provider.find_similar_cases(_info(case_type="噪音管制法"), screening, "原文")[0]
+
+
+def test_similar_cases_carry_the_crawled_source_url():
+    """爬蟲語料的決定書存了查詢系統的深連結,承辦人要能直接點開原案比對。"""
+    url = "https://web.law.ntpc.gov.tw/Scripts/Su_contents03.aspx?NO=3&EANO=1141021559"
+    assert _one_case(_url_case_row(source_url=url)).source_url == url
+
+
+def test_a_case_without_a_usable_url_gets_none_rather_than_a_dead_link():
+    """官方語料沒有 source_url,爬蟲語料也有少數缺漏;非 http(s) 的值一律不畫成連結
+    ——按下去必定失敗的按鈕比沒有按鈕更糟(同 viewable_source_key 的判準)。"""
+    for value in (None, "", "   ", "NTPC-1141021559", "javascript:alert(1)"):
+        row = _url_case_row() if value is None else _url_case_row(source_url=value)
+        assert _one_case(row).source_url is None
+
+
+def test_extract_case_info_forces_the_answer_fields_to_be_answered():
+    """三欄選填時模型會整組省略——實測餵了 1,592 字的答辯書,三欄仍全空。
+    列進 required 是要模型「一定要回答」,沒有答辯書就明確回空值,不是當作沒看到。"""
+    http = FakeHTTP(
+        chat_payloads=[
+            {
+                "appellant": "王大明",
+                "agency": "彰化縣環境保護局",
+                "disposition_date": "110年3月5日",
+                "disposition_no": "彰環廢字第1號",
+                "disposition_summary": "裁處罰鍰",
+                "case_type": "廢棄物清理",
+                "answer_statement": "",
+                "answer_self_revoked": "",
+                "answer_arguments": [],
+            }
+        ]
+    )
+    provider = _provider(http_client=http)
+
+    provider.extract_case_info("訴願書原文")
+
+    _, body = http.calls[0]
+    required = body["format"]["required"]
+    for field in (
+        "answer_statement",
+        "answer_self_revoked",
+        "answer_arguments",
+        "appeal_facts",
+        "appeal_reasons",  # 拆出事實欄後模型會把內容全倒進事實、理由留空,§77(1) 因此誤報缺漏
+    ):
+        assert field in required, field

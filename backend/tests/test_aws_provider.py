@@ -868,9 +868,10 @@ def test_find_references_overfetches_so_one_long_document_cannot_starve_the_list
     ]
 
 
-def test_find_references_treats_non_markdown_source_as_no_viewable_original():
-    """爬蟲語料的 source_file 存的是 PDF 檔名,而取原文的端點只找得到前處理產出的 markdown。
-    照收會畫出一個按下去必定回「找不到檔案」的按鈕。"""
+def test_find_references_routes_a_crawled_pdf_to_the_archived_store():
+    """爬蟲語料的 source_file 是 PDF 檔名,取原文端點的 markdown 那一支找不到它;
+    但那份 PDF 就在本機存檔目錄裡,改指過去(`reference/<類別>/<檔名>`)——
+    原本一律回 None 的結果是 F2+ 在畫面上一個可點的來源都沒有。"""
     rows = [
         {
             "content": {"text": "釋字第718號解釋文"},
@@ -896,8 +897,8 @@ def test_find_references_treats_non_markdown_source_as_no_viewable_original():
 
     yizi, hanshi = _provider(bedrock_agent_runtime=bart).find_references(_info())
 
-    assert yizi.source_key is None
-    assert hanshi.source_key == rows[1]["metadata"]["source_file"]
+    assert yizi.source_key == "reference/司法院釋字/釋字第0718號_103-03-21_集會遊行法申請許可規定.pdf"
+    assert hanshi.source_key == rows[1]["metadata"]["source_file"]  # 官方語料仍走 markdown
 
 
 def test_retrieval_paths_drop_source_keys_the_source_endpoint_cannot_serve():
@@ -978,7 +979,10 @@ def test_extract_case_info_carries_the_answer_document_fields():
     schema = brt.converse.call_args.kwargs["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
     for key in ("answer_statement", "answer_self_revoked", "answer_arguments"):
         assert key in schema["properties"], key
-        assert key not in schema["required"]  # 機關尚未答辯是常態,不能要求模型一定要生出來
+        # required 要求的是「一定要回答這個鍵」,不是「內容不得為空」。原本列為選填的理由是
+        # 「機關尚未答辯是常態」,但實測相反:餵了 1,592 字的答辯書,模型仍把三欄整組省略。
+        # 沒有答辯書時 prompt 要求明確回空值,那是誠實回報;整組不回才是看不出有沒有讀到。
+        assert key in schema["required"], key
 
 
 def test_extract_case_info_without_an_answer_document_leaves_those_fields_at_defaults():
@@ -1066,3 +1070,44 @@ def test_f1_schema_requires_every_field_a_procedural_check_reads():
     schema = kwargs["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
     for field in ("disposition_recipient", "disposition_notice_clause", "receipt_date", "appeal_reasons"):
         assert field in schema["required"], field
+
+
+def test_similar_cases_carry_the_source_url_like_local_does():
+    """aws 與 local 的 F3 必須等價:其中一邊帶得出原始來源網址、另一邊帶不出來,
+    等於同一件案子在兩個模式下看到不一樣的東西。"""
+    url = "https://web.law.ntpc.gov.tw/Scripts/Su_contents03.aspx?NO=3&EANO=1141021559"
+    bart = MagicMock()
+    bart.retrieve.return_value = {
+        "retrievalResults": [
+            {
+                "content": {"text": "相似案例全文"},
+                "metadata": {
+                    "case_no": "1141021559",
+                    "year": "114",
+                    "case_type": "廢棄物清理",
+                    "appeal_article": "77(2)",
+                    "issue": "逾期提起",
+                    "result": "不受理",
+                    "source_url": url,
+                },
+            },
+            {
+                "content": {"text": "另一件相似案例"},
+                "metadata": {
+                    "case_no": "1141021560",
+                    "year": "114",
+                    "case_type": "廢棄物清理",
+                    "appeal_article": "77(2)",
+                    "issue": "逾期提起",
+                    "result": "不受理",
+                    "source_url": "NTPC-1141021560",  # 非網址,不得畫成連結
+                },
+            },
+        ]
+    }
+    provider = _provider(bedrock_agent_runtime=bart)
+    screening = ScreeningResult(passed=False, matched_clause="77條第2款", reasoning="逾期")
+
+    cases = provider.find_similar_cases(_info(), screening, "原文")
+
+    assert [c.source_url for c in cases] == [url, None]

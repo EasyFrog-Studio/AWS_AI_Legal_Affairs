@@ -15,6 +15,9 @@ services:
       # 容器內解析出的路徑是 /data/output,掛不上就每個原文都回「找不到檔案」。
       # 語料不在 repo 內(體積大且會過期),路徑因機器而異,故留成可覆寫
       - ${DATA_OUTPUT_DIR:-../../data/output}:/data/output:ro
+      # 參考見解(函釋/裁判/釋字)的存檔 PDF:爬蟲語料只有 PDF、沒有 markdown,
+      # 不掛的話 F2+ 那幾筆在畫面上一個可點的來源都沒有
+      - ../../data/爬蟲集/爬蟲原資料+官方資料/參考資料:/data/reference:ro
     depends_on:
       postgres:
         condition: service_healthy
