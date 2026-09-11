@@ -1,12 +1,224 @@
-/* NewCase 頁專用:單欄表單,行長受限 */
-
-.newcase {
-  max-width: var(--measure);
-}
+/* NewCase 頁專用:滿版卷證工作檯,四個文件槽兩兩並排 */
 
 .newcase__intro {
   font-family: var(--font-ui);
   font-size: var(--text-ui);
   color: var(--color-ink-soft);
-  margin-bottom: var(--space-lg);
+  margin: 0 0 var(--space-md);
+}
+
+/* 說明文字緊貼頁首,兩者是同一段交代;疊上類別是為了壓過 layout.css 的同權重規則 */
+.page-header.page-header--tight {
+  padding-bottom: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+/* 槽名與分頁是同一組控制,靠緊才讀成一體 */
+.doc-grid .doc-slot__head {
+  margin-bottom: var(--space-2xs);
+}
+
+.doc-grid .tabs--sm {
+  margin-bottom: var(--space-xs);
+}
+
+/* 案號是一串短碼,欄位跟著版面拉寬只會讓人以為要填長文 */
+.newcase__caseid .input {
+  max-width: 24em;
+}
+
+.doc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* 各槽自己決定高度:文字槽長出來時,同列的落件框不該跟著被拉高留一段空白 */
+  align-items: start;
+  gap: var(--space-xl);
+}
+
+/* 並排後每格自成一塊,共用樣式的分隔線與外距在格線裡是多餘的 */
+.doc-grid .doc-slot {
+  margin: 0;
+  padding: 0;
+  border-bottom: none;
+}
+
+/* 兩欄與單欄的落件框等高,切換分頁時版面不跳動 */
+.doc-slot__text.textarea,
+.dropzone {
+  min-height: 220px;
+}
+
+.doc-slot__text.textarea {
+  /* inline 元素的基線空隙會讓切到文字分頁時整列長高 */
+  display: block;
+  resize: none;
+  overflow: hidden;
+}
+
+.dropzone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: var(--space-lg);
+  background: var(--color-surface);
+  border: 2px dashed var(--color-rule-strong);
+  border-radius: var(--radius);
+  transition: border-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+
+.dropzone:hover {
+  border-color: var(--color-ink-soft);
+}
+
+.dropzone:focus-within {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  transition: none;
+}
+
+.dropzone--over {
+  border-color: var(--color-accent);
+  background: var(--color-surface-2);
+}
+
+.dropzone--filled {
+  border-style: solid;
+  border-color: var(--color-accent);
+}
+
+.dropzone--error {
+  border-color: var(--color-error);
+}
+
+/* input 留在 tab 序列裡才有鍵盤入口,焦點環畫在外框上 */
+.dropzone__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.dropzone__face {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2xs);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  text-align: center;
+}
+
+.dropzone .dropzone__icon {
+  width: 28px;
+  height: 28px;
+  color: var(--color-wood);
+  margin-bottom: var(--space-2xs);
+}
+
+.dropzone__title {
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--color-ink);
+}
+
+.dropzone__hint,
+.dropzone__size {
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+}
+
+.dropzone__file {
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+
+.dropzone__size {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+}
+
+.dropzone__clear {
+  font-size: var(--text-sm);
+}
+
+.dropzone__reject {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--color-error);
+  margin: 0;
+  text-align: center;
+}
+
+.dropzone--disabled {
+  background: var(--color-surface-2);
+  border-color: var(--color-rule);
+}
+
+.dropzone--disabled:hover {
+  border-color: var(--color-rule);
+}
+
+.dropzone--disabled .dropzone__face {
+  cursor: not-allowed;
+}
+
+.dropzone--disabled .dropzone__face *,
+.dropzone--disabled .dropzone__icon {
+  color: var(--color-ink-faint);
+}
+
+.newcase__submit.btn-primary {
+  background: var(--color-accent-deep);
+  border-color: var(--color-accent-deep);
+  color: var(--color-surface);
+  min-height: 48px;
+  padding-inline: var(--space-xl);
+}
+
+.newcase__submit.btn-primary:hover:not([aria-disabled='true']) {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.newcase__actions {
+  justify-content: flex-end;
+}
+
+/* 必填文件未齊時外觀不變,只用游標說明按不下去 */
+.newcase__submit.btn-primary[aria-disabled='true'] {
+  background: var(--color-accent-deep);
+  border-color: var(--color-accent-deep);
+  color: var(--color-surface);
+  pointer-events: auto;
+  cursor: not-allowed;
+}
+
+/* 缺件說明跟著按鈕靠右,讀的人視線不用折回左邊 */
+.newcase__missing {
+  font-family: var(--font-ui);
+  font-size: var(--text-ui);
+  color: var(--color-error);
+  text-align: right;
+  margin: var(--space-xs) 0 0;
+}
+
+/* 送出中是等待,不是禁止 */
+.newcase__submit.btn-primary.btn--loading {
+  cursor: progress;
+}
+
+@media (max-width: 900px) {
+  .doc-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-lg);
+  }
 }

@@ -518,13 +518,7 @@ table.list-table {
   color: var(--color-ink);
 }
 
-.doc-slot__hint {
-  font-family: var(--font-ui);
-  font-size: var(--text-sm);
-  color: var(--color-ink-soft);
-}
-
-.doc-slot__optional {
+.doc-slot__flag {
   font-family: var(--font-ui);
   font-size: var(--text-sm);
   color: var(--color-ink-soft);

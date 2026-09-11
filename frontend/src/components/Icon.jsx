@@ -19,6 +19,20 @@ const ICONS = {
   'square-error': (
     <rect x="2.75" y="2.75" width="10.5" height="10.5" fill="currentColor" stroke="none" />
   ),
+  'page-arrow': (
+    <g fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.5 1.5h6l3 3v10h-9z" />
+      <path d="M9.5 1.5v3h3" />
+      <path d="M8 12V7.5M8 7.5 6.25 9.25M8 7.5l1.75 1.75" />
+    </g>
+  ),
+  'page-filled': (
+    <g fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.5 1.5h6l3 3v10h-9z" />
+      <path d="M9.5 1.5v3h3" />
+      <path d="m5.75 9.75 1.5 1.5 3-3.5" />
+    </g>
+  ),
   search: (
     <>
       <circle cx="6.5" cy="6.5" r="4" fill="none" stroke="currentColor" strokeWidth="1.5" />

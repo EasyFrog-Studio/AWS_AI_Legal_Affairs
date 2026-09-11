@@ -175,8 +175,9 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  /* 收成頂列後仍要當底紋的定位容器,否則切面會脫離左欄鋪滿整頁 */
   .rail {
-    position: static;
+    position: relative;
     height: auto;
   }
 

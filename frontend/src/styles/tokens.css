@@ -26,6 +26,7 @@
   /* ── 動作:橄欖填色 ── */
   --color-accent:       var(--color-rail);
   --color-accent-hover: var(--color-rail-2);
+  --color-accent-deep:  oklch(30% 0.05 150);    /* 送出鍵:與左欄同色相再壓深,對近白字 ≥ 12:1 */
   --color-on-accent:    var(--color-on-rail);
 
   /* ── 訊號:金 ── */

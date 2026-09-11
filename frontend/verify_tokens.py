@@ -37,6 +37,7 @@ def cr(a, b):
 T = {
     'paper': (.945, .022, 90), 'surface': (.975, .012, 90), 'surface-2': (.915, .024, 90),
     'rail': (.37, .035, 150), 'rail-2': (.43, .035, 150), 'rail-mid': (.35, .035, 150), 'rail-deep': (.33, .035, 150),
+    'accent-deep': (.30, .05, 150),
     'on-rail': (.92, .02, 90), 'on-rail-soft': (.86, .02, 100),
     'ink': (.30, .02, 150), 'ink-soft': (.44, .02, 150), 'ink-faint': (.45, .02, 150),
     'wood': (.45, .05, 60), 'link': (.40, .05, 150),
@@ -56,6 +57,7 @@ CHECKS = [
     ('gold-deep', 'paper', 3), ('gold-deep', 'surface', 3),
     ('on-rail', 'rail', 7), ('on-rail', 'rail-2', 4.5), ('on-rail-soft', 'rail', 6), ('on-rail-soft', 'rail-2', 4.5),
     ('gold', 'rail', 3), ('gold', 'rail-2', 3), ('surface', 'rail', 3),
+    ('surface', 'accent-deep', 7), ('surface', 'rail', 4.5),
     ('pass', 'surface', 4.5), ('reject', 'surface', 4.5), ('processing', 'surface', 4.5),
     ('error', 'paper', 4.5), ('error', 'surface', 4.5),
     ('review', 'paper', 4.5), ('review', 'surface', 4.5),
