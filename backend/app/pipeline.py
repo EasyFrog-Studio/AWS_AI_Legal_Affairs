@@ -121,22 +121,28 @@ def _caveats(facts: DeadlineFacts, due_date: date | None) -> list[str]:
         return notes
     if due_date.year not in covered_years():
         notes.append(f"{due_date.year} 年國定假日未收錄,末日是否須順延未經計入")
-    # 抽錯送達日仍可能自洽,故與卷內自述的末日對帳,不一致就不是可逕採的結論
-    if facts.stated_due_date is not None and facts.stated_due_date != due_date:
-        notes.append(f"算得末日與卷內自述之{format_roc(facts.stated_due_date)}不符,須人工確認")
     return notes
 
 
-def _advisories(facts: DeadlineFacts) -> list[str]:
-    """要讓承辦人看到、但不阻擋算式覆寫的歧異。送達生效日以送達證書為準是行政程序法
-    §72-74 的定論,訴願人主張較晚知悉不延長起算;算式已據此挑定送達證書,再以「有爭點」
-    為由拒絕採用自己的結論就是算了不算。送達證書缺席時另由 _caveats 擋下。"""
-    if facts.disputed_receipt_date is None or facts.service_date_self_reported:
-        return []
-    return [
-        f"訴願書自述收受或知悉日{format_roc(facts.disputed_receipt_date)}與送達證書不符,"
-        "送達生效日依法採送達證書;自述日不影響起算,惟送達合法性如有爭執仍須人工認定"
-    ]
+def _advisories(facts: DeadlineFacts, due_date: date | None) -> list[str]:
+    """要讓承辦人看到、但不阻擋算式覆寫的歧異:兩項都是對造的法律主張,不是我方抽錯的徵兆。
+
+    送達生效日以送達證書為準是行政程序法§72-74 的定論,訴願人主張較晚知悉不延長起算;
+    算式已據此挑定送達證書,再以「有爭點」為由拒絕採用自己的結論就是算了不算。
+    卷內自述的末日同理——訴願人主張的起算日與我方不同時,末日本來就會不一樣。
+    送達證書缺席而生效日出自自述時,另由 _caveats 擋下。
+    """
+    notes = []
+    if facts.disputed_receipt_date is not None and not facts.service_date_self_reported:
+        notes.append(
+            f"訴願書自述收受或知悉日{format_roc(facts.disputed_receipt_date)}與送達證書不符,"
+            "送達生效日依法採送達證書;自述日不影響起算,惟送達合法性如有爭執仍須人工認定"
+        )
+    if due_date is not None and facts.stated_due_date is not None and facts.stated_due_date != due_date:
+        notes.append(
+            f"算得末日與卷內自述之{format_roc(facts.stated_due_date)}不符,自述末日係訴願人之主張,須人工確認"
+        )
+    return notes
 
 
 def _with_filed_date(
@@ -144,7 +150,7 @@ def _with_filed_date(
 ) -> DeadlineCheck:
     """算出末日之後的共同收尾:對帳註記 + 收文日比對。各期間分支只負責算末日與敘述。"""
     caveats = [note for note in extra_notes if note] + _caveats(facts, result.due_date)
-    advisories = _advisories(facts)
+    advisories = _advisories(facts, result.due_date)
     if facts.filed_date is None:
         return DeadlineCheck(
             service_date=facts.service_date,

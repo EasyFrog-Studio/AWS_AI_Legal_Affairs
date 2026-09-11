@@ -1347,3 +1347,41 @@ def test_a_disputed_receipt_date_still_blocks_when_the_service_date_came_from_th
     assert check.overdue is True
     assert result.passed is True
     assert result.matched_clause is None
+
+
+def test_a_stated_due_date_mismatch_does_not_block_the_override():
+    """卷內自述的末日是訴願人的法律主張,不是對我方抽取的檢驗:他主張的起算日與我方不同時,
+    末日本來就會不一樣。註記照留給承辦人看,但不得因此讓算式閉嘴。"""
+    facts = DeadlineFacts(
+        service_date=date(2023, 2, 7),
+        transit_days=0,
+        filed_date=date(2023, 3, 15),
+        stated_due_date=date(2023, 3, 19),
+    )
+    check = _check_deadline_from_extraction(DeadlineExtraction(facts=facts))
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="無不受理事由")
+
+    result, reconciled = reconcile_deadline(screening, check)
+
+    assert check.overdue is True
+    assert "與卷內自述" in reconciled.review_note  # 歧異看得到
+    assert result.passed is False
+    assert result.matched_clause == "77條第2款"
+
+
+def test_a_real_extraction_caveat_still_blocks_alongside_a_stated_due_date_mismatch():
+    """公示送達這類「算式自己不可信」的保留仍然擋覆寫,不因為旁邊有一個資訊性註記而放行。"""
+    facts = DeadlineFacts(
+        service_date=date(2023, 2, 7),
+        transit_days=0,
+        filed_date=date(2023, 3, 15),
+        stated_due_date=date(2023, 3, 19),
+        public_notice=True,
+    )
+    check = _check_deadline_from_extraction(DeadlineExtraction(facts=facts))
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="無不受理事由")
+
+    result, _ = reconcile_deadline(screening, check)
+
+    assert check.override_blocked is True
+    assert result.passed is True
