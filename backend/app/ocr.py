@@ -118,7 +118,9 @@ class OllamaOcrClient:
         if http_client is None:
             import httpx
 
-            http_client = httpx.Client(base_url=settings.LOCAL_LLM_BASE_URL, timeout=300)
+            http_client = httpx.Client(
+                base_url=settings.LOCAL_LLM_BASE_URL, timeout=settings.LOCAL_LLM_TIMEOUT
+            )
         self._http = http_client
         self._prompt = (_PROMPTS_DIR / "ocr_page.txt").read_text(encoding="utf-8")
 

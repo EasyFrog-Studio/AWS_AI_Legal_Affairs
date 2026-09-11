@@ -11,6 +11,7 @@ import psycopg
 
 from ingest import (
     LOCAL_LLM_BASE_URL,
+    LOCAL_LLM_TIMEOUT,
     POSTGRES_URL,
     ingest_chunks,
     ingest_law_articles,
@@ -170,7 +171,7 @@ def main() -> None:
 
     conn = psycopg.connect(POSTGRES_URL)
     try:
-        with httpx.Client(base_url=LOCAL_LLM_BASE_URL, timeout=300) as http_client:
+        with httpx.Client(base_url=LOCAL_LLM_BASE_URL, timeout=LOCAL_LLM_TIMEOUT) as http_client:
             ingest_chunks(conn, http_client, "law_chunks", law_rows + ref_rows, "law_chunks(爬蟲)")
             ingest_chunks(conn, http_client, "case_chunks", case_rows, "case_chunks(爬蟲)")
         # 參考資料無條號,鍵是「法名#條號」的精查表收不了它們

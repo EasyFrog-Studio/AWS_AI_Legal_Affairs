@@ -171,3 +171,23 @@ def test_mock_mode_has_no_ocr_and_says_so(monkeypatch):
         get_ocr_client()
 
     assert "未接 OCR" in str(exc.value)
+
+
+def test_ollama_ocr_client_uses_configured_timeout(monkeypatch):
+    """視覺模型走的是同一個旋鈕:逐頁抽字比純文字生成更慢,寫死 300 會在掃描件上先斷。"""
+    import httpx
+
+    from app.config import settings
+
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, base_url, timeout):
+            captured["timeout"] = timeout
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+    monkeypatch.setattr(settings, "LOCAL_LLM_TIMEOUT", 4321.0)
+
+    OllamaOcrClient()
+
+    assert captured["timeout"] == 4321.0

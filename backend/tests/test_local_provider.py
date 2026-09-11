@@ -762,3 +762,24 @@ def test_generate_draft_schema_enum_matches_draft_types():
     path, body = http.calls[0]
     assert path == "/api/chat"
     assert body["format"]["properties"]["draft_type"]["enum"] == list(DRAFT_TYPES)
+
+
+def test_default_http_client_uses_configured_timeout(monkeypatch):
+    """沒注入 client 時走的是真實建構路徑;逾時必須來自設定,不是寫死的常數。"""
+    import httpx
+
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, base_url, timeout):
+            captured["base_url"] = base_url
+            captured["timeout"] = timeout
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+    monkeypatch.setattr(settings, "LOCAL_LLM_TIMEOUT", 1234.0)
+    monkeypatch.setattr(settings, "POSTGRES_URL", "postgresql://x/y")
+
+    LocalProvider(connect=lambda: None)
+
+    assert captured["timeout"] == 1234.0
+    assert captured["base_url"] == settings.LOCAL_LLM_BASE_URL

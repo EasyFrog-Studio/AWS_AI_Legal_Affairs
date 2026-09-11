@@ -12,6 +12,7 @@ from pathlib import Path
 
 import httpx
 import psycopg
+from dotenv import load_dotenv
 
 # --- 路徑推導(鏡像 AWS_dev_infomation/AWS_AI_Legal_Affairs/preprocessing/common.py:9-10 的相對寫法) ---
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "data" / "output"
@@ -21,8 +22,14 @@ CASE_CHUNKS_PATH = OUTPUT_DIR / "case_chunks.jsonl"
 ANSWER_CHUNKS_PATH = OUTPUT_DIR / "answer_chunks.jsonl"
 
 # --- 設定(環境變數可覆寫) ---
+# .env 只有 compose 會自動注入,建索引是在主機上跑的,要自己載;既有環境變數優先
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
+
 LOCAL_LLM_BASE_URL = os.environ.get("LOCAL_LLM_BASE_URL", "http://localhost:11434")
 LOCAL_EMBED_MODEL = os.environ.get("LOCAL_EMBED_MODEL", "bge-m3")
+# 與 backend/app/config.py 的 LOCAL_LLM_TIMEOUT 同一個旋鈕:建索引是數千筆的長批次,
+# 逾時值調小會讓整批在中途斷在一筆正常的慢 embedding 上
+LOCAL_LLM_TIMEOUT = float(os.environ.get("LOCAL_LLM_TIMEOUT", "300"))
 POSTGRES_URL = os.environ.get("POSTGRES_URL", "")  # 空字串=未設定,main() 連線前檢查,import 時不 raise
 
 EMBED_BATCH_SIZE = 32
@@ -166,7 +173,7 @@ def main():
         conn.commit()
         print("[DDL] 已確認 extension/tables 存在")
 
-        with httpx.Client(base_url=LOCAL_LLM_BASE_URL, timeout=300) as http_client:
+        with httpx.Client(base_url=LOCAL_LLM_BASE_URL, timeout=LOCAL_LLM_TIMEOUT) as http_client:
             print(f"開始匯入 law_chunks(law+interp): {len(law_rows) + len(interp_rows)} 筆")
             ingest_chunks(conn, http_client, "law_chunks", law_rows + interp_rows, "law_chunks")
 

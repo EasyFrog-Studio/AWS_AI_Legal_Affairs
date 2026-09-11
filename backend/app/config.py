@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     LOCAL_LLM_MODEL: str = "kamekichi128/qwen3-4b-instruct-2507"
     LOCAL_VISION_MODEL: str = "qwen2.5vl:7b"  # 掃描件逐頁抽字用(app/ocr.py),與文字模型分開設
     LOCAL_EMBED_MODEL: str = "bge-m3"
+    # ollama 單次請求的逾時秒數。地端 4B 模型在慢機器上生一份 F4 草稿可達數分鐘,
+    # 評測整批跑更久;調小會讓正常的慢生成被誤判成失敗
+    LOCAL_LLM_TIMEOUT: float = 300
     POSTGRES_URL: str = ""  # 空字串=未設定,連線前由呼叫端(store.py/providers/local.py)拒絕
     # 決定書 PDF 的內嵌字型;檔案不存在時 pdf_render 退回 fitz 內建 china-t
     DECISION_FONT_FILE: str = "/usr/share/fonts/truetype/ukai-tw.ttf"

@@ -13,6 +13,8 @@ import time
 from datetime import date, datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 _EVAL_DIR = Path(__file__).resolve().parent
 _CODE_ROOT = _EVAL_DIR.parent
 _OUTER_ROOT = _CODE_ROOT.parent
@@ -21,6 +23,8 @@ sys.path.insert(0, str(_EVAL_DIR))
 sys.path.insert(0, str(_CODE_ROOT / "backend"))
 # 評測在主機上跑,而 provider 的預設位址 host.docker.internal 只有容器內解析得到
 os.environ.setdefault("LOCAL_LLM_BASE_URL", "http://localhost:11434")
+# .env 只有 compose 會自動注入,主機上跑要自己載;override=False,上面那行的位址優先
+load_dotenv(_CODE_ROOT / ".env", override=False)
 
 from app.config import settings  # noqa: E402
 from app.models import Case, CaseDocument, CaseInfo, DraftResult, build_input_text  # noqa: E402
