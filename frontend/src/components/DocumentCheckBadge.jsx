@@ -5,12 +5,12 @@ export default function DocumentCheckBadge({ check }) {
   if (check.matched === true) {
     return (
       <span className="doc-check doc-check--ok">
-        ✓ 確認為此文件({check.method === 'gemini' ? 'AI 判斷' : '規則判斷'})
+        ✓ 確認為此文件（{check.method === 'gemini' ? 'AI 判斷' : '規則判斷'}）
       </span>
     )
   }
   if (check.matched === false) {
     return <span className="doc-check doc-check--mismatch">✕ {check.note}</span>
   }
-  return <span className="doc-check doc-check--unknown">? 無法自動確認,請人工核對:{check.note}</span>
+  return <span className="doc-check doc-check--unknown">? 無法自動確認，請人工核對：{check.note}</span>
 }

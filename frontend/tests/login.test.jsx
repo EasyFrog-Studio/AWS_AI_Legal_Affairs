@@ -37,7 +37,7 @@ describe('Login 頁', () => {
     renderLogin()
     await userEvent.type(screen.getByLabelText('密碼'), 'bad')
     await userEvent.click(screen.getByRole('button', { name: '進入系統' }))
-    expect(await screen.findByText('驗證失敗,請確認後重新輸入。')).toBeInTheDocument()
+    expect(await screen.findByText('驗證失敗，請確認後重新輸入。')).toBeInTheDocument()
     expect(api.setApiKey).not.toHaveBeenCalled()
     expect(screen.queryByText('案件清單頁')).toBeNull()
     expect(document.querySelector('.login').dataset.state).toBe('error')

@@ -10,7 +10,7 @@ function BasisPanel({ laws, refs, cases, track, onViewSource }) {
     <aside className="basis-panel" aria-label="承辦參考依據">
       {track !== 'inadmissible' && (
         <div className="basis-panel__group">
-          <div className="basis-panel__heading">參考法規(F2)</div>
+          <div className="basis-panel__heading">參考法規（F2）</div>
           {laws === null && (
             <div className="state-message state-message--pending">檢索中…</div>
           )}
@@ -41,7 +41,7 @@ function BasisPanel({ laws, refs, cases, track, onViewSource }) {
       )}
       {/* 參考見解兩條 track 都跑,故沒有 track 條件;但它不進 F4 的可引用清單,標題要與法規分開 */}
       <div className="basis-panel__group">
-        <div className="basis-panel__heading">參考見解(F2+)</div>
+        <div className="basis-panel__heading">參考見解（F2+）</div>
         {refs === null && <div className="state-message state-message--pending">檢索中…</div>}
         {refs !== null && refs !== undefined && refs.length === 0 && (
           <div className="state-message state-message--empty">未檢索到相關參考見解。</div>
@@ -69,7 +69,7 @@ function BasisPanel({ laws, refs, cases, track, onViewSource }) {
           ))}
       </div>
       <div className="basis-panel__group">
-        <div className="basis-panel__heading">參考案例(F3)</div>
+        <div className="basis-panel__heading">參考案例（F3）</div>
         {cases === null && (
           <div className="state-message state-message--pending">檢索中…</div>
         )}
@@ -160,7 +160,7 @@ export default function DraftWorkspace({
 
   const dirty = plain !== (text || '')
 
-  useNavGuard(dirty, '草稿有未儲存的修改,離開後將遺失。確定要離開?')
+  useNavGuard(dirty, '草稿有未儲存的修改，離開後將遺失。確定要離開？')
 
   async function handleSave() {
     setState('saving')
@@ -172,7 +172,7 @@ export default function DraftWorkspace({
       onSaved?.()
     } catch (err) {
       setState('error')
-      setMessage(err.message || '儲存失敗,請重試。')
+      setMessage(err.message || '儲存失敗，請重試。')
       // 版本衝突:同步真實狀態,但不沖掉使用者剛打的字(他還要拿來比對差異)
       if (err.status === 409) onSaved?.()
     }
@@ -185,7 +185,7 @@ export default function DraftWorkspace({
       await (format === 'docx' ? downloadDraftDocx(caseId) : downloadDraftPdf(caseId))
     } catch (err) {
       setState('error')
-      setMessage(err.message || '下載失敗,請重試。')
+      setMessage(err.message || '下載失敗，請重試。')
       if (err.status === 409) onSaved?.()
     }
   }
@@ -197,11 +197,11 @@ export default function DraftWorkspace({
       if (dirty) await updateDraftText(caseId, { text: plain, base_version: versionCount })
       const result = await finalizeCase(caseId)
       setState('saved')
-      setMessage(`已標記定稿(${result.pdf_location || '已落地'})`)
+      setMessage(`已標記定稿（${result.pdf_location || '已落地'}）`)
       onSaved?.()
     } catch (err) {
       setState('error')
-      setMessage(err.message || '定稿失敗,請重試。')
+      setMessage(err.message || '定稿失敗，請重試。')
       if (err.status === 409) onSaved?.()
     }
   }
@@ -213,7 +213,7 @@ export default function DraftWorkspace({
           決定書全文
         </label>
         <p className="draft-paper__hint">
-          這一份就是決定書本身:系統依案件資訊與檢索結果先擬好,承辦人直接在這裡改,下載的 PDF 與 Word 印的都是它。
+          這一份就是決定書本身：系統依案件資訊與檢索結果先擬好，承辦人直接在這裡改，下載的 PDF 與 Word 印的都是它。
         </p>
         <textarea
           id="draft-plain"
@@ -250,7 +250,7 @@ export default function DraftWorkspace({
             {finalizedAt ? '重新定稿' : '標記定稿'}
           </button>
           <span className="draft-actions__meta">
-            已存 {versionCount} 版{versionsTruncated ? '(最舊版本已捨棄)' : ''}
+            已存 {versionCount} 版{versionsTruncated ? '（最舊版本已捨棄）' : ''}
             {finalizedAt ? ` · 定稿於 ${finalizedAt}` : ''}
           </span>
           {message && (

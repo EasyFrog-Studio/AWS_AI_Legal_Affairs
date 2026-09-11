@@ -19,7 +19,7 @@ export default function Login() {
     try {
       const res = await fetch('/api/cases', { headers: { 'X-API-Key': key } })
       if (!res.ok) {
-        throw new Error('驗證失敗,請確認後重新輸入。')
+        throw new Error('驗證失敗，請確認後重新輸入。')
       }
       setApiKey(key)
       setStatus('success')
@@ -27,7 +27,7 @@ export default function Login() {
       navigate('/')
     } catch (err) {
       setStatus('error')
-      setErrorMsg(err.message || '驗證失敗,請確認後重新輸入。')
+      setErrorMsg(err.message || '驗證失敗，請確認後重新輸入。')
     }
   }
 

@@ -84,7 +84,7 @@ export default function AppShell({ railSlot, children }) {
         <main className="content">
           {dataWarning && (
             <div className="review-banner" role="status">
-              對照資料須更新:{dataWarning}
+              對照資料須更新：{dataWarning}
             </div>
           )}
           {children}

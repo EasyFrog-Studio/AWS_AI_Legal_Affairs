@@ -102,7 +102,7 @@ const VERDICT_ICON = { ok: 'page-filled', mismatch: 'page-arrow', unknown: 'page
 function sourceNote(doc) {
   if (!doc) return ''
   const from = doc.source === 'pdf' ? doc.filename || 'PDF' : '貼上文字'
-  return doc.ocr ? `來源：${from}(掃描件 OCR 取字)` : `來源：${from}`
+  return doc.ocr ? `來源：${from}（掃描件 OCR 取字）` : `來源：${from}`
 }
 
 /** 待確認階段的一張卷證卡:確認結論與重傳共用同一個版位,展開重傳時版面不跳。
@@ -119,7 +119,7 @@ function ReviewSlotCard({ slot, doc, replace, busy }) {
         <div className="doc-replace">
           {/* 結論留在原地:不符的理由正是他要照著補件的東西,不能在他動手時收走 */}
           <p className="doc-replace__title">
-            {verdict === 'na' ? '尚未提供,補上傳' : <DocumentCheckBadge check={doc?.check} />}
+            {verdict === 'na' ? '尚未提供，補上傳' : <DocumentCheckBadge check={doc?.check} />}
           </p>
           <DropZone
             slot={slot}
@@ -152,7 +152,7 @@ function ReviewSlotCard({ slot, doc, replace, busy }) {
       ) : (
         <div className={`doc-verdict doc-verdict--${verdict}`}>
           {verdict === 'na' ? (
-            <span className="doc-check doc-check--na">— 未提供(選填,可事後補上)</span>
+            <span className="doc-check doc-check--na">— 未提供（選填，可事後補上）</span>
           ) : (
             <>
               <Icon name={VERDICT_ICON[verdict]} className="doc-verdict__icon" />
@@ -202,7 +202,7 @@ function CollectingSection({ caseData, onReplaced, onAnalyzed }) {
       closeReplace()
       onReplaced()
     } catch (err) {
-      setError(err.message || '重傳失敗,請重試。')
+      setError(err.message || '重傳失敗，請重試。')
       // 409 代表案件已離開收案階段(他處已開始分析):畫面停在過期的收案視圖只會讓人重複操作
       if (err.status === 409) onReplaced()
     } finally {
@@ -218,7 +218,7 @@ function CollectingSection({ caseData, onReplaced, onAnalyzed }) {
       await analyzeCase(caseData.case_id)
       onAnalyzed()
     } catch (err) {
-      setError(err.message || '開始分析失敗,請重試。')
+      setError(err.message || '開始分析失敗，請重試。')
       if (err.status === 409) onAnalyzed()
       setBusy(false)
     }
@@ -228,8 +228,8 @@ function CollectingSection({ caseData, onReplaced, onAnalyzed }) {
     <div className="card">
       <p className="doc-intro">
         {allMatched
-          ? '文件皆已確認無誤,可以開始分析。'
-          : '有文件無法確認或判斷不符,請重新上傳該份文件。'}
+          ? '文件皆已確認無誤，可以開始分析。'
+          : '有文件無法確認或判斷不符，請重新上傳該份文件。'}
       </p>
 
       <div className="doc-grid">
@@ -304,7 +304,7 @@ function F1Field({ info, system, field, editable, onSave }) {
       setEditing(false)
     } catch (err) {
       // 錯誤要看得見,而且不清掉他剛打的字——重打一次是最沒必要的懲罰
-      setError(err.message || '儲存失敗,請重試。')
+      setError(err.message || '儲存失敗，請重試。')
     } finally {
       setBusy(false)
     }
@@ -360,8 +360,8 @@ function F1Field({ info, system, field, editable, onSave }) {
           text || '—'
         )}
         {edited && (
-          <span className="f1-field__original" title={`模型原本擷取:${original || '(空)'}`}>
-            {original || '(空)'}
+          <span className="f1-field__original" title={`模型原本擷取：${original || '（空）'}`}>
+            {original || '（空）'}
           </span>
         )}
         {editable && (
@@ -386,7 +386,7 @@ function F1Section({ info, system, editable, onSave }) {
   return (
     <div className="f1-summary">
       {!editable && (
-        <p className="f1-summary__note">分析進行中,此時不開放修改案件資訊。</p>
+        <p className="f1-summary__note">分析進行中，此時不開放修改案件資訊。</p>
       )}
       {F1_GROUPS.map((group) => {
         const empty = group.fields.every((f) => !fieldText(info, f))
@@ -447,7 +447,7 @@ function ScreeningSection({ caseData, onChanged }) {
       setEditing(false)
       onChanged()
     } catch (err) {
-      setError(err.message || '推翻失敗,請重試。')
+      setError(err.message || '推翻失敗，請重試。')
     } finally {
       setBusy(false)
     }
@@ -460,19 +460,19 @@ function ScreeningSection({ caseData, onChanged }) {
           {text}
         </Seal>
         {screening.matched_clause && (
-          <span className="mono">適用條款:{screening.matched_clause}</span>
+          <span className="mono">適用條款：{screening.matched_clause}</span>
         )}
         {caseData.screening_system && <span className="doc-check">已由承辦人推翻</span>}
       </div>
       <p className="screening-result__reasoning">{screening.reasoning}</p>
       {screening.review_note && (
-        <p className="deadline__note">須人工確認:{screening.review_note}</p>
+        <p className="deadline__note">須人工確認：{screening.review_note}</p>
       )}
       {caseData.screening_system && (
         <p className="screening-result__reasoning">
-          系統原判:{caseData.screening_system.passed ? '受理' : '不受理'}
+          系統原判：{caseData.screening_system.passed ? '受理' : '不受理'}
           {caseData.screening_system.matched_clause
-            ? `(${caseData.screening_system.matched_clause})`
+            ? `（${caseData.screening_system.matched_clause}）`
             : ''}
           。{caseData.screening_system.reasoning}
         </p>
@@ -586,7 +586,7 @@ function DeadlineSection({ deadline }) {
       )}
       {deadline.detail && <p className="deadline__detail">{deadline.detail}</p>}
       {deadline.review_note && (
-        <p className="deadline__note">須人工確認:{deadline.review_note}</p>
+        <p className="deadline__note">須人工確認：{deadline.review_note}</p>
       )}
     </div>
   )
@@ -606,7 +606,7 @@ function F2Section({ laws, track, screening, running, onViewSource }) {
     const clause = parseClause(screening?.matched_clause)
     return (
       <div className="state-message state-message--na">
-        {`本案經程序審查認定不受理,依訴願法第 77 條${clause}逕為不受理決定,未進行法規推薦。`}
+        {`本案經程序審查認定不受理，依訴願法第 77 條${clause}逕為不受理決定，未進行法規推薦。`}
       </div>
     )
   }
@@ -653,7 +653,7 @@ function F2RefsSection({ refs, running, onViewSource }) {
           <span className="reference-ref__name">{ref.name}</span>
           {ref.issuer && <span className="reference-ref__issuer">{ref.issuer}</span>}
           <span className="reference-ref__date mono">{ref.issued_date}</span>
-          {ref.topic && <p className="reference-ref__topic">爭點:{ref.topic}</p>}
+          {ref.topic && <p className="reference-ref__topic">爭點：{ref.topic}</p>}
           <p className="reference-ref__text">{ref.text}</p>
           {ref.source_key && (
             <button type="button" className="btn-link" onClick={() => onViewSource(ref.source_key)}>
@@ -754,7 +754,7 @@ function stageContent(key, caseData, onViewSource, onDocumentsChanged) {
     return (
       <div className="refs-stack">
         <section className="refs-group">
-          <h3 className="refs-group__title">推薦法規(F2)</h3>
+          <h3 className="refs-group__title">推薦法規（F2）</h3>
           <F2Section
             laws={caseData.f2}
             track={caseData.track}
@@ -764,8 +764,8 @@ function stageContent(key, caseData, onViewSource, onDocumentsChanged) {
           />
         </section>
         <section className="refs-group">
-          <h3 className="refs-group__title">參考見解(F2+)</h3>
-          <p className="refs-group__note">釋字、函釋與法院裁判供論理參考,沒有條號,不列入決定書的引用法條。</p>
+          <h3 className="refs-group__title">參考見解（F2+）</h3>
+          <p className="refs-group__note">釋字、函釋與法院裁判供論理參考，沒有條號，不列入決定書的引用法條。</p>
           <F2RefsSection
             refs={caseData.f2_refs}
             running={isRunning('f2_refs', caseData)}
@@ -773,7 +773,7 @@ function stageContent(key, caseData, onViewSource, onDocumentsChanged) {
           />
         </section>
         <section className="refs-group">
-          <h3 className="refs-group__title">相似案例(F3)</h3>
+          <h3 className="refs-group__title">相似案例（F3）</h3>
           <F3Section
             cases={caseData.f3}
             running={isRunning('f3', caseData)}
@@ -794,10 +794,10 @@ function reviewNotes(caseData) {
     // 空槽沒有東西可確認:答辯書是機關受理後才送來的,收案當下本來就沒有,
     // 算進來的話每一件新案都恆亮。判準與後端 review.needs_review 一致。
     if (doc?.check?.matched !== true && doc?.text?.trim()) reasons.push(`${label}尚未確認無誤`)
-    if (doc?.review_note) reasons.push(`${label}:${doc.review_note}`)
+    if (doc?.review_note) reasons.push(`${label}：${doc.review_note}`)
   })
-  if (caseData.deadline?.review_note) reasons.push(`訴願期間:${caseData.deadline.review_note}`)
-  if (caseData.screening?.review_note) reasons.push(`程序審查:${caseData.screening.review_note}`)
+  if (caseData.deadline?.review_note) reasons.push(`訴願期間：${caseData.deadline.review_note}`)
+  if (caseData.screening?.review_note) reasons.push(`程序審查：${caseData.screening.review_note}`)
   return reasons
 }
 
@@ -819,7 +819,7 @@ export default function CaseDetail() {
       setCaseData(data)
       setError('')
     } catch (err) {
-      setError(err.message || '案件載入失敗,請重新整理頁面。')
+      setError(err.message || '案件載入失敗，請重新整理頁面。')
     }
   }, [id])
 
@@ -846,7 +846,7 @@ export default function CaseDetail() {
       await reanalyzeCase(id)
       await load()
     } catch (err) {
-      setActionError(err.message || '重跑失敗,請重試。')
+      setActionError(err.message || '重跑失敗，請重試。')
     } finally {
       setReanalyzing(false)
     }
@@ -975,7 +975,7 @@ export default function CaseDetail() {
         <>
           <div className="page-header">
             <div>
-              <h1 className="page-header__title">{caseData.title || '(未命名案件)'}</h1>
+              <h1 className="page-header__title">{caseData.title || '（未命名案件）'}</h1>
             </div>
             <div className="page-header__actions">
               <Seal kind={resolveCaseSeal(caseData).kind} size="lg">
@@ -998,7 +998,7 @@ export default function CaseDetail() {
 
           {reviewReasons.length > 0 && (
             <div className="review-banner" role="status">
-              此案有事實待人工確認,請勿逕行送出:
+              此案有事實待人工確認，請勿逕行送出：
               <ul className="review-banner__list">
                 {reviewReasons.map((reason, i) => (
                   <li key={i}>{reason}</li>
@@ -1010,7 +1010,7 @@ export default function CaseDetail() {
 
           {caseData.status === 'done' && manualRef.current && effectiveSelected !== 'draft' && (
             <div className="state-message state-message--empty">
-              審理完成,可前往決定書草稿。
+              審理完成，可前往決定書草稿。
             </div>
           )}
 

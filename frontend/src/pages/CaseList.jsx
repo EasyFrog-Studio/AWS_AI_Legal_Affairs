@@ -69,7 +69,7 @@ export default function CaseList() {
       setCases(data)
       setError('')
     } catch (err) {
-      setError(err.message || '案件清單載入失敗,請重新整理頁面。')
+      setError(err.message || '案件清單載入失敗，請重新整理頁面。')
     }
   }, [])
 
@@ -276,7 +276,7 @@ export default function CaseList() {
                     }}
                   >
                     <td className="mono">{c.case_id}</td>
-                    <td>{c.title || '(未命名案件)'}</td>
+                    <td>{c.title || '（未命名案件）'}</td>
                     <td>{c.case_type || '—'}</td>
                     <td>
                       <Seal kind={seal.kind} size="sm">

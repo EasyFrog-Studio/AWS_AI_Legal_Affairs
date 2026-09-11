@@ -97,16 +97,16 @@ describe('案件詳情', () => {
     const user = userEvent.setup()
     renderDetail('c-2')
     await screen.findByLabelText('決定書全文')
-    expect(screen.queryByText('參考法規(F2)')).toBeNull()
+    expect(screen.queryByText('參考法規（F2）')).toBeNull()
     expect(screen.queryByText('無')).toBeNull()
-    expect(screen.getByText('參考案例(F3)')).toBeInTheDocument()
+    expect(screen.getByText('參考案例（F3）')).toBeInTheDocument()
 
     // 「不適用」是法規那一組的事,不是整個參考依據節點的事——參考見解與案例兩條 track 都跑
     await user.click(rail(/^參考依據/))
     const stage = within(refsStage())
     expect(stage.getByText(/本案經程序審查認定不受理/)).toBeInTheDocument()
-    expect(stage.getByText('參考見解(F2+)')).toBeInTheDocument()
-    expect(stage.getByText('相似案例(F3)')).toBeInTheDocument()
+    expect(stage.getByText('參考見解（F2+）')).toBeInTheDocument()
+    expect(stage.getByText('相似案例（F3）')).toBeInTheDocument()
     expect(screen.queryByText('無')).toBeNull()
   })
 
@@ -545,7 +545,7 @@ describe('程序審查推翻', () => {
     await user.click(rail(/^程序審查/))
 
     expect(screen.getByText('已由承辦人推翻')).toBeInTheDocument()
-    expect(screen.getByText(/系統原判:不受理/)).toBeInTheDocument()
+    expect(screen.getByText(/系統原判：不受理/)).toBeInTheDocument()
   })
 })
 
@@ -749,9 +749,9 @@ describe('草稿頁的參考依據欄', () => {
     await screen.findByLabelText('決定書全文')
 
     const panel = screen.getByRole('complementary', { name: '承辦參考依據' })
-    expect(within(panel).getByText('參考法規(F2)')).toBeInTheDocument()
-    expect(within(panel).getByText('參考見解(F2+)')).toBeInTheDocument()
-    expect(within(panel).getByText('參考案例(F3)')).toBeInTheDocument()
+    expect(within(panel).getByText('參考法規（F2）')).toBeInTheDocument()
+    expect(within(panel).getByText('參考見解（F2+）')).toBeInTheDocument()
+    expect(within(panel).getByText('參考案例（F3）')).toBeInTheDocument()
     expect(within(panel).getByText('釋字第469號')).toBeInTheDocument()
   })
 
@@ -761,9 +761,9 @@ describe('草稿頁的參考依據欄', () => {
     await screen.findByLabelText('決定書全文')
 
     const panel = screen.getByRole('complementary', { name: '承辦參考依據' })
-    expect(within(panel).queryByText('參考法規(F2)')).toBeNull()
-    expect(within(panel).getByText('參考見解(F2+)')).toBeInTheDocument()
-    expect(within(panel).getByText('參考案例(F3)')).toBeInTheDocument()
+    expect(within(panel).queryByText('參考法規（F2）')).toBeNull()
+    expect(within(panel).getByText('參考見解（F2+）')).toBeInTheDocument()
+    expect(within(panel).getByText('參考案例（F3）')).toBeInTheDocument()
   })
 })
 
@@ -812,7 +812,7 @@ describe('F2+ 參考見解', () => {
       .getAllByRole('heading', { level: 3 })
       .map((h) => h.textContent)
       .filter((t) => /F2|F3/.test(t))
-    expect(titles).toEqual(['推薦法規(F2)', '參考見解(F2+)', '相似案例(F3)'])
+    expect(titles).toEqual(['推薦法規（F2）', '參考見解（F2+）', '相似案例（F3）'])
   })
 
   it('不受理案件一樣有參考見解,不出現「不適用」', async () => {
