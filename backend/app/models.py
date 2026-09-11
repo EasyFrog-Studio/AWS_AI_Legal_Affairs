@@ -210,6 +210,12 @@ class ScreeningOverride(BaseModel):
     reasoning: str
 
 
+class DraftResultOverride(BaseModel):
+    """PATCH /api/cases/{id}/draft/result 的 body:承辦人改決定結果,不動全文與其餘 f4 欄位。"""
+
+    draft_type: DraftType
+
+
 Stage = Literal["f1", "screening", "f2", "f2_refs", "f3", "f4", "done"]
 Status = Literal["collecting", "processing", "done", "error"]
 Track = Literal["admissible", "inadmissible"]
@@ -315,6 +321,8 @@ class Case(BaseModel):
     f2_refs: Optional[list[ReferenceRef]] = None
     f3: Optional[list[SimilarCase]] = None
     f4: Optional[DraftResult] = None
+    # 第一次被人工修改決定結果時把系統原判整份搬進來,f4 留現行(人工)值,比照 screening_system 的做法
+    f4_system: Optional[DraftResult] = None
     decision_header: DecisionHeader = DecisionHeader()
     # 決定書全文。承辦人實際編輯與下載的就是這一份;f4 三欄是模型產出的原始素材,產出時攤平成這份文字
     draft_plain_text: str = ""

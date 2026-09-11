@@ -28,7 +28,13 @@ def needs_review(case: Case) -> bool:
         return True
     # 不受理那一側由 enforce_inadmissible_format 保證體例,受理這一側無人把關,
     # 模型仍可能吐出「不受理」草稿;不臆測正確的決定類型,只把矛盾標出來。
-    if case.track == "admissible" and case.f4 is not None and case.f4.draft_type == "不受理":
+    # f4_system 非 None 代表這是承辦人自己改的結果,不是模型自相矛盾。
+    if (
+        case.track == "admissible"
+        and case.f4 is not None
+        and case.f4.draft_type == "不受理"
+        and case.f4_system is None
+    ):
         return True
     # 模型交出空欄位時系統原本一聲不吭,畫面與 PDF 就是一份欄位空白的決定書。
     # 例外只有不受理案的事實欄——訴願法§89 I③ 得不記載,語料 90 件全空,標了就是誤報。

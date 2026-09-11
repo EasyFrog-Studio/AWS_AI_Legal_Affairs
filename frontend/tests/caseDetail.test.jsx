@@ -1058,3 +1058,42 @@ describe('F1 卷證總匯表', () => {
     expect(screen.getByLabelText('送達方式')).toHaveValue('本人簽收')
   })
 })
+
+describe('決定結果修改', () => {
+  it('選擇新結果後呼叫 API 並重新載入', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible)
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByLabelText('決定書全文')
+    api.getCase.mockClear()
+
+    await user.selectOptions(screen.getByLabelText('決定結果'), '撤銷另處')
+
+    expect(api.updateDraftResult).toHaveBeenCalledWith('c-1', { draft_type: '撤銷另處' })
+    await waitFor(() => expect(api.getCase).toHaveBeenCalledTimes(1))
+  })
+
+  it('已被改過的案件同時顯示現行結果與系統原判', async () => {
+    api.getCase.mockResolvedValue({
+      ...doneAdmissible,
+      f4: { ...doneAdmissible.f4, draft_type: '撤銷另處' },
+      f4_system: { ...doneAdmissible.f4, draft_type: '駁回' },
+    })
+    renderDetail()
+
+    expect(await screen.findByText(/系統原判：駁回/)).toBeInTheDocument()
+  })
+
+  it('更新失敗時顯示錯誤訊息，且選單值不樂觀更新，維持原本的值', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible)
+    api.updateDraftResult.mockRejectedValueOnce(new Error('案件正在分析中'))
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByLabelText('決定書全文')
+
+    await user.selectOptions(screen.getByLabelText('決定結果'), '撤銷另處')
+
+    expect(await screen.findByText('案件正在分析中')).toBeInTheDocument()
+    expect(screen.getByLabelText('決定結果')).toHaveValue('駁回')
+  })
+})

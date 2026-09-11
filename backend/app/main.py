@@ -21,6 +21,7 @@ from app.models import (
     CaseSummary,
     DOCUMENT_SLOT_LABELS,
     DocumentSlot,
+    DraftResultOverride,
     DraftVersion,
     MAX_DRAFT_VERSIONS,
     OCR_REVIEW_NOTE,
@@ -490,6 +491,26 @@ def override_screening(case_id: str, override: ScreeningOverride):
     return {"ok": True, "track": fields["track"], "overridden": True}
 
 
+@app.patch("/api/cases/{case_id}/draft/result", dependencies=[Depends(require_api_key)])
+def update_draft_result(case_id: str, override: DraftResultOverride):
+    """承辦人改決定結果(五值)。只改 f4.draft_type,不改 track、不改 screening、不改全文——
+    主文要不要跟著改由承辦人自己在下方全文裡改。第一次被改時把系統原判整份 f4 存進 f4_system。"""
+    case = store.get(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    if case.status == "processing":
+        raise HTTPException(status_code=409, detail="案件分析中，無法修改決定結果")
+    if case.f4 is None:
+        raise HTTPException(status_code=409, detail="此案件尚無草稿，無可修改的決定結果")
+
+    human = case.f4.model_copy(update={"draft_type": override.draft_type})
+    fields = {"f4": human}
+    if case.f4_system is None:
+        fields["f4_system"] = case.f4
+    store.update(case_id, fields)
+    return {"ok": True, "draft_type": human.draft_type, "overridden": True}
+
+
 @app.post("/api/cases/{case_id}/reanalyze", dependencies=[Depends(require_api_key)])
 def reanalyze_case(case_id: str, background_tasks: BackgroundTasks):
     """重跑。done 與 error 兩種狀態都允許——推翻程序審查之後重跑正是 done 狀態下的
@@ -502,8 +523,8 @@ def reanalyze_case(case_id: str, background_tasks: BackgroundTasks):
     if case.status == "collecting":
         raise HTTPException(status_code=409, detail="此案件尚未開始分析，請改用 analyze")
 
-    # 重跑會重新擷取,新結果不是承辦人改的;留著舊快照會讓整份都標成已修改
-    fields = {"status": "processing", "error": None, "f1_system": None}
+    # 重跑會重新擷取/重新產出草稿,新結果不是承辦人改的;留著舊快照會讓整份都標成已修改
+    fields = {"status": "processing", "error": None, "f1_system": None, "f4_system": None}
     if case.f4 is not None:
         # 重跑會重新產生全文,先存一版,否則承辦人編輯過的草稿會被無聲蓋掉
         text = case.draft_plain_text

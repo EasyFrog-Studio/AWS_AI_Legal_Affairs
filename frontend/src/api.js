@@ -92,6 +92,14 @@ export function overrideScreening(id, body) {
   })
 }
 
+export function updateDraftResult(id, body) {
+  return request(`/cases/${id}/draft/result`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 export function reanalyzeCase(id) {
   return request(`/cases/${id}/reanalyze`, { method: 'POST' })
 }

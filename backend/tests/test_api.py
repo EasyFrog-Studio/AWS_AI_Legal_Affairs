@@ -766,3 +766,130 @@ def test_an_unrelated_aws_error_is_not_disguised_as_a_credential_problem(monkeyp
     )
 
     assert resp.status_code == 500
+
+
+# ---------- PATCH /draft/result:承辦人改決定結果 ----------
+def test_patch_draft_result_stores_the_override_and_keeps_the_system_snapshot(monkeypatch):
+    client = TestClient(main_module.app)
+    case_id = _analyzed_case(client, monkeypatch)
+
+    resp = client.patch(
+        f"/api/cases/{case_id}/draft/result",
+        json={"draft_type": "撤銷另處"},
+        headers=_headers(),
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "draft_type": "撤銷另處", "overridden": True}
+    case = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
+    assert case["f4"]["draft_type"] == "撤銷另處"
+    assert case["f4_system"]["draft_type"] == "駁回"
+    # 只改結果,其餘欄位原封不動
+    assert case["f4"]["fact"] == case["f4_system"]["fact"]
+    assert case["f4"]["reason"] == case["f4_system"]["reason"]
+    assert case["f4"]["main_text"] == case["f4_system"]["main_text"]
+    assert case["f4"]["cited_laws"] == case["f4_system"]["cited_laws"]
+
+
+def test_patch_draft_result_a_second_override_keeps_the_original_system_snapshot(monkeypatch):
+    """第一次改留下的系統原判不能被第二次改覆蓋,否則系統原判就變成人改的了。"""
+    client = TestClient(main_module.app)
+    case_id = _analyzed_case(client, monkeypatch)
+    client.patch(
+        f"/api/cases/{case_id}/draft/result",
+        json={"draft_type": "撤銷另處"},
+        headers=_headers(),
+    )
+
+    resp = client.patch(
+        f"/api/cases/{case_id}/draft/result",
+        json={"draft_type": "駁回"},
+        headers=_headers(),
+    )
+
+    assert resp.status_code == 200
+    case = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
+    assert case["f4"]["draft_type"] == "駁回"
+    assert case["f4_system"]["draft_type"] == "駁回"  # 最初的系統原判,不是「撤銷另處」
+
+
+def test_patch_draft_result_rejects_an_invalid_draft_type(monkeypatch):
+    client = TestClient(main_module.app)
+    case_id = _analyzed_case(client, monkeypatch)
+
+    resp = client.patch(
+        f"/api/cases/{case_id}/draft/result",
+        json={"draft_type": "撤銷"},
+        headers=_headers(),
+    )
+
+    assert resp.status_code == 422
+
+
+def test_patch_draft_result_on_an_unknown_case_returns_404():
+    client = TestClient(main_module.app)
+    resp = client.patch(
+        "/api/cases/c-nope/draft/result",
+        json={"draft_type": "駁回"},
+        headers=_headers(),
+    )
+
+    assert resp.status_code == 404
+
+
+def test_patch_draft_result_rejects_a_case_without_a_draft(monkeypatch):
+    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+    client = TestClient(main_module.app)
+    case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
+
+    resp = client.patch(
+        f"/api/cases/{case_id}/draft/result",
+        json={"draft_type": "駁回"},
+        headers=_headers(),
+    )
+
+    assert resp.status_code == 409
+
+
+def test_patch_draft_result_rejects_a_case_that_is_processing(monkeypatch):
+    client = TestClient(main_module.app)
+    case_id = _analyzed_case(client, monkeypatch)
+    main_module.store.update(case_id, {"status": "processing"})
+
+    resp = client.patch(
+        f"/api/cases/{case_id}/draft/result",
+        json={"draft_type": "駁回"},
+        headers=_headers(),
+    )
+
+    assert resp.status_code == 409
+
+
+def test_patch_draft_result_appears_in_the_case_list(monkeypatch):
+    client = TestClient(main_module.app)
+    case_id = _analyzed_case(client, monkeypatch)
+
+    client.patch(
+        f"/api/cases/{case_id}/draft/result",
+        json={"draft_type": "撤銷另處"},
+        headers=_headers(),
+    )
+
+    row = next(r for r in client.get("/api/cases", headers=_headers()).json() if r["case_id"] == case_id)
+    assert row["result"] == "撤銷另處"
+
+
+def test_reanalyze_clears_the_draft_result_system_snapshot(monkeypatch):
+    """重跑會重新產生 f4,系統原判快照留著就會誤標成「有被人改過」。"""
+    client = TestClient(main_module.app)
+    case_id = _analyzed_case(client, monkeypatch)
+    client.patch(
+        f"/api/cases/{case_id}/draft/result",
+        json={"draft_type": "撤銷另處"},
+        headers=_headers(),
+    )
+
+    assert client.post(f"/api/cases/{case_id}/reanalyze", headers=_headers()).status_code == 200
+
+    after = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
+    assert after["f4_system"] is None

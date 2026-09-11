@@ -142,6 +142,17 @@ def test_an_admissible_case_whose_draft_says_inadmissible_needs_review():
     assert needs_review(case) is True
 
 
+def test_an_admissible_case_overridden_to_inadmissible_does_not_need_review():
+    """人已經把結果改成不受理,那是承辦人的決定,不是模型自相矛盾——這項檢查只抓模型產出。"""
+    case = _case(
+        track="admissible",
+        f4=DraftResult(draft_type="不受理", fact="事實", reason="理由", main_text="訴願不受理。"),
+        f4_system=DraftResult(draft_type="駁回", fact="事實", reason="理由", main_text="訴願駁回。"),
+    )
+
+    assert needs_review(case) is False
+
+
 def test_an_admissible_case_with_a_consistent_draft_does_not_need_review():
     for draft_type, main_text in (("駁回", "訴願駁回。"), ("原處分撤銷", "原處分撤銷。")):
         case = _case(

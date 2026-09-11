@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { updateDraftText, downloadDraftPdf, downloadDraftDocx, finalizeCase } from '../api'
+import {
+  updateDraftText,
+  updateDraftResult,
+  downloadDraftPdf,
+  downloadDraftDocx,
+  finalizeCase,
+} from '../api'
 import AutoTextarea from '../components/AutoTextarea.jsx'
 import SourceSiteLink from '../components/SourceSiteLink.jsx'
 import { useNavGuard } from '../navGuard.js'
@@ -7,6 +13,9 @@ import { splitDraft, joinDraft } from './draftSections.js'
 import './DraftWorkspace.css'
 
 const SECTION_ARIA = { head: '決定書表頭', main: '主文', fact: '事實', reason: '理由', tail: '決定書結尾' }
+
+// 值域與順序同 models.DraftType,五值全開:改結果是承辦人的權限,不受目前 track 收斂
+const DRAFT_RESULT_OPTIONS = ['不受理', '駁回', '撤銷另處', '原處分撤銷', '部分不受理部分駁回']
 
 
 function BasisPanel({ laws, refs, cases, track, onViewSource }) {
@@ -119,6 +128,7 @@ export default function DraftWorkspace({
   versionCount = 0,
   versionsTruncated = false,
   finalizedAt = null,
+  resultSystem,
   onViewSource,
   onSaved,
   hidden,
@@ -126,6 +136,8 @@ export default function DraftWorkspace({
   const [plain, setPlain] = useState(text || '')
   const [state, setState] = useState('idle') // idle | saving | saved | error
   const [message, setMessage] = useState('')
+  const [resultState, setResultState] = useState('idle') // idle | saving | error
+  const [resultMessage, setResultMessage] = useState('')
   const prevCaseIdRef = useRef(caseId)
   const syncedPlainRef = useRef(text || '')
 
@@ -158,6 +170,20 @@ export default function DraftWorkspace({
 
   function updateSection(key, body) {
     setPlain(joinDraft(sections.map((s) => (s.key === key ? { ...s, body } : s))))
+  }
+
+  async function handleResultChange(draft_type) {
+    setResultState('saving')
+    setResultMessage('')
+    try {
+      await updateDraftResult(caseId, { draft_type })
+      setResultState('idle')
+      setResultMessage('已更新決定結果')
+      onSaved?.()
+    } catch (err) {
+      setResultState('error')
+      setResultMessage(err.message || '更新失敗，請重試。')
+    }
   }
 
   async function handleSave() {
@@ -211,6 +237,37 @@ export default function DraftWorkspace({
       <div className="draft-paper" role="group" aria-label="決定書稿紙">
         <p className="doc-intro">
           這一份就是決定書本身：系統依案件資訊與檢索結果先擬好，承辦人直接在這裡改，下載的 PDF 與 Word 印的都是它。
+        </p>
+        <div className="draft-result">
+          <label htmlFor="draft-result">決定結果</label>
+          <select
+            id="draft-result"
+            className="input"
+            value={draft.draft_type}
+            onChange={(e) => handleResultChange(e.target.value)}
+            disabled={resultState === 'saving'}
+          >
+            {DRAFT_RESULT_OPTIONS.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+          {resultSystem && resultSystem !== draft.draft_type && (
+            <span className="doc-check">已由承辦人修改（系統原判：{resultSystem}）</span>
+          )}
+          {resultMessage && (
+            <span
+              className={
+                resultState === 'error' ? 'form-result form-result--error' : 'draft-actions__ok'
+              }
+            >
+              {resultMessage}
+            </span>
+          )}
+        </div>
+        <p className="doc-intro draft-result__hint">
+          改結果不會改動全文，主文與理由請在下方自行修改。
         </p>
         {isWhole ? (
           <AutoTextarea

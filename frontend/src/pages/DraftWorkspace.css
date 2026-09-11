@@ -33,6 +33,18 @@
   margin-bottom: var(--space-md);
 }
 
+/* 決定結果選擇器:寬度收在一眼看得完的範圍,不撐成整列 */
+.draft-result {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.draft-result select {
+  max-width: 16em;
+}
+
 .draft-paper__section-title {
   display: block;
   text-align: center;
