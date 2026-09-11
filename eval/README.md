@@ -19,7 +19,7 @@ python run_eval.py --cases <卷證根目錄> --out <報告目錄>   # 語料不�
 python -m pytest                         # 計分與執行器的測試,不需 ollama
 ```
 
-前置:主機 ollama 已 `ollama serve` 且已 pull `LOCAL_LLM_MODEL`。ollama 一次只跑一個生成,
+前置:主機 ollama 已 `ollama serve` 且已 pull `LOCAL_LLM_MODEL`;`.env` 的 `POSTGRES_URL_HOST` 已填(F2/F3 會真的查庫,`POSTGRES_URL` 那個位址只有容器內解析得到)。ollama 一次只跑一個生成,
 評測跑起來會把同時使用網站的請求餓死成 timeout,測站前先確認 `/api/ps` 是空的。
 
 報告覆寫 `--out` 目錄下的 `eval_report.md`(給人看)與 `eval_report.json`(給程式讀),不累積歷史。
