@@ -22,3 +22,6 @@ eval/reports/
 .idea/
 .DS_Store
 Thumbs.db
+
+# 設計技能產出的紀錄檔,不隨專案分發
+.hallmark/
