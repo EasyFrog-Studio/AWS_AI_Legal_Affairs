@@ -28,7 +28,7 @@ docker compose --env-file .env -f docker/docker-compose.yml up --build
 |---|---|---|
 | `../data/資料集/` | 競賽提供的歷史訴願決定書 101 份(110–114 年)、相關法規 11 部、行政函釋、司法院釋字及行政判解 | `preprocessing/parse_*.py` 讀 |
 | `../data/output/` | 前處理產出的 chunk JSONL 與 markdown | `preprocessing/` 寫,`aws_setup/04_ingest.py`、`local_setup/ingest.py` 讀 |
-| `../data/TEST_DATA/` | 合成測試卷證 example1–8、1b(每組四份輸入 PDF + 真實決定書)與 `holdout_labels.json` | `backend/tools/eval_holdout.py` 讀 |
+| `../data/TEST_DATA/` | 合成測試卷證 example1–8、1b(每組四份輸入 PDF + 真實決定書)與 `_參考-114年決定書全文/` | `eval/run_eval.py` 讀 |
 
 取得競賽資料集後照上表擺放即可;沒有語料時 `mock` 模式完全不受影響。**114 年的 21 件決定書是留出測試集**,`preprocessing`、`aws_setup/01_s3.py`、`04_ingest.py`、`local_setup/ingest*.py` 都以 `HOLDOUT_YEARS` 排除,不得灌進任何檢索庫。
 
@@ -38,7 +38,7 @@ docker compose --env-file .env -f docker/docker-compose.yml up --build
 |---|---|
 | `backend/app/` | FastAPI:`main.py` 路由、`pipeline.py` F1→程序審查→F2/F3→F4、`deadline*.py`/`procedural_checks.py`/`notice_clause.py`/`transit.py` 程序審查的可計算層、`providers/` 三模式、`store.py` 三種案件儲存 |
 | `backend/tests/` | pytest;`python -m pytest`(backend/) |
-| `backend/tools/` | `eval_holdout.py` 留出法評測、`eval_ocr.py` OCR 辨識率 |
+| `backend/tools/` | `eval_ocr.py` OCR 辨識率 |
 | `frontend/` | Vite + React 四頁 SPA;`npm test`、`npm run build` |
 | `preprocessing/` | PDF → chunk JSONL(一次性、地端) |
 | `aws_setup/` | S3 / DynamoDB / S3 Vectors / Bedrock KB 建置腳本 01–05 |
@@ -50,11 +50,12 @@ docker compose --env-file .env -f docker/docker-compose.yml up --build
 ## 評測
 
 ```bash
-cd backend
-AI_PROVIDER=local python tools/eval_holdout.py --cases ../../data/TEST_DATA --labels ../../data/TEST_DATA/holdout_labels.json --out report.json
+cd eval && python run_eval.py          # 需主機 ollama 與 .env 的 POSTGRES_URL_HOST
 ```
 
-輸出決定類型準確率、不受理款次準確率、法條 Recall@10、相似案例 Top-3 命中率、引註幻覺率與待複核率。`mock` 模式只能驗證機制,數字無意義;真數字要 `aws` 或 `local`。
+答案鍵 `eval/answer_key.json` 由人工從官方訴願決定書逐字抄錄,決定書未載或有歧義的欄位填 `null` 整欄不計分。
+量分流(受理與否 + 訴願法§77 款次)、決定類型、F1 欄位與期間三要素,計分分 correct / wrong / unsure 三格;
+unsure 是系統自陳判斷不出來,不算失分。用法與限制見 `eval/README.md`。
 
 ## 設計原則
 
