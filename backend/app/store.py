@@ -16,16 +16,20 @@ from app.models import Case, CaseDocument, build_input_text
 _JSON_FIELDS = (
     "documents",
     "f1",
+    "f1_system",
     "screening",
     "screening_system",
     "deadline",
     "f2",
+    "f2_refs",
     "f3",
     "f4",
+    "f4_system",
+    "decision_header",
     "draft_versions",
 )
 # 空清單/空 dict 的欄位:還原時的空值是 [] 或 {},不是 None(型別非 Optional,None 會驗證失敗)
-_EMPTY_ON_READ = {"documents": dict, "draft_versions": list}
+_EMPTY_ON_READ = {"documents": dict, "draft_versions": list, "decision_header": dict}
 
 # DynamoDB 單筆項目上限 400KB;留 buffer 擋在 350KB,超過就在寫入前 raise 帶中文訊息的例外,
 # 不讓 boto3 的 ValidationException 在背景任務裡把案件打成 status=error
@@ -109,6 +113,8 @@ class DynamoDBStore(CaseStore):
             "input_text": "" if d["documents"] else d["input_text"],
             "finalized_at": d["finalized_at"] or "",
             "draft_versions_truncated": "1" if d["draft_versions_truncated"] else "",
+            "f1_edited": "1" if d["f1_edited"] else "",
+            "draft_plain_text": d["draft_plain_text"],
             "error": d["error"] or "",
         }
         for k in _JSON_FIELDS:
@@ -133,6 +139,8 @@ class DynamoDBStore(CaseStore):
             "source": item.get("source") or "text",
             "finalized_at": item.get("finalized_at") or None,
             "draft_versions_truncated": bool(item.get("draft_versions_truncated")),
+            "f1_edited": bool(item.get("f1_edited")),
+            "draft_plain_text": item.get("draft_plain_text") or "",
             "error": item.get("error") or None,
         }
         for k in _JSON_FIELDS:

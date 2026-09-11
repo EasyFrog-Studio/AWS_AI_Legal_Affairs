@@ -286,3 +286,53 @@ def test_update_reads_then_put_item():
     table.put_item.assert_called_once()
     put_item = table.put_item.call_args.kwargs["Item"]
     assert put_item["status"] == "done"
+
+
+def test_roundtrip_keeps_every_case_field_the_pipeline_or_the_clerk_writes():
+    """承辦人改過的全文、F2+ 參考見解、人工覆寫前的系統原判與表頭都要落地;
+    DynamoDB 是一整筆重寫,漏掉的欄位不是留舊值而是被清掉。"""
+    table = MagicMock()
+    store = DynamoDBStore(table=table)
+    info = {
+        "appellant": "王大明", "agency": "彰化縣環境保護局", "disposition_date": "110年1月1日",
+        "disposition_no": "彰環字第1號", "disposition_summary": "裁處罰鍰", "case_type": "環保",
+    }
+    case = _case().model_copy(update={
+        "f1": info,
+        "f1_system": {**info, "appellant": "王大明(模型)"},
+        "f1_edited": True,
+        "f2_refs": [{"doc_kind": "行政函釋", "name": "法務部法律字第1號", "issued_date": "民國100年1月1日",
+                     "text": "函釋全文", "relevance": "相關"}],
+        "f4": {"draft_type": "撤銷另處", "fact": "事實", "reason": "理由", "main_text": "主文"},
+        "f4_system": {"draft_type": "駁回", "fact": "事實", "reason": "理由", "main_text": "主文"},
+        "decision_header": {"case_no": "114年訴字第1號", "chairman": "林○○"},
+        "draft_plain_text": "承辦人改過的全文",
+    })
+    case = Case.model_validate(case.model_dump())
+    table.get_item.return_value = {"Item": store._to_item(case)}
+
+    fetched = store.get(case.case_id)
+
+    assert fetched.draft_plain_text == "承辦人改過的全文"
+    assert fetched.f2_refs[0].name == "法務部法律字第1號"
+    assert fetched.f1_system.appellant == "王大明(模型)"
+    assert fetched.f1_edited is True
+    assert fetched.f4_system.draft_type == "駁回"
+    assert fetched.f4.draft_type == "撤銷另處"
+    assert fetched.decision_header.case_no == "114年訴字第1號"
+
+
+def test_old_item_without_the_newer_fields_still_reads_with_defaults():
+    """加欄位之前寫入的舊資料沒有這些 key,讀回時要落到各自的預設值而不是驗證失敗。"""
+    table = MagicMock()
+    store = DynamoDBStore(table=table)
+    item = store._to_item(_case())
+    for key in ("f1_system", "f2_refs", "f4_system", "decision_header", "draft_plain_text", "f1_edited"):
+        item.pop(key, None)
+    table.get_item.return_value = {"Item": item}
+
+    fetched = store.get("c-abc12345")
+
+    assert fetched.f1_system is None and fetched.f2_refs is None and fetched.f4_system is None
+    assert fetched.decision_header.case_no == ""
+    assert fetched.draft_plain_text == "" and fetched.f1_edited is False
