@@ -16,7 +16,8 @@
   overflow-x: clip;
   display: flex;
   flex-direction: column;
-  padding: var(--space-lg) 0;
+  padding: var(--space-md) 0;
+  line-height: var(--leading-ui);
   background: var(--color-rail);
   color: var(--color-on-rail);
   isolation: isolate;
@@ -46,22 +47,22 @@
 
 .rail__brand {
   font-family: var(--font-display);
-  font-weight: 600;
-  font-size: var(--text-lg);
+  font-weight: 800;
+  font-size: var(--text-2xl);
   color: var(--color-on-rail);
-  padding: 0 var(--space-lg) var(--space-md);
+  padding: var(--space-xs) var(--space-lg) var(--space-md);
   border-bottom: 1px solid var(--color-rail-2);
 }
 
 .rail__nav {
   display: flex;
   flex-direction: column;
-  padding: var(--space-md) 0;
+  padding: var(--space-xs) 0;
 }
 
 .rail__link {
   display: block;
-  min-height: 40px;
+  min-height: 36px;
   padding: var(--space-xs) var(--space-lg);
   font-family: var(--font-ui);
   font-size: var(--text-ui);
@@ -84,13 +85,13 @@
 
 .rail__page {
   flex: 1 1 auto;
-  padding: var(--space-md) 0;
+  padding: var(--space-sm) 0;
   border-top: 1px solid var(--color-rail-2);
 }
 
 .rail__footer {
   margin-top: auto;
-  padding: var(--space-md) var(--space-lg) 0;
+  padding: var(--space-sm) var(--space-lg) 0;
   border-top: 1px solid var(--color-rail-2);
 }
 

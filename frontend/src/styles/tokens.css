@@ -49,6 +49,7 @@
 
   /* ── 字級(中文最小 14px)── */
   --text-display: 1.875rem;  /* 30px */
+  --text-2xl:     1.5rem;    /* 24px */
   --text-xl:      1.375rem;  /* 22px */
   --text-lg:      1.125rem;  /* 18px */
   --text-md:      1.0625rem; /* 17px 內文 */
@@ -57,6 +58,7 @@
   --text-micro:   0.8125rem; /* 13px 只給 mono 數字 */
 
   --leading-body: 1.9;
+  --leading-ui:   1.35;
   --measure:      36em;
 
   /* ── 間距(4pt)── */

@@ -2,7 +2,13 @@
 
 /* 左欄篩選群組間距(搜尋 / 狀態 / 案類)*/
 .case-list-filter-group {
-  margin-top: var(--space-md);
+  margin-top: var(--space-sm);
+}
+
+/* 與其下三個欄位標籤同一套字;加權重才蓋得過打包後較晚的 components.css */
+.rail .case-list-filter-title {
+  font-weight: 400;
+  letter-spacing: normal;
 }
 
 .case-list-filter-group:first-child {
@@ -19,4 +25,24 @@
   margin: 0 auto var(--space-md);
   color: var(--color-wood);
   opacity: 0.25;
+}
+
+/* 本頁標題小於其他頁,但須大於表頭字級;打包後本檔排在 layout.css 前,得加權重才蓋得過 */
+.page-header .case-list-title {
+  font-size: var(--text-display);
+  font-weight: 800;
+}
+
+.case-list-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+}
+
+.case-list-pager__label {
+  font-family: var(--font-ui);
+  font-size: var(--text-ui);
+  color: var(--color-ink-soft);
 }

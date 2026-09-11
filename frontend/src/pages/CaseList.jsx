@@ -21,10 +21,32 @@ const STATUS_OPTIONS = [
 ]
 const ALL = '全部'
 
+const PERIOD_OPTIONS = [
+  { label: ALL, days: null },
+  { label: '3 天', days: 3 },
+  { label: '7 天', days: 7 },
+  { label: '14 天', days: 14 },
+  { label: '1 個月', days: 30 },
+  { label: '3 個月', days: 90 },
+  { label: '半年', days: 180 },
+]
+const DAY_MS = 24 * 60 * 60 * 1000
+const PAGE_SIZE = 20
+
 function formatDate(iso) {
   if (!iso) return ''
+  const at = new Date(iso)
+  // 解析失敗時 toLocaleString 回 "Invalid Date" 而不拋錯,原字串才看得出資料壞在哪
+  if (Number.isNaN(at.getTime())) return iso
   try {
-    return new Date(iso).toLocaleString('zh-TW', { hour12: false })
+    return at.toLocaleString('zh-TW', {
+      hour12: false,
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
   } catch {
     return iso
   }
@@ -36,6 +58,8 @@ export default function CaseList() {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState(ALL)
   const [caseType, setCaseType] = useState(ALL)
+  const [period, setPeriod] = useState(ALL)
+  const [page, setPage] = useState(1)
   const navigate = useNavigate()
   const timerRef = useRef(null)
 
@@ -70,11 +94,13 @@ export default function CaseList() {
     return Array.from(set).sort()
   }, [cases])
 
-  const isFiltering = search.trim() !== '' || status !== ALL || caseType !== ALL
+  const isFiltering = search.trim() !== '' || status !== ALL || caseType !== ALL || period !== ALL
 
   const filtered = useMemo(() => {
     if (!cases) return []
     const q = search.trim().toLowerCase()
+    const days = PERIOD_OPTIONS.find((o) => o.label === period)?.days
+    const since = days ? Date.now() - days * DAY_MS : null
     return cases.filter((c) => {
       if (q) {
         const inId = (c.case_id || '').toLowerCase().includes(q)
@@ -83,26 +109,40 @@ export default function CaseList() {
       }
       if (status !== ALL && resolveCaseSeal(c).text !== status) return false
       if (caseType !== ALL && c.case_type !== caseType) return false
+      if (since !== null) {
+        const at = Date.parse(c.created_at)
+        if (Number.isNaN(at) || at < since) return false
+      }
       return true
     })
-  }, [cases, search, status, caseType])
+  }, [cases, search, status, caseType, period])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  // 篩選變動後筆數可能不夠翻到原本那頁,夾回範圍才不會停在空白頁
+  const currentPage = Math.min(page, totalPages)
+  const pageRows = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(1)
+  }, [search, status, caseType, period])
 
   function clearFilters() {
     setSearch('')
     setStatus(ALL)
     setCaseType(ALL)
+    setPeriod(ALL)
   }
 
   const railSlot = (
     <div className="rail-section">
-      <div className="rail-section__title">篩選</div>
+      <div className="rail-section__title case-list-filter-title">篩選</div>
       <div className="case-list-filter-group">
         <div className="rail-field-wrap">
           <Icon name="search" className="rail-field-wrap__icon" />
           <input
             type="text"
             aria-label="搜尋"
-            placeholder="案號或標題"
+            placeholder="案號或檔名"
             className="rail-field"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -111,7 +151,7 @@ export default function CaseList() {
       </div>
       <div className="case-list-filter-group">
         <label htmlFor="case-list-status" className="rail-label">
-          狀態
+          進度
         </label>
         <select
           id="case-list-status"
@@ -128,7 +168,7 @@ export default function CaseList() {
       </div>
       <div className="case-list-filter-group">
         <label htmlFor="case-list-type" className="rail-label">
-          案類
+          案件類別
         </label>
         <select
           id="case-list-type"
@@ -144,13 +184,30 @@ export default function CaseList() {
           ))}
         </select>
       </div>
+      <div className="case-list-filter-group">
+        <label htmlFor="case-list-period" className="rail-label">
+          時間
+        </label>
+        <select
+          id="case-list-period"
+          className="rail-field"
+          value={period}
+          onChange={(e) => setPeriod(e.target.value)}
+        >
+          {PERIOD_OPTIONS.map((opt) => (
+            <option key={opt.label} value={opt.label}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
   )
 
   return (
     <AppShell railSlot={railSlot}>
       <div className="page-header">
-        <h1 className="page-header__title">案件清單</h1>
+        <h1 className="page-header__title case-list-title">案件清單</h1>
         {cases !== null && !error && (
           <span className="page-header__count">
             共 {cases.length} 件{isFiltering ? ` · 顯示 ${filtered.length} 件` : ''}
@@ -196,14 +253,14 @@ export default function CaseList() {
             <thead>
               <tr>
                 <th>案號</th>
-                <th>標題</th>
-                <th>案類</th>
-                <th>狀態</th>
+                <th>訴願書檔名</th>
+                <th>案件類別</th>
+                <th>進度</th>
                 <th>建立時間</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((c) => {
+              {pageRows.map((c) => {
                 const seal = resolveCaseSeal(c)
                 return (
                   <tr
@@ -233,6 +290,30 @@ export default function CaseList() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {!error && cases !== null && filtered.length > PAGE_SIZE && (
+        <nav className="case-list-pager" aria-label="分頁">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={currentPage <= 1}
+            onClick={() => setPage(currentPage - 1)}
+          >
+            上一頁
+          </button>
+          <span className="case-list-pager__label">
+            第 {currentPage} / {totalPages} 頁
+          </span>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={currentPage >= totalPages}
+            onClick={() => setPage(currentPage + 1)}
+          >
+            下一頁
+          </button>
+        </nav>
       )}
     </AppShell>
   )

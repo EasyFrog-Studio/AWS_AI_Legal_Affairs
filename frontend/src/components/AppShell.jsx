@@ -56,7 +56,7 @@ export default function AppShell({ railSlot, children }) {
               <polygon key={i} points={p.points} className={`rail__facet--${p.tone}`} />
             ))}
           </svg>
-          <div className="rail__brand">訴願案件審理輔助系統</div>
+          <div className="rail__brand">訴願審理平台</div>
           <nav className="rail__nav" aria-label="全域導覽">
             <NavLink
               to="/"
