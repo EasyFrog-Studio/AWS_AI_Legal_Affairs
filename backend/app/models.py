@@ -186,6 +186,18 @@ DocumentSlot = Literal["appeal", "service", "disposition", "answer"]
 DraftType = Literal["不受理", "駁回", "撤銷另處", "原處分撤銷", "部分不受理部分駁回"]
 DRAFT_TYPES: tuple[str, ...] = get_args(DraftType)  # providers 的 JSON schema enum 與這裡同源
 
+
+def draft_types_for(passed: bool) -> tuple[str, ...]:
+    """依程序審查結論收斂 F4 的 draft_type 值域,供 provider 組 JSON schema。
+
+    受理案不得產出「不受理」:那是分流的職權,不是草稿的。prompt 講過,但 schema 五值全開時
+    模型照樣挑得到,結果是 track=admissible 而草稿寫不受理。不受理側不在此收——
+    enforce_inadmissible_format 已在事後校正體例。
+    """
+    if not passed:
+        return DRAFT_TYPES
+    return tuple(t for t in DRAFT_TYPES if t != "不受理")
+
 # 各槽對應的中文名,錯誤訊息與前端顯示共用同一份,不分別寫兩次
 DOCUMENT_SLOT_LABELS: dict[DocumentSlot, str] = {
     "appeal": "訴願書",

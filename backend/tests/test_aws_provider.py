@@ -1017,9 +1017,8 @@ def test_extract_case_info_constrains_service_method_to_statutory_options():
     assert schema["properties"]["service_method"].get("enum") == list(SERVICE_METHODS)
 
 
-def test_generate_draft_schema_enum_matches_draft_types():
-    from app.models import DRAFT_TYPES
-
+def _draft_enum_sent(passed: bool) -> list[str]:
+    """實際送進 Bedrock toolConfig 的值域;斷言要看送出去的那份。"""
     brt = MagicMock()
     brt.converse.return_value = _toolUse_response(
         "generate_draft",
@@ -1032,11 +1031,22 @@ def test_generate_draft_schema_enum_matches_draft_types():
         },
     )
     provider = _provider(bedrock_runtime=brt)
-    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
-
+    screening = ScreeningResult(passed=passed, matched_clause=None, reasoning="x")
     provider.generate_draft(_info(), screening, [], [])
-
     _, kwargs = brt.converse.call_args
-    tool_spec = kwargs["toolConfig"]["tools"][0]["toolSpec"]
-    schema = tool_spec["inputSchema"]["json"]
-    assert schema["properties"]["draft_type"]["enum"] == list(DRAFT_TYPES)
+    schema = kwargs["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
+    return schema["properties"]["draft_type"]["enum"]
+
+
+def test_generate_draft_schema_enum_follows_the_screening_verdict():
+    """aws 與 local 共用同一條約束:受理案的 schema 不得提供「不受理」。"""
+    from app.models import draft_types_for
+
+    assert _draft_enum_sent(passed=True) == list(draft_types_for(passed=True))
+    assert "不受理" not in _draft_enum_sent(passed=True)
+
+
+def test_generate_draft_schema_enum_keeps_every_value_on_the_inadmissible_track():
+    from app.models import DRAFT_TYPES
+
+    assert _draft_enum_sent(passed=False) == list(DRAFT_TYPES)

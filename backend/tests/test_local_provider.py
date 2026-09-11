@@ -4,7 +4,7 @@ import json as json_mod
 import pytest
 
 from app.config import settings
-from app.models import SERVICE_METHODS, CaseInfo, LawRef, ScreeningResult
+from app.models import DRAFT_TYPES, SERVICE_METHODS, CaseInfo, LawRef, ScreeningResult, draft_types_for
 from app.providers.local import LocalProvider
 
 _DEFAULT_EMBED_VEC = [0.1] * 1024
@@ -740,9 +740,8 @@ def test_extract_case_info_keeps_a_service_method_outside_the_enum_instead_of_dr
     assert info.service_method == "寄存於板橋郵局"
 
 
-def test_generate_draft_schema_enum_matches_draft_types():
-    from app.models import DRAFT_TYPES
-
+def _draft_enum_sent(passed: bool) -> list[str]:
+    """實際送進 ollama 的 schema 值域;斷言要看送出去的那份,不是重算一次期望值。"""
     http = FakeHTTP(
         chat_payloads=[
             {
@@ -755,13 +754,21 @@ def test_generate_draft_schema_enum_matches_draft_types():
         ]
     )
     provider = _provider(http_client=http)
-    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
-
+    screening = ScreeningResult(passed=passed, matched_clause=None, reasoning="x")
     provider.generate_draft(_info(), screening, [], [])
-
     path, body = http.calls[0]
     assert path == "/api/chat"
-    assert body["format"]["properties"]["draft_type"]["enum"] == list(DRAFT_TYPES)
+    return body["format"]["properties"]["draft_type"]["enum"]
+
+
+def test_generate_draft_schema_enum_follows_the_screening_verdict():
+    """受理案的 schema 不得提供「不受理」——那是分流的職權,不是草稿的。"""
+    assert _draft_enum_sent(passed=True) == list(draft_types_for(passed=True))
+    assert "不受理" not in _draft_enum_sent(passed=True)
+
+
+def test_generate_draft_schema_enum_keeps_every_value_on_the_inadmissible_track():
+    assert _draft_enum_sent(passed=False) == list(DRAFT_TYPES)
 
 
 def test_default_http_client_uses_configured_timeout(monkeypatch):

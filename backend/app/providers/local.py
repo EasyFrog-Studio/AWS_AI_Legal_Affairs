@@ -6,7 +6,6 @@ from typing import Optional
 
 from app.config import settings
 from app.models import (
-    DRAFT_TYPES,
     SERVICE_METHODS,
     CaseInfo,
     DraftResult,
@@ -15,6 +14,7 @@ from app.models import (
     ScreeningResult,
     SimilarCase,
     StandingAssessment,
+    draft_types_for,
 )
 from app.providers.aws import (
     _CASE_CHUNK_FETCH,
@@ -328,7 +328,7 @@ class LocalProvider(AIProvider):
         schema = {
             "type": "object",
             "properties": {
-                "draft_type": {"type": "string", "enum": list(DRAFT_TYPES)},
+                "draft_type": {"type": "string", "enum": list(draft_types_for(screening.passed))},
                 "fact": {"type": "string"},
                 "reason": {"type": "string"},
                 "main_text": {"type": "string"},

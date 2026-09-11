@@ -4,7 +4,7 @@ from pydantic import ValidationError
 
 import app.main as main_module
 from app.config import settings
-from app.models import Case, DraftResult
+from app.models import DRAFT_TYPES, Case, DraftResult, draft_types_for
 
 
 def _headers():
@@ -261,3 +261,30 @@ def test_draft_result_accepts_the_two_new_draft_types(draft_type):
 def test_draft_result_rejects_a_typo_of_a_valid_draft_type():
     with pytest.raises(ValidationError):
         DraftResult(draft_type="撤銷另處理", fact="事實", reason="理由", main_text="主文")
+
+
+# ---------- draft_types_for:受理側的值域由 schema 擋,不只靠 prompt ----------
+
+
+def test_admissible_track_cannot_offer_inadmissible_as_a_draft_type():
+    """prompt 早就寫明受理案三擇一,但 schema 五值全開,模型照樣挑得到「不受理」,
+    產出一份 track=admissible 而草稿寫不受理的自相矛盾案件(local 模式實測 2 件)。"""
+    assert "不受理" not in draft_types_for(passed=True)
+
+
+def test_admissible_track_keeps_every_substantive_outcome():
+    """三種實體決定都要留著,否則模型只能在更少的錯誤選項裡挑。"""
+    allowed = draft_types_for(passed=True)
+    for value in ("駁回", "撤銷另處", "原處分撤銷"):
+        assert value in allowed
+
+
+def test_partial_decision_stays_available_on_both_tracks():
+    """部分不受理部分駁回本來就是「一部進入實體審查」,關在不受理側等於讓那種案永遠答不對。"""
+    assert "部分不受理部分駁回" in draft_types_for(passed=True)
+    assert "部分不受理部分駁回" in draft_types_for(passed=False)
+
+
+def test_inadmissible_track_still_offers_every_value():
+    """不受理側由 enforce_inadmissible_format 事後校正體例,值域不需在 schema 再收一次。"""
+    assert set(draft_types_for(passed=False)) == set(DRAFT_TYPES)
