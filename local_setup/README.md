@@ -13,10 +13,10 @@
 
 ## 執行
 
-工作目錄需為 `AWS_dev_infomation/AWS_AI_Legal_Affairs/local_setup/`:
+工作目錄需為本 repo 的 `local_setup/`:
 
 ```
-cd AWS_dev_infomation/AWS_AI_Legal_Affairs/local_setup
+cd local_setup
 python ingest.py
 ```
 

@@ -14,7 +14,7 @@ import httpx
 import psycopg
 from dotenv import load_dotenv
 
-# --- 路徑推導(鏡像 AWS_dev_infomation/AWS_AI_Legal_Affairs/preprocessing/common.py:9-10 的相對寫法) ---
+# --- 路徑推導(鏡像 preprocessing/common.py:9-10 的相對寫法) ---
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "data" / "output"
 LAW_CHUNKS_PATH = OUTPUT_DIR / "law_chunks.jsonl"
 INTERP_CHUNKS_PATH = OUTPUT_DIR / "interp_chunks.jsonl"
