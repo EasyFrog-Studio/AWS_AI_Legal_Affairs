@@ -40,6 +40,7 @@ from app.pdf_render import build_decision_blocks, render_draft_pdf
 from app.text_quality import is_unreadable
 from app.reference_data import reference_data_status
 from app.review import needs_review
+from botocore.exceptions import ClientError, NoCredentialsError
 from app.pipeline import check_deadline_from_case, rerun_case, run_case
 from app.providers.aws import AWSProvider
 from app.providers.base import AIProvider
@@ -67,6 +68,27 @@ async def case_too_large_handler(_request, exc: CaseTooLargeError):
     """卷證太大是使用者可以理解並處理的輸入問題(改貼摘要、分次處理),不是伺服器錯誤;
     寫入前就擋下並用中文說清楚,勝過讓 boto3 的 ValidationException 把案件打成 status=error。"""
     return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
+# 憑證類錯誤:處置方式是換一組憑證,不是查伺服器。臨時憑證數小時即過期,裸 500 會讓
+# 整個站看起來壞掉而看不出原因,清單頁又是最先被打開的那一頁
+_CREDENTIAL_ERROR_CODES = frozenset(
+    {"ExpiredToken", "ExpiredTokenException", "InvalidClientTokenId", "UnrecognizedClientException"}
+)
+_CREDENTIAL_DETAIL = "AWS 憑證無效或已過期,請更新後重試;本機請更新 ~/.aws/credentials,雲端請更新工作負載的憑證來源。"
+
+
+@app.exception_handler(NoCredentialsError)
+async def missing_credentials_handler(_request, _exc: NoCredentialsError):
+    return JSONResponse(status_code=503, content={"detail": _CREDENTIAL_DETAIL})
+
+
+@app.exception_handler(ClientError)
+async def aws_client_error_handler(_request, exc: ClientError):
+    """只改寫憑證類;其餘照舊往外拋,否則真正的故障會被這層蓋成「請換憑證」。"""
+    if exc.response.get("Error", {}).get("Code") in _CREDENTIAL_ERROR_CODES:
+        return JSONResponse(status_code=503, content={"detail": _CREDENTIAL_DETAIL})
+    raise exc
 
 
 _provider: Optional[AIProvider] = None

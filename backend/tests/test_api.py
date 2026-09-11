@@ -657,3 +657,52 @@ def test_decision_header_rejects_a_case_without_a_draft(monkeypatch):
     )
 
     assert resp.status_code == 409
+
+
+# ---------- AWS 憑證失效:給得出處置方式的回應,不是裸 500 ----------
+
+
+def _raise_on_list(exc):
+    def _list(*_args, **_kwargs):
+        raise exc
+    return _list
+
+
+def test_missing_aws_credentials_answers_with_an_actionable_message(monkeypatch):
+    """Workshop 憑證數小時即過期。裸 500 讓承辦人以為整個站壞了,而處置方式其實只是換一組憑證。"""
+    from botocore.exceptions import NoCredentialsError
+
+    monkeypatch.setattr(main_module.store, "list_cases", _raise_on_list(NoCredentialsError()))
+    resp = TestClient(main_module.app, raise_server_exceptions=False).get(
+        "/api/cases", headers={"X-API-Key": "test-key"}
+    )
+
+    assert resp.status_code == 503
+    assert "憑證" in resp.json()["detail"]
+
+
+def test_expired_aws_token_answers_with_the_same_actionable_message(monkeypatch):
+    """過期與未設定是同一件事的兩種寫法,承辦人的處置一樣,回應也該一樣。"""
+    from botocore.exceptions import ClientError
+
+    exc = ClientError({"Error": {"Code": "ExpiredToken", "Message": "token expired"}}, "Scan")
+    monkeypatch.setattr(main_module.store, "list_cases", _raise_on_list(exc))
+    resp = TestClient(main_module.app, raise_server_exceptions=False).get(
+        "/api/cases", headers={"X-API-Key": "test-key"}
+    )
+
+    assert resp.status_code == 503
+    assert "憑證" in resp.json()["detail"]
+
+
+def test_an_unrelated_aws_error_is_not_disguised_as_a_credential_problem(monkeypatch):
+    """只有憑證類錯誤才改寫;其餘 ClientError 照舊往外拋,否則真正的故障會被這層蓋掉。"""
+    from botocore.exceptions import ClientError
+
+    exc = ClientError({"Error": {"Code": "ResourceNotFoundException", "Message": "no table"}}, "Scan")
+    monkeypatch.setattr(main_module.store, "list_cases", _raise_on_list(exc))
+    resp = TestClient(main_module.app, raise_server_exceptions=False).get(
+        "/api/cases", headers={"X-API-Key": "test-key"}
+    )
+
+    assert resp.status_code == 500
