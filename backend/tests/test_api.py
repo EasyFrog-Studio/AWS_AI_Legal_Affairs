@@ -90,6 +90,66 @@ def test_create_case_with_all_three_documents_returns_case_id_and_checks(monkeyp
     assert body["documents"]["answer"]["matched"] is None
 
 
+def test_create_case_uses_supplied_case_id(monkeypatch):
+    """承辦人填了正式案號就用它;讀回一次,確認它真的是那件案子的鍵而不只是回應裡的字。"""
+    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+    client = TestClient(main_module.app)
+    form = _create_case_form()
+    form["case_id"] = "114年訴字第0123號"
+    resp = client.post("/api/cases", data=form, headers=_headers())
+    assert resp.status_code == 200
+    assert resp.json()["case_id"] == "114年訴字第0123號"
+    got = client.get("/api/cases/114年訴字第0123號", headers=_headers())
+    assert got.status_code == 200
+    assert got.json()["case_id"] == "114年訴字第0123號"
+
+
+def test_create_case_blank_case_id_falls_back_to_generated(monkeypatch):
+    """輸入框留白或只打了空白鍵,視同沒填。"""
+    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+    client = TestClient(main_module.app)
+    for blank in ("", "   "):
+        form = _create_case_form()
+        form["case_id"] = blank
+        resp = client.post("/api/cases", data=form, headers=_headers())
+        assert resp.status_code == 200
+        assert resp.json()["case_id"].startswith("c-")
+
+
+def test_create_case_rejects_malformed_case_id(monkeypatch):
+    """案號會落進 finalized/{case_id}.pdf 的 S3 key 與本機路徑,路徑字元擋在入口。"""
+    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+    client = TestClient(main_module.app)
+    # CON/NUL 在 Windows 是裝置名,非 aws 模式的 finalized PDF 就寫在本機
+    for bad in ("../../etc/passwd", "114 訴 123", "a" * 65, "CON", "nul"):
+        form = _create_case_form()
+        form["case_id"] = bad
+        resp = client.post("/api/cases", data=form, headers=_headers())
+        assert resp.status_code == 400, f"{bad!r} 應被拒絕"
+        assert resp.json()["detail"]["field"] == "case_id"
+
+
+def test_create_case_duplicate_case_id_returns_409_and_keeps_original(monkeypatch):
+    """三種 store 的 create() 都是 upsert,重號放行等於無聲覆蓋掉舊案,故擋在建案。"""
+    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+    client = TestClient(main_module.app)
+    form = _create_case_form()
+    form["case_id"] = "114年訴字第0777號"
+    assert client.post("/api/cases", data=form, headers=_headers()).status_code == 200
+    original = client.get("/api/cases/114年訴字第0777號", headers=_headers()).json()
+
+    second = _create_case_form(appeal_text=_INADMISSIBLE_APPEAL_TEXT)
+    second["case_id"] = "114年訴字第0777號"
+    resp = client.post("/api/cases", data=second, headers=_headers())
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["field"] == "case_id"
+    assert "已存在" in resp.json()["detail"]["message"]
+
+    after = client.get("/api/cases/114年訴字第0777號", headers=_headers()).json()
+    assert after["input_text"] == original["input_text"]
+    assert after["created_at"] == original["created_at"]
+
+
 def test_create_case_missing_any_document_returns_400():
     client = TestClient(main_module.app)
     resp = client.post("/api/cases", data={}, headers=_headers())

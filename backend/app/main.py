@@ -1,4 +1,5 @@
 """FastAPI app:案件 CRUD、草稿 PATCH / PDF,pipeline 走 BackgroundTask。"""
+import re
 import urllib.parse
 import uuid
 from datetime import datetime, timezone
@@ -187,8 +188,33 @@ def _build_document(slot: DocumentSlot, document_input: DocumentInput) -> CaseDo
     )
 
 
+# 案號會落進 finalized/{case_id}.pdf 的 S3 key 與本機路徑,故限白名單;\w 含中日韓字,「114年訴字第0123號」可用
+_CASE_ID_RE = re.compile(r"^[\w-]{1,64}\Z")
+# 這些名字在 Windows 是裝置而非檔案,寫 CON.pdf 會寫進主控台;非 aws 模式的 FINALIZED_DIR 就在本機
+_WINDOWS_DEVICE_RE = re.compile(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])\Z", re.IGNORECASE)
+
+
+def _case_id_error(status_code: int, message: str) -> HTTPException:
+    """標成 case_id 欄位的錯誤,前端據此判斷要不要附檔案格式提示,不必比對文案。"""
+    return HTTPException(status_code=status_code, detail={"message": message, "field": "case_id"})
+
+
+def _resolve_case_id(raw: Optional[str]) -> str:
+    case_id = (raw or "").strip()
+    if not case_id:
+        return f"c-{uuid.uuid4().hex[:8]}"
+    if not _CASE_ID_RE.match(case_id) or _WINDOWS_DEVICE_RE.match(case_id):
+        raise _case_id_error(400, "案號僅接受中英文、數字、底線與連字號,長度 64 字以內")
+    # store.create() 三種實作皆為 upsert,重號放行就是無聲覆蓋掉同號舊案;
+    # 這裡是 check-then-act,靠的是單 task 單 process 且本函式到 create 之間沒有 await,資料層本身無此保證
+    if store.get(case_id) is not None:
+        raise _case_id_error(409, f"案號 {case_id} 已存在,請換一個或留白由系統產生")
+    return case_id
+
+
 @app.post("/api/cases", dependencies=[Depends(require_api_key)])
 async def create_case(
+    case_id: Optional[str] = Form(None),
     appeal_file: Optional[UploadFile] = File(None),
     appeal_text: Optional[str] = Form(None),
     service_file: Optional[UploadFile] = File(None),
@@ -220,7 +246,7 @@ async def create_case(
     )
     appellant_title = appeal.text.strip()[:30] if appeal.source == "text" else (appeal_file.filename or "訴願案件")
 
-    case_id = f"c-{uuid.uuid4().hex[:8]}"
+    case_id = _resolve_case_id(case_id)
     case = Case(
         case_id=case_id,
         created_at=datetime.now(timezone.utc).isoformat(),
