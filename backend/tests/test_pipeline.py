@@ -1,7 +1,9 @@
 from datetime import date
 
 from app.models import CaseInfo, DeadlineCheck, DraftResult, LawRef, ReferenceRef, ScreeningResult, SimilarCase, StandingAssessment, Case
+from app.deadline_extract import DeadlineExtraction, DeadlineFacts
 from app.pipeline import (
+    _check_deadline_from_extraction,
     check_deadline,
     check_deadline_from_case,
     enforce_inadmissible_format,
@@ -870,7 +872,9 @@ def test_reconcile_deadline_clean_arithmetic_withdraws_a_false_overdue_finding()
 def test_reconcile_deadline_keeps_the_model_clause_when_the_arithmetic_is_not_clean():
     """算式自己就帶保留事項時不得據以翻案——與 overdue is True 那一側同一條準則。"""
     timely = _OVERDUE_TEXT.replace("114年10月31日", "114年6月20日")
-    check = check_deadline(timely).model_copy(update={"review_note": "送達日採訴願人自述,須人工確認"})
+    check = check_deadline(timely).model_copy(
+        update={"review_note": "送達日採訴願人自述,須人工確認", "override_blocked": True}
+    )
     screening = ScreeningResult(passed=False, matched_clause="77條第2款", reasoning="模型認為逾期")
 
     result, reconciled = reconcile_deadline(screening, check)
@@ -1272,8 +1276,8 @@ def test_run_case_routes_a_contradictory_screening_into_the_inadmissible_track()
 def test_an_unconfirmed_overdue_finding_is_also_noted_on_the_screening_conclusion():
     """算出逾期卻因保留而不覆寫時,受質疑的正是「受理」這個結論;註記只落在期間欄的話,
     單看程序審查區塊的人會把那個結論當成可逕採。"""
-    for note in ("送達證書文字由 OCR 取得,日期須人工核對原件", "訴願書自述收受日與送達證書不符,送達是否合法係本件爭點"):
-        check = DeadlineCheck(overdue=True, detail="算式敘述", review_note=note)
+    for note in ("送達證書文字由 OCR 取得,日期須人工核對原件", "公示送達生效日之算法未經語料驗證,須人工確認"):
+        check = DeadlineCheck(overdue=True, detail="算式敘述", review_note=note, override_blocked=True)
         screening = ScreeningResult(passed=True, matched_clause=None, reasoning="無不受理事由")
         result, reconciled = reconcile_deadline(screening, check)
 
@@ -1294,7 +1298,7 @@ def test_a_confirmed_overdue_finding_leaves_no_caveat_on_the_screening():
 
 
 def test_the_screening_caveat_is_appended_to_an_existing_one():
-    check = DeadlineCheck(overdue=True, detail="算式敘述", review_note="送達日待確認")
+    check = DeadlineCheck(overdue=True, detail="算式敘述", review_note="送達日待確認", override_blocked=True)
     screening = ScreeningResult(
         passed=True, matched_clause=None, reasoning="無不受理事由", review_note="原有保留事項"
     )
@@ -1302,3 +1306,44 @@ def test_the_screening_caveat_is_appended_to_an_existing_one():
 
     assert result.review_note.startswith("原有保留事項")
     assert "期間" in result.review_note
+
+
+# ---------- 自述收受日與送達證書不符:註記照留,但不阻擋算式覆寫 ----------
+
+
+def _disputed_facts(self_reported: bool) -> DeadlineFacts:
+    """送達證書齊備(送達時間抽得到)與退用自述日兩種情形,其餘條件相同。"""
+    return DeadlineFacts(
+        service_date=date(2023, 2, 7),
+        transit_days=0,
+        filed_date=date(2023, 3, 15),
+        service_date_self_reported=self_reported,
+        service_fallback_reason="absent_slot" if self_reported else None,
+        disputed_receipt_date=date(2023, 2, 13),
+    )
+
+
+def test_a_disputed_receipt_date_does_not_block_the_override_when_the_receipt_is_complete():
+    """送達生效日以送達證書為準是行政程序法§72-74 的定論,訴願人主張較晚知悉不延長起算。
+    期間模組已據此挑定送達證書,再以「有爭點」為由拒絕採用自己的結論,等於算了不算。"""
+    check = _check_deadline_from_extraction(DeadlineExtraction(facts=_disputed_facts(False)))
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="無不受理事由")
+
+    result, reconciled = reconcile_deadline(screening, check)
+
+    assert check.overdue is True
+    assert "自述收受或知悉日" in reconciled.review_note  # 註記照留,承辦人看得到歧異
+    assert result.passed is False
+    assert result.matched_clause == "77條第2款"
+
+
+def test_a_disputed_receipt_date_still_blocks_when_the_service_date_came_from_the_appellant():
+    """送達證書本身缺席時,送達生效日是訴願人自己說的,那才是真的無從認定。"""
+    check = _check_deadline_from_extraction(DeadlineExtraction(facts=_disputed_facts(True)))
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="無不受理事由")
+
+    result, _ = reconcile_deadline(screening, check)
+
+    assert check.overdue is True
+    assert result.passed is True
+    assert result.matched_clause is None

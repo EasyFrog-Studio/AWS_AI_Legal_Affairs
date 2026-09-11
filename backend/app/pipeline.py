@@ -112,10 +112,10 @@ def _caveats(facts: DeadlineFacts, due_date: date | None) -> list[str]:
         notes.append("公示送達生效日之算法未經語料驗證,須人工確認")
     if facts.service_date_self_reported:
         notes.append(_SERVICE_FALLBACK_NOTES.get(facts.service_fallback_reason, "送達生效日採訴願人自述,未經送達證書核對"))
-    if facts.disputed_receipt_date is not None:
+    if facts.disputed_receipt_date is not None and facts.service_date_self_reported:
         notes.append(
-            f"訴願書自述收受或知悉日{format_roc(facts.disputed_receipt_date)}與送達證書不符,"
-            "送達生效日採送達證書,送達是否合法係本件爭點,結論須人工認定"
+            f"訴願書自述收受或知悉日{format_roc(facts.disputed_receipt_date)}與送達生效日不符,"
+            "而生效日本身出自訴願人自述、未經送達證書核對,結論須人工認定"
         )
     if due_date is None:
         return notes
@@ -127,17 +127,31 @@ def _caveats(facts: DeadlineFacts, due_date: date | None) -> list[str]:
     return notes
 
 
+def _advisories(facts: DeadlineFacts) -> list[str]:
+    """要讓承辦人看到、但不阻擋算式覆寫的歧異。送達生效日以送達證書為準是行政程序法
+    §72-74 的定論,訴願人主張較晚知悉不延長起算;算式已據此挑定送達證書,再以「有爭點」
+    為由拒絕採用自己的結論就是算了不算。送達證書缺席時另由 _caveats 擋下。"""
+    if facts.disputed_receipt_date is None or facts.service_date_self_reported:
+        return []
+    return [
+        f"訴願書自述收受或知悉日{format_roc(facts.disputed_receipt_date)}與送達證書不符,"
+        "送達生效日依法採送達證書;自述日不影響起算,惟送達合法性如有爭執仍須人工認定"
+    ]
+
+
 def _with_filed_date(
     facts: DeadlineFacts, result: DeadlineResult, detail: str, extra_notes: list[str]
 ) -> DeadlineCheck:
     """算出末日之後的共同收尾:對帳註記 + 收文日比對。各期間分支只負責算末日與敘述。"""
     caveats = [note for note in extra_notes if note] + _caveats(facts, result.due_date)
+    advisories = _advisories(facts)
     if facts.filed_date is None:
         return DeadlineCheck(
             service_date=facts.service_date,
             due_date=result.due_date,
             detail=f"{detail}。",
-            review_note=";".join(["卷內未載機關收文日,無從認定是否逾期"] + caveats),
+            review_note=";".join(["卷內未載機關收文日,無從認定是否逾期"] + caveats + advisories),
+            override_blocked=True,
         )
 
     overdue = result.is_overdue(facts.filed_date)
@@ -147,7 +161,8 @@ def _with_filed_date(
         due_date=result.due_date,
         filed_date=facts.filed_date,
         detail=f"{detail},機關收文日{format_roc(facts.filed_date)},{'已逾期' if overdue else '未逾期'}。",
-        review_note=";".join(caveats),
+        review_note=";".join(caveats + advisories),
+        override_blocked=bool(caveats),
     )
 
 
@@ -270,14 +285,19 @@ def _flag_ocr_slots(case: Case, check: DeadlineCheck) -> DeadlineCheck:
     if not ocr_slots:
         return check
     note = f"{'、'.join(ocr_slots)}文字由 OCR 取得,日期須人工核對原件"
-    return check.model_copy(update={"review_note": ";".join(n for n in (check.review_note, note) if n)})
+    return check.model_copy(
+        update={
+            "review_note": ";".join(n for n in (check.review_note, note) if n),
+            "override_blocked": True,
+        }
+    )
 
 
 def reconcile_deadline(
     screening: ScreeningResult, check: DeadlineCheck
 ) -> tuple[ScreeningResult, DeadlineCheck]:
     """算得出逾期即以算式取代模型判斷;結論待確認或與模型相反時兩者都不動,只記歧異待人工。"""
-    if check.overdue is True and check.review_note:
+    if check.overdue is True and check.override_blocked:
         # 算式本身還要人工確認,就不該拿去覆寫審查結果,更不該進草稿理由;但被質疑的是
         # 「本案未逾期」這個結論,註記只落在期間欄的話,單看程序審查區塊的人會把它當可逕採
         note = f"期間算得出逾期但{check.review_note},結論未經期間算式確認"
@@ -295,7 +315,7 @@ def reconcile_deadline(
         # 附加而非取代:既有的 review_note 裡是算式本身的保留事項(公示送達、採自述送達日、
         # §98 期間分支),那些正是解釋歧異從何而來的線索,覆蓋掉會讓承辦人只看到結論不一致。
         merged = ";".join(note for note in (check.review_note, note) if note)
-        if check.review_note:
+        if check.override_blocked:
             return screening, check.model_copy(update={"review_note": merged})
         # 算式乾淨且明說未逾期:撤銷第2款認定。算式已被授權單方面把案件打成不受理
         # (上一個分支),不讓它擋下一個它明說不成立的不受理,就是只在對機關有利的方向信任它。

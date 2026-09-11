@@ -91,6 +91,9 @@ class DeadlineCheck(BaseModel):
     filed_date: Optional[date] = None
     detail: str = ""  # 算式敘述,不受理決定書理由可直接引用
     review_note: str = ""  # 需人工複核的原因,空字串代表結論可逕採
+    # 註記非空不必然表示算式本身不可信:有些歧異法律上已有定論(生效日以送達證書為準),
+    # 要讓承辦人看到,但不該讓算式閉嘴。reconcile_deadline 只看這個旗標決定要不要覆寫
+    override_blocked: bool = False
 
 
 class LawRef(BaseModel):
