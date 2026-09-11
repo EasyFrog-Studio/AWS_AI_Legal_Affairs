@@ -317,7 +317,7 @@
 }
 
 .textarea {
-  resize: vertical;
+  resize: none;
   min-height: 220px;
   line-height: var(--leading-body);
 }

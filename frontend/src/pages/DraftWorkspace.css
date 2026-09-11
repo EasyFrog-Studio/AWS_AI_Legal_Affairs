@@ -53,7 +53,7 @@
   width: 100%;
   margin-top: var(--space-2xs);
   min-height: 0;
-  resize: none; /* 高度由 useAutoGrow 依內容伸展 */
+  resize: none; /* 高度由 AutoTextarea 依內容伸展 */
   overflow: hidden;
   font-family: var(--font-body);
   line-height: var(--leading-body);

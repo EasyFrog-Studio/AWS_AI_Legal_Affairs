@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { updateDraftText, downloadDraftPdf, downloadDraftDocx, finalizeCase } from '../api'
+import AutoTextarea from '../components/AutoTextarea.jsx'
 import SourceSiteLink from '../components/SourceSiteLink.jsx'
 import { useNavGuard } from '../navGuard.js'
 import './DraftWorkspace.css'
@@ -103,16 +104,6 @@ function BasisPanel({ laws, refs, cases, track, onViewSource }) {
   )
 }
 
-/** textarea 高度隨內容伸展(禁止手動拖拉);hidden 時 scrollHeight 為 0,顯示時重算。 */
-function useAutoGrow(ref, value, hidden) {
-  useEffect(() => {
-    const el = ref.current
-    if (!el || hidden) return
-    el.style.height = 'auto'
-    el.style.height = `${el.scrollHeight}px`
-  }, [ref, value, hidden])
-}
-
 /** 決定書草稿工作台:切換階段只切 `hidden`、永不 unmount,textarea 的未儲存內容才能存活;只在 caseId 變更時重置。 */
 export default function DraftWorkspace({
   caseId,
@@ -134,8 +125,6 @@ export default function DraftWorkspace({
   const [message, setMessage] = useState('')
   const prevCaseIdRef = useRef(caseId)
   const syncedPlainRef = useRef(text || '')
-  const plainRef = useRef(null)
-  useAutoGrow(plainRef, plain, hidden)
 
   useEffect(() => {
     if (prevCaseIdRef.current !== caseId) {
@@ -215,14 +204,13 @@ export default function DraftWorkspace({
         <p className="draft-paper__hint">
           這一份就是決定書本身：系統依案件資訊與檢索結果先擬好，承辦人直接在這裡改，下載的 PDF 與 Word 印的都是它。
         </p>
-        <textarea
+        <AutoTextarea
           id="draft-plain"
           aria-label="決定書全文"
-          ref={plainRef}
-          className="textarea textarea--document"
+          className="textarea--document"
           value={plain}
-          onChange={(e) => setPlain(e.target.value)}
-          rows={30}
+          onChange={setPlain}
+          hidden={hidden}
         />
         {draft.cited_laws?.length > 0 && (
           <div className="draft-field">

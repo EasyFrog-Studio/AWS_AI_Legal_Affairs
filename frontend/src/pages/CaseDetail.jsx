@@ -318,12 +318,7 @@ function F1Field({ info, system, field, editable, onSave }) {
         </dt>
         <dd>
           {field.kind === 'list' ? (
-            <textarea
-              id={`f1-${field.key}`}
-              rows={Math.max(3, draft.split('\n').length)}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-            />
+            <AutoTextarea id={`f1-${field.key}`} value={draft} onChange={setDraft} />
           ) : (
             <input
               id={`f1-${field.key}`}
@@ -518,13 +513,7 @@ function ScreeningSection({ caseData, onChanged }) {
           <label htmlFor="override-reasoning" className="rail-label">
             推翻理由
           </label>
-          <textarea
-            id="override-reasoning"
-            className="textarea"
-            rows={4}
-            value={reasoning}
-            onChange={(e) => setReasoning(e.target.value)}
-          />
+          <AutoTextarea id="override-reasoning" value={reasoning} onChange={setReasoning} />
           <div className="action-row">
             <button
               type="button"
