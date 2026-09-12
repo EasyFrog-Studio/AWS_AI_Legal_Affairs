@@ -1,8 +1,8 @@
 # 建 ECR repo(冪等)→ docker build → push
-# 用法:cd LRB_automation 後執行 .\deploy\push_ecr.ps1
+# 用法:cd AWS_AI_Legal_Affairs 後執行 .\deploy\push_ecr.ps1
 $ErrorActionPreference = "Stop"
 $REGION = "us-west-2"
-$ACCOUNT = "047877300727"
+$ACCOUNT = "000000000000"
 $REPO = "appeal-ai"
 $REGISTRY = "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
 

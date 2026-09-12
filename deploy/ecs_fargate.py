@@ -1,70 +1,76 @@
-"""ECS Fargate 部署(App Runner 被 SCP 封鎖的替代):跑現有 ECR image,task 直接以 public IP:8000 對外,資源已存在就沿用。"""
+"""ECS Fargate + ALB 部署:ALB 只放行白名單 IP,task 只收 ALB,兩者都不對 0.0.0.0/0 開。
+
+黑客松規範禁止對外完全開放的 Security Group,故 SG 規則採「對帳」而非「存在就跳過」:
+每次執行都會撤掉白名單以外的 ingress,手動在 console 加開的洞不會留到下一次部署。
+"""
 import json
 import os
 import sys
 import time
-from pathlib import Path
 
 import boto3
 from botocore.exceptions import ClientError
 
 REGION = "us-west-2"
-ACCOUNT = "047877300727"
-IMAGE = f"{ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com/appeal-ai:latest"
+ACCOUNT = "000000000000"
+REPO = "appeal-ai"
+IMAGE = f"{ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com/{REPO}:latest"
 CLUSTER = "appeal-ai"
 FAMILY = "appeal-ai"
 SERVICE = "appeal-ai-svc"
 LOG_GROUP = "/ecs/appeal-ai"
 EXEC_ROLE = "appeal-ecs-exec"
 TASK_ROLE = "appeal-ecs-task"
-SG_NAME = "appeal-ai-sg"
+ALB_SG_NAME = "appeal-ai-alb-sg"
+TASK_SG_NAME = "appeal-ai-task-sg"
+ALB_NAME = "appeal-ai-alb"
+TG_NAME = "appeal-ai-tg"
 PORT = 8000
+ALB_PORT = 80
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_ENV_FILE = _REPO_ROOT / ".env"
+S3_BUCKET = f"appeal-ai-{ACCOUNT}"
+KB_LAW_ID = "WQVGZBCEUA"
+KB_CASE_ID = "HEVPST3YK1"
+DDB_LAW_TABLE = "appeal_law_articles"
+DDB_CASE_TABLE = "appeal_cases"
+
+# 評審四組 + 開發者自用;這份清單就是對外暴露面的全部
+ALLOWED_INGRESS = [
+    ("203.0.113.11/32", "judge-1"),
+    ("203.0.113.12/32", "judge-2"),
+    ("203.0.113.13/32", "judge-3"),
+    ("203.0.113.14/32", "judge-4"),
+    ("203.0.113.10/32", "developer"),
+]
+
+# 登入頁已公告這把金鑰;環境變數 API_KEY 可在部署時覆蓋
+CLOUD_API_KEY = "0000"
 
 ENV = {
     "AI_PROVIDER": "aws",
     "AWS_REGION": REGION,
     "BEDROCK_MODEL_ID": "us.anthropic.claude-sonnet-4-6",
-    "KB_LAW_ID": "Y3REHA6HNN",
-    "KB_CASE_ID": "BUMDFYCWCM",
-    "S3_BUCKET": f"appeal-ai-{ACCOUNT}",
-    "DDB_LAW_TABLE": "appeal_law_articles",
-    "DDB_CASE_TABLE": "appeal_cases",
+    "BEDROCK_MIN_INTERVAL_SECONDS": "1.0",
+    "KB_LAW_ID": KB_LAW_ID,
+    "KB_CASE_ID": KB_CASE_ID,
+    "S3_BUCKET": S3_BUCKET,
+    "DDB_LAW_TABLE": DDB_LAW_TABLE,
+    # 這張表的主鍵是 law_id,「法規名稱#條號」只是 GSI,故查詢走索引而非 batch_get
+    "DDB_LAW_INDEX": "law-article-index",
+    "DDB_LAW_DATE_FIELD": "revised_date",
+    "DDB_CASE_TABLE": DDB_CASE_TABLE,
 }
 
 iam = boto3.client("iam")
 ec2 = boto3.client("ec2", region_name=REGION)
 ecs = boto3.client("ecs", region_name=REGION)
+elb = boto3.client("elbv2", region_name=REGION)
 logs = boto3.client("logs", region_name=REGION)
 
 
-def _parse_env_file(path: Path) -> dict:
-    """極簡 KEY=VALUE 逐行解析:忽略 # 開頭整行與行內「  #」之後的註解。"""
-    values = {}
-    if not path.exists():
-        return values
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        key, sep, value = line.split("  #", 1)[0].partition("=")
-        if sep:
-            values[key.strip()] = value.strip()
-    return values
-
-
-def resolve_api_key(environ, env_file) -> str:
-    """API_KEY 一律不硬編:environ 優先,其次 .env 檔,都無則中止部署。"""
-    api_key = environ.get("API_KEY")
-    if api_key:
-        return api_key
-    if env_file is not None:
-        api_key = _parse_env_file(Path(env_file)).get("API_KEY")
-        if api_key:
-            return api_key
-    raise SystemExit("API_KEY 未設定:請在 .env 或環境變數提供")
+def resolve_api_key(environ) -> str:
+    """雲端金鑰不從 .env 讀:那把是開發者本機在用的,混用會讓示範結束後還得改本地設定。"""
+    return environ.get("API_KEY") or CLOUD_API_KEY
 
 
 def ensure_role(name, policy_arns=None, inline=None):
@@ -82,6 +88,28 @@ def ensure_role(name, policy_arns=None, inline=None):
     return arn
 
 
+def task_policy():
+    """Resource 逐項收斂;foundation-model 的區域留萬用字元,跨區推論設定檔會把請求送到別區的同一個模型。"""
+    return {"Version": "2012-10-17", "Statement": [
+        {"Sid": "BedrockInvoke", "Effect": "Allow",
+         "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+         "Resource": ["arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6*",
+                      f"arn:aws:bedrock:{REGION}:{ACCOUNT}:inference-profile/*"]},
+        {"Sid": "BedrockRetrieve", "Effect": "Allow", "Action": ["bedrock:Retrieve"],
+         "Resource": [f"arn:aws:bedrock:{REGION}:{ACCOUNT}:knowledge-base/{KB_LAW_ID}",
+                      f"arn:aws:bedrock:{REGION}:{ACCOUNT}:knowledge-base/{KB_CASE_ID}"]},
+        {"Sid": "CaseObjects", "Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject"],
+         "Resource": f"arn:aws:s3:::{S3_BUCKET}/*"},
+        {"Sid": "CaseTable", "Effect": "Allow",
+         "Action": ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Scan"],
+         "Resource": f"arn:aws:dynamodb:{REGION}:{ACCOUNT}:table/{DDB_CASE_TABLE}"},
+        {"Sid": "LawTable", "Effect": "Allow",
+         "Action": ["dynamodb:GetItem", "dynamodb:BatchGetItem", "dynamodb:Query"],
+         "Resource": [f"arn:aws:dynamodb:{REGION}:{ACCOUNT}:table/{DDB_LAW_TABLE}",
+                      f"arn:aws:dynamodb:{REGION}:{ACCOUNT}:table/{DDB_LAW_TABLE}/index/*"]},
+    ]}
+
+
 def ensure_log_group():
     try:
         logs.create_log_group(logGroupName=LOG_GROUP)
@@ -90,28 +118,86 @@ def ensure_log_group():
 
 
 def default_vpc_and_subnets():
+    """ALB 至少要兩個 AZ;task 需要 public subnet,帳號內沒有 NAT Gateway,私有子網拉不到 ECR image。"""
     vpcs = ec2.describe_vpcs(Filters=[{"Name": "isDefault", "Values": ["true"]}])["Vpcs"]
     if not vpcs:
         vpcs = ec2.describe_vpcs()["Vpcs"]
     vpc_id = vpcs[0]["VpcId"]
     subnets = ec2.describe_subnets(Filters=[{"Name": "vpc-id", "Values": [vpc_id]},
                                             {"Name": "map-public-ip-on-launch", "Values": ["true"]}])["Subnets"]
-    if not subnets:
-        subnets = ec2.describe_subnets(Filters=[{"Name": "vpc-id", "Values": [vpc_id]}])["Subnets"]
-    return vpc_id, [s["SubnetId"] for s in subnets[:2]]
+    by_az = {}
+    for s in subnets:
+        by_az.setdefault(s["AvailabilityZone"], s["SubnetId"])
+    if len(by_az) < 2:
+        raise SystemExit(f"public subnet 只覆蓋 {len(by_az)} 個 AZ，ALB 至少需要 2 個")
+    return vpc_id, list(by_az.values())
 
 
-def ensure_sg(vpc_id):
-    existing = ec2.describe_security_groups(Filters=[{"Name": "group-name", "Values": [SG_NAME]},
+def find_or_create_sg(vpc_id, name, description):
+    existing = ec2.describe_security_groups(Filters=[{"Name": "group-name", "Values": [name]},
                                                      {"Name": "vpc-id", "Values": [vpc_id]}])["SecurityGroups"]
     if existing:
         return existing[0]["GroupId"]
-    sg_id = ec2.create_security_group(GroupName=SG_NAME, Description="appeal-ai fargate",
-                                      VpcId=vpc_id)["GroupId"]
-    ec2.authorize_security_group_ingress(GroupId=sg_id, IpPermissions=[{
+    return ec2.create_security_group(GroupName=name, Description=description, VpcId=vpc_id)["GroupId"]
+
+
+def reconcile_ingress(sg_id, wanted):
+    """把 SG 的 ingress 對到 wanted 這份清單:多的撤掉、少的補上。
+
+    存在就跳過會讓先前開的 0.0.0.0/0 永遠留著,而規範明令禁止對外完全開放,所以每次都要對帳。
+    """
+    current = ec2.describe_security_groups(GroupIds=[sg_id])["SecurityGroups"][0]["IpPermissions"]
+    if current:
+        ec2.revoke_security_group_ingress(GroupId=sg_id, IpPermissions=current)
+        print(f"  [REVOKE] {sg_id} 撤掉 {len(current)} 條既有 ingress")
+    if wanted:
+        ec2.authorize_security_group_ingress(GroupId=sg_id, IpPermissions=wanted)
+        print(f"  [ALLOW] {sg_id} 套上 {len(wanted)} 條 ingress")
+
+
+def ensure_security_groups(vpc_id):
+    alb_sg = find_or_create_sg(vpc_id, ALB_SG_NAME, "appeal-ai ALB: judge IP allowlist only")
+    task_sg = find_or_create_sg(vpc_id, TASK_SG_NAME, "appeal-ai task: from ALB only")
+    reconcile_ingress(alb_sg, [{
+        "IpProtocol": "tcp", "FromPort": ALB_PORT, "ToPort": ALB_PORT,
+        "IpRanges": [{"CidrIp": cidr, "Description": note} for cidr, note in ALLOWED_INGRESS]}])
+    reconcile_ingress(task_sg, [{
         "IpProtocol": "tcp", "FromPort": PORT, "ToPort": PORT,
-        "IpRanges": [{"CidrIp": "0.0.0.0/0", "Description": "app port"}]}])
-    return sg_id
+        "UserIdGroupPairs": [{"GroupId": alb_sg, "Description": "alb only"}]}])
+    return alb_sg, task_sg
+
+
+def ensure_alb(vpc_id, subnets, alb_sg):
+    try:
+        lb = elb.describe_load_balancers(Names=[ALB_NAME])["LoadBalancers"][0]
+        print(f"[SKIP] ALB 已存在: {lb['DNSName']}")
+    except elb.exceptions.LoadBalancerNotFoundException:
+        lb = elb.create_load_balancer(Name=ALB_NAME, Subnets=subnets, SecurityGroups=[alb_sg],
+                                      Scheme="internet-facing", Type="application",
+                                      IpAddressType="ipv4")["LoadBalancers"][0]
+        print(f"[CREATE] ALB: {lb['LoadBalancerArn']}")
+        elb.get_waiter("load_balancer_available").wait(LoadBalancerArns=[lb["LoadBalancerArn"]])
+    elb.set_security_groups(LoadBalancerArn=lb["LoadBalancerArn"], SecurityGroups=[alb_sg])
+
+    try:
+        tg_arn = elb.describe_target_groups(Names=[TG_NAME])["TargetGroups"][0]["TargetGroupArn"]
+        print("[SKIP] target group 已存在")
+    except elb.exceptions.TargetGroupNotFoundException:
+        tg_arn = elb.create_target_group(
+            Name=TG_NAME, Protocol="HTTP", Port=PORT, VpcId=vpc_id, TargetType="ip",
+            HealthCheckPath="/api/health", HealthCheckIntervalSeconds=30,
+            HealthCheckTimeoutSeconds=10, HealthyThresholdCount=2,
+            UnhealthyThresholdCount=5)["TargetGroups"][0]["TargetGroupArn"]
+        print(f"[CREATE] target group: {tg_arn}")
+
+    listeners = elb.describe_listeners(LoadBalancerArn=lb["LoadBalancerArn"])["Listeners"]
+    if listeners:
+        print("[SKIP] listener 已存在")
+    else:
+        elb.create_listener(LoadBalancerArn=lb["LoadBalancerArn"], Protocol="HTTP", Port=ALB_PORT,
+                            DefaultActions=[{"Type": "forward", "TargetGroupArn": tg_arn}])
+        print(f"[CREATE] listener {ALB_PORT}")
+    return lb["DNSName"], tg_arn
 
 
 def register_task_def(exec_arn, task_arn):
@@ -128,74 +214,79 @@ def register_task_def(exec_arn, task_arn):
         }])["taskDefinition"]["taskDefinitionArn"]
 
 
-def get_public_ip(task_arn):
+def ensure_service(td_arn, subnets, task_sg, tg_arn):
+    net = {"awsvpcConfiguration": {"subnets": subnets, "securityGroups": [task_sg],
+                                   "assignPublicIp": "ENABLED"}}
+    lb_cfg = [{"targetGroupArn": tg_arn, "containerName": "web", "containerPort": PORT}]
+    svcs = ecs.describe_services(cluster=CLUSTER, services=[SERVICE])["services"]
+    if svcs and svcs[0]["status"] == "ACTIVE":
+        ecs.update_service(cluster=CLUSTER, service=SERVICE, taskDefinition=td_arn,
+                           desiredCount=1, networkConfiguration=net, loadBalancers=lb_cfg,
+                           healthCheckGracePeriodSeconds=180, forceNewDeployment=True)
+        print("[UPDATE] 服務已更新,rolling 部署中")
+    else:
+        ecs.create_service(cluster=CLUSTER, serviceName=SERVICE, taskDefinition=td_arn,
+                           desiredCount=1, launchType="FARGATE", networkConfiguration=net,
+                           loadBalancers=lb_cfg, healthCheckGracePeriodSeconds=180)
+        print("[CREATE] 服務建立中")
+
+
+def wait_healthy(tg_arn, dns_name):
+    """等服務的 primary deployment 收斂,不是等「有任何 target healthy」。
+
+    滾動更新期間舊 task 仍然健康,只看 target health 會在新版還在啟動時就報成功。
+    """
     for _ in range(60):
-        time.sleep(10)
-        t = ecs.describe_tasks(cluster=CLUSTER, tasks=[task_arn])["tasks"][0]
-        last = t.get("lastStatus")
-        print(f"  task status: {last}")
-        if last == "RUNNING":
-            eni = next(d["value"] for a in t["attachments"] for d in a["details"]
-                       if d["name"] == "networkInterfaceId")
-            ni = ec2.describe_network_interfaces(NetworkInterfaceIds=[eni])["NetworkInterfaces"][0]
-            return ni.get("Association", {}).get("PublicIp")
-        if last == "STOPPED":
-            reason = t.get("stoppedReason", "")
-            cont = "; ".join(f"{c.get('name')}:{c.get('reason','')}" for c in t.get("containers", []))
-            print(f"[FAIL] task STOPPED: {reason} | {cont}")
-            sys.exit(1)
-    return None
+        time.sleep(15)
+        primary = next(d for d in ecs.describe_services(cluster=CLUSTER, services=[SERVICE])
+                       ["services"][0]["deployments"] if d["status"] == "PRIMARY")
+        th = elb.describe_target_health(TargetGroupArn=tg_arn)["TargetHealthDescriptions"]
+        states = [h["TargetHealth"]["State"] for h in th]
+        rollout = primary.get("rolloutState")
+        print(f"  rollout={rollout} running={primary['runningCount']}/{primary['desiredCount']} "
+              f"targets={states or ['(registering)']}")
+        if rollout == "COMPLETED" and "healthy" in states:
+            print(f"\n[DONE] 公開網址: http://{dns_name}")
+            return True
+        if rollout == "FAILED":
+            print(f"[FAIL] 部署失敗:{primary.get('rolloutStateReason')}")
+            return False
+        for h in th:
+            if h["TargetHealth"]["State"] == "unhealthy":
+                print(f"  [WARN] unhealthy: {h['TargetHealth'].get('Reason')} "
+                      f"{h['TargetHealth'].get('Description')}")
+    print(f"[WARN] 部署未在時限內收斂,請查 CloudWatch log group {LOG_GROUP}")
+    return False
 
 
 def main():
-    ENV["API_KEY"] = resolve_api_key(os.environ, _ENV_FILE)
+    ENV["API_KEY"] = resolve_api_key(os.environ)
+    source = "環境變數 API_KEY" if os.environ.get("API_KEY") else f"CLOUD_API_KEY({CLOUD_API_KEY})"
+    print(f"API_KEY 來源:{source}")
     try:
         exec_arn = ensure_role(EXEC_ROLE,
             policy_arns=["arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"])
-        task_arn = ensure_role(TASK_ROLE, inline={"Version": "2012-10-17", "Statement": [{
-            "Effect": "Allow", "Action": ["bedrock:InvokeModel", "bedrock:Retrieve",
-                "bedrock-agent-runtime:Retrieve", "dynamodb:GetItem", "dynamodb:PutItem",
-                "dynamodb:UpdateItem", "dynamodb:Scan", "dynamodb:BatchGetItem", "s3:GetObject"],
-            "Resource": "*"}]})
+        task_arn = ensure_role(TASK_ROLE, inline=task_policy())
     except ClientError as e:
         print(f"[FAIL] IAM role 建立失敗:{e}")
         sys.exit(1)
 
     ensure_log_group()
     vpc_id, subnets = default_vpc_and_subnets()
-    sg_id = ensure_sg(vpc_id)
-    print(f"vpc={vpc_id} subnets={subnets} sg={sg_id}")
+    alb_sg, task_sg = ensure_security_groups(vpc_id)
+    print(f"vpc={vpc_id} subnets={subnets} alb_sg={alb_sg} task_sg={task_sg}")
 
     try:
         ecs.create_cluster(clusterName=CLUSTER)
     except ClientError:
         pass
 
+    dns_name, tg_arn = ensure_alb(vpc_id, subnets, alb_sg)
     td_arn = register_task_def(exec_arn, task_arn)
     print(f"task definition: {td_arn}")
-
-    net = {"awsvpcConfiguration": {"subnets": subnets, "securityGroups": [sg_id],
-                                   "assignPublicIp": "ENABLED"}}
-    svcs = ecs.describe_services(cluster=CLUSTER, services=[SERVICE])["services"]
-    if svcs and svcs[0]["status"] == "ACTIVE":
-        ecs.update_service(cluster=CLUSTER, service=SERVICE, taskDefinition=td_arn,
-                           desiredCount=1, forceNewDeployment=True)
-        print("[UPDATE] 服務已更新,重新部署中")
-    else:
-        ecs.create_service(cluster=CLUSTER, serviceName=SERVICE, taskDefinition=td_arn,
-                           desiredCount=1, launchType="FARGATE", networkConfiguration=net)
-        print("[CREATE] 服務建立中")
-
-    for _ in range(60):
-        time.sleep(10)
-        tasks = ecs.list_tasks(cluster=CLUSTER, serviceName=SERVICE, desiredStatus="RUNNING")["taskArns"]
-        if tasks:
-            ip = get_public_ip(tasks[0])
-            if ip:
-                print(f"\n[DONE] 公開網址: http://{ip}:{PORT}")
-                print("       API Key: 見 .env")
-                return
-    print("[WARN] task 尚未進入 RUNNING,請稍後用 AWS console 查 ECS 服務 appeal-ai-svc")
+    ensure_service(td_arn, subnets, task_sg, tg_arn)
+    if not wait_healthy(tg_arn, dns_name):
+        sys.exit(1)
 
 
 if __name__ == "__main__":
