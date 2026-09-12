@@ -134,15 +134,9 @@
 
 /* ---------- 參考依據卡片內容(法規 / 參考見解 / 案例共用)---------- */
 
-/* 條文與見解全文常常很長,卡片高度不該被單一則拉爆整排 */
 .ref-card__text {
   font-family: var(--font-body);
-  max-width: var(--measure);
   margin-block: var(--space-xs);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 6;
-  -webkit-box-orient: vertical;
 }
 
 .ref-card__links {

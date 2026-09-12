@@ -709,7 +709,6 @@ function F3Section({ cases, running, onViewSource }) {
             案號 {c.case_no} · 訴願條款 {c.appeal_article} · 爭點 {c.issue}
           </div>
           <p className="ref-card__text">{c.summary}</p>
-          <p className="ref-card__text">{c.similarity_note}</p>
           {/* 原文按鈕:草稿頁的參考依據面板有,階段頁沒有的話兩處呈現不一致 */}
           <div className="ref-card__links">
             {c.source_key && (
