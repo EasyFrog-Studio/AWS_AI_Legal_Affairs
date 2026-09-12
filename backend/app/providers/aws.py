@@ -28,7 +28,9 @@ _MAX_QUERY_ISSUE_CHARS = 40  # F2 查詢只取首個爭點的前 N 字,避免多
 _TOP_K = 3  # F2 法規 / F3 案例各自呈現的筆數上限
 # 一份決定書切成多個欄位段落 chunk,取 _TOP_K 個 chunk 可能全落在同一案號,故案例先多撈再去重
 _CASE_CHUNK_FETCH = _TOP_K * 5
-_REF_TOP_K = 3  # F2+ 參考見解呈現的筆數上限
+_REF_TOP_K = 3  # F2+ 參考見解每一類各自呈現的筆數上限
+# 三類各占一個分頁,故逐類各撈各的:共用一個前 N 名時,排序靠前的那類會把另兩類的分頁洗空
+_REF_DOC_KINDS = ("司法院釋字", "行政函釋", "行政法院裁判")
 # 一份長判決/釋字同樣切成多筆 chunk,理由同 _CASE_CHUNK_FETCH
 _REF_CHUNK_FETCH = _REF_TOP_K * 5
 _MARKDOWN_PREFIX = "markdown"  # /api/source 在 local/mock 模式的可服務範圍
@@ -94,16 +96,13 @@ def external_source_url(metadata: dict) -> Optional[str]:
     return url if url.startswith(("https://", "http://")) else None
 
 
-_ARCHIVED_KINDS = ("行政函釋", "行政法院裁判", "司法院釋字")
-
-
 def archived_source_key(metadata: dict) -> Optional[str]:
     """爬蟲語料的參考資料只有原始 PDF、沒有 markdown,`viewable_source_key` 因此一律回 None,
     畫面上就變成一個可點的來源都沒有。這裡把它指回本機存檔的 PDF(`data/爬蟲集/…/參考資料/`)。
     只收單純檔名:`source_file` 要組進路徑,帶目錄分隔或 `..` 的一律不收。"""
     doc_kind = (metadata.get("doc_kind") or "").strip()
     source_file = (metadata.get("source_file") or "").strip()
-    if doc_kind not in _ARCHIVED_KINDS or not source_file.endswith(".pdf"):
+    if doc_kind not in _REF_DOC_KINDS or not source_file.endswith(".pdf"):
         return None
     if "/" in source_file or "\\" in source_file or source_file.startswith("."):
         return None
@@ -311,21 +310,29 @@ class AWSProvider(AIProvider):
 
 
     def find_references(self, info: CaseInfo) -> list[ReferenceRef]:
-        filter_ = {"notEquals": {"key": "doc_kind", "value": "法規"}}
-        retrieved = self._retrieve(
-            settings.KB_LAW_ID, _retrieval_query(info), filter_, _REF_CHUNK_FETCH
-        )
-        return build_references(
-            [
-                (
-                    r.get("metadata", {}).get("law_name", ""),
-                    r.get("content", {}).get("text", ""),
-                    r.get("metadata", {}),
+        query = _retrieval_query(info)
+        refs: list[ReferenceRef] = []
+        for doc_kind in _REF_DOC_KINDS:
+            retrieved = self._retrieve(
+                settings.KB_LAW_ID,
+                query,
+                {"equals": {"key": "doc_kind", "value": doc_kind}},
+                _REF_CHUNK_FETCH,
+            )
+            refs.extend(
+                build_references(
+                    [
+                        (
+                            r.get("metadata", {}).get("law_name", ""),
+                            r.get("content", {}).get("text", ""),
+                            r.get("metadata", {}),
+                        )
+                        for r in retrieved
+                    ],
+                    "向量檢索命中（KB-LAW，非法規）",
                 )
-                for r in retrieved
-            ],
-            "向量檢索命中（KB-LAW，非法規）",
-        )
+            )
+        return refs
 
     def find_similar_cases(
         self, info: CaseInfo, screening: ScreeningResult, text: str

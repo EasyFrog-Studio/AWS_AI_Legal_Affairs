@@ -57,17 +57,18 @@ function F2Section({ laws, track, screening, running, onViewSource }) {
   )
 }
 
-function F2RefsSection({ refs, running, onViewSource }) {
+function F2RefsSection({ refs, kind, running, onViewSource }) {
   // 兩條 track 都跑,故沒有「依流程不適用」這一態
   if (refs === null || refs === undefined) {
     return <PendingOrNotRun running={running} />
   }
-  if (refs.length === 0) {
-    return <div className="state-message state-message--empty">未檢索到相關參考見解。</div>
+  const ofKind = refs.filter((ref) => ref.doc_kind === kind.key)
+  if (ofKind.length === 0) {
+    return <div className="state-message state-message--empty">{kind.empty}</div>
   }
   return (
     <div className="doc-grid doc-grid--stack">
-      {refs.map((ref, i) => (
+      {ofKind.map((ref, i) => (
         <div className="doc-slot doc-slot--card reference-ref" key={i}>
           <div className="doc-slot__head">
             <span className="reference-ref__kind">{ref.doc_kind}</span>
@@ -128,62 +129,68 @@ function F3Section({ cases, running, onViewSource }) {
   )
 }
 
+/** 參考見解的三個分頁,key 即 ReferenceRef.doc_kind(後端逐類檢索,三類各取前 3 則)。 */
+const REF_KIND_TABS = [
+  { key: '司法院釋字', label: '釋字', empty: '未檢索到相關釋字。' },
+  { key: '行政函釋', label: '函釋', empty: '未檢索到相關函釋。' },
+  { key: '行政法院裁判', label: '法院裁判', empty: '未檢索到相關法院裁判。' },
+]
+
 const REF_TABS = [
-  { key: 'f2', label: '推薦法規（F2）' },
-  { key: 'f2_refs', label: '參考見解（F2+）' },
+  { key: 'f2', label: '法規法條' },
+  { key: 'f3', label: '過往案例' },
+  ...REF_KIND_TABS,
 ]
 
 /**
- * 參考依據頁:法規與參考見解共用一列分頁(與 F1 擷取同一套分頁列),案例另成一組排在下方。
- * F2+ 沒有條號、不進 F4 的可引用清單,與法規分頁切開才不會被當成可引用法條(見 glossary)。
+ * 參考依據頁:五類共用一列分頁(與 F1 擷取同一套分頁列),一次只顯示一類。
+ * F2+ 那三類沒有條號、不進 F4 的可引用清單,故與法規分頁切開(見 glossary)。
  */
 export function RefsStage({ caseData, isRunning, onViewSource }) {
   const [selectedTab, setSelectedTab] = useState(REF_TABS[0].key)
+  const kind = REF_KIND_TABS.find((tab) => tab.key === selectedTab)
 
+  // refs-stage 沒有樣式,是草稿頁依據欄同時在 DOM 裡時用來指認階段頁這一塊的把手
   return (
-    <div className="refs-stack">
-      <section className="refs-group">
-        <div role="tablist" aria-label="法規與參考見解" className="stage-tabs">
-          {REF_TABS.map((tab) => (
-            <button
-              type="button"
-              role="tab"
-              key={tab.key}
-              id={`refs-tab-${tab.key}`}
-              aria-selected={selectedTab === tab.key}
-              aria-controls={`refs-panel-${tab.key}`}
-              className={`stage-tab ${selectedTab === tab.key ? 'stage-tab--current' : ''}`}
-              onClick={() => setSelectedTab(tab.key)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-        <div role="tabpanel" id={`refs-panel-${selectedTab}`} aria-labelledby={`refs-tab-${selectedTab}`}>
-          {selectedTab === 'f2' ? (
-            <F2Section
-              laws={caseData.f2}
-              track={caseData.track}
-              screening={caseData.screening}
-              running={isRunning('f2', caseData)}
-              onViewSource={onViewSource}
-            />
-          ) : (
-            <>
-              <p className="refs-group__note">釋字、函釋與法院裁判供論理參考，沒有條號，不列入決定書的引用法條。</p>
-              <F2RefsSection
-                refs={caseData.f2_refs}
-                running={isRunning('f2_refs', caseData)}
-                onViewSource={onViewSource}
-              />
-            </>
-          )}
-        </div>
-      </section>
-      <section className="refs-group">
-        <h3 className="refs-group__title">相似案例（F3）</h3>
-        <F3Section cases={caseData.f3} running={isRunning('f3', caseData)} onViewSource={onViewSource} />
-      </section>
+    <div className="refs-stage">
+      <div role="tablist" aria-label="參考依據" className="stage-tabs">
+        {REF_TABS.map((tab) => (
+          <button
+            type="button"
+            role="tab"
+            key={tab.key}
+            id={`refs-tab-${tab.key}`}
+            aria-selected={selectedTab === tab.key}
+            aria-controls={`refs-panel-${tab.key}`}
+            className={`stage-tab ${selectedTab === tab.key ? 'stage-tab--current' : ''}`}
+            onClick={() => setSelectedTab(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel" id={`refs-panel-${selectedTab}`} aria-labelledby={`refs-tab-${selectedTab}`}>
+        {selectedTab === 'f2' && (
+          <F2Section
+            laws={caseData.f2}
+            track={caseData.track}
+            screening={caseData.screening}
+            running={isRunning('f2', caseData)}
+            onViewSource={onViewSource}
+          />
+        )}
+        {selectedTab === 'f3' && (
+          <F3Section cases={caseData.f3} running={isRunning('f3', caseData)} onViewSource={onViewSource} />
+        )}
+        {kind && (
+          <F2RefsSection
+            refs={caseData.f2_refs}
+            kind={kind}
+            running={isRunning('f2_refs', caseData)}
+            onViewSource={onViewSource}
+          />
+        )}
+      </div>
     </div>
   )
 }

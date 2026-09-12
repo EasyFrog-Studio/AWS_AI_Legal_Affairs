@@ -76,6 +76,16 @@ const f2Refs = [
     source_key: 'markdown/行政函釋/法務部93年4月13日法律字0930014628號函-寄存送達.md',
     relevance: '向量檢索命中(KB-LAW,非法規)',
   },
+  {
+    doc_kind: '行政法院裁判',
+    name: '最高行政法院 102年度判字第147號',
+    issuer: '最高行政法院',
+    issued_date: '未收錄',
+    topic: '',
+    text: '行政處分已於訴願程序中經原處分機關撤銷者…',
+    source_key: null,
+    relevance: '向量檢索命中(KB-LAW,非法規)',
+  },
 ]
 
 export const doneAdmissible = {

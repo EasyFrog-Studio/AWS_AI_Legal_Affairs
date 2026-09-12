@@ -18,6 +18,7 @@ from app.models import (
 from app.providers.aws import (
     _CASE_CHUNK_FETCH,
     _REF_CHUNK_FETCH,
+    _REF_DOC_KINDS,
     _TOP_K,
     _cap_law_refs,
     _clause_to_appeal_article,
@@ -219,17 +220,25 @@ class LocalProvider(AIProvider):
 
     def find_references(self, info: CaseInfo) -> list[ReferenceRef]:
         vec_lit = _vector_literal(self._embed(_retrieval_query(info)))
-        rows = self._execute(
-            "SELECT text, metadata FROM law_chunks "
-            # 對映 KB-LAW 的 notEquals doc_kind=法規:法規走 F2,參考見解走這裡
-            "WHERE metadata->>'doc_kind' IS DISTINCT FROM '法規' "
-            "ORDER BY embedding <=> %s::vector LIMIT %s",
-            (vec_lit, _REF_CHUNK_FETCH),
-        )
-        return build_references(
-            [((metadata or {}).get("law_name", ""), text, metadata or {}) for text, metadata in rows],
-            "向量檢索命中（pgvector law_chunks，非法規）",
-        )
+        refs: list[ReferenceRef] = []
+        for doc_kind in _REF_DOC_KINDS:
+            rows = self._execute(
+                "SELECT text, metadata FROM law_chunks "
+                # 對映 KB-LAW 的 equals doc_kind:三類各自取前 _REF_TOP_K,互不排擠
+                "WHERE metadata->>'doc_kind' = %s "
+                "ORDER BY embedding <=> %s::vector LIMIT %s",
+                (doc_kind, vec_lit, _REF_CHUNK_FETCH),
+            )
+            refs.extend(
+                build_references(
+                    [
+                        ((metadata or {}).get("law_name", ""), text, metadata or {})
+                        for text, metadata in rows
+                    ],
+                    "向量檢索命中（pgvector law_chunks，非法規）",
+                )
+            )
+        return refs
 
     def _search_cases(
         self, vec_lit: str, where_sql, where_params, num_results: int = _CASE_CHUNK_FETCH

@@ -29,5 +29,5 @@ export const isCurrent = (name) => rail(name).getAttribute('aria-current') === '
 
 /** 階段頁的「參考依據」區塊。草稿頁的依據欄是 hidden 而非卸載,兩邊同時在 DOM 裡。 */
 export function refsStage() {
-  return document.querySelector('.refs-stack')
+  return document.querySelector('.refs-stage')
 }

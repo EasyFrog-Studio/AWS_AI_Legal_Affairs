@@ -5,6 +5,7 @@ import pytest
 
 from app.config import settings
 from app.models import DRAFT_TYPES, SERVICE_METHODS, CaseInfo, LawRef, ScreeningResult, draft_types_for
+from app.providers.aws import _REF_DOC_KINDS
 from app.providers.local import LocalProvider
 
 _DEFAULT_EMBED_VEC = [0.1] * 1024
@@ -647,16 +648,18 @@ _HANSHI_ROW = (
 )
 
 
-def test_find_references_sql_excludes_statutes_and_overfetches():
+def test_find_references_never_queries_statutes_and_does_not_call_the_llm():
+    """法規走 F2,不該從這裡出來:排除是由「只查那三類參考見解」達成,不是再加一個否定條件。"""
     connect, calls = _fake_connect_factory([])
     http = FakeHTTP(chat_payloads=[])
     provider = _provider(http_client=http, connect=connect)
 
     provider.find_references(_info())
 
-    sql, params = calls[0]
-    assert "doc_kind" in sql and "法規" in sql
-    assert params[-1] == 15  # 上限 3,先多撈再去重,理由同 F3 的 _CASE_CHUNK_FETCH
+    assert [params[0] for _, params in calls] == list(_REF_DOC_KINDS)
+    assert "法規" not in _REF_DOC_KINDS
+    for sql, _ in calls:
+        assert "doc_kind' = %s" in sql  # 等值比對;改回否定條件就會把法規以外的全部撈進來
     assert not any(path == "/api/chat" for path, _ in http.calls)  # F2+ 純檢索,不經 LLM
 
 
@@ -927,3 +930,30 @@ def test_generate_draft_schema_requires_gist():
     _, body = http.calls[0]
     assert "gist" in body["format"]["properties"]
     assert "gist" in body["format"]["required"]
+
+
+_CAIPAN_ROW = (
+    "【行政法院裁判】最高行政法院 102年度判字第147號…",
+    {
+        "doc_kind": "行政法院裁判",
+        "law_name": "最高行政法院 102年度判字第147號",
+        "article_no": "",
+        "law_type": "其他",
+        "issuer": "最高行政法院",
+    },
+)
+
+
+def test_find_references_queries_each_kind_separately_so_none_is_crowded_out():
+    """三類共用一次檢索的前 N 名時,排序靠前的那一類會把另兩類洗掉,畫面上那兩個分頁就是空的。
+    逐類各查各的:每一類都用自己的 doc_kind 當查詢條件,各自取前 3。"""
+    connect, calls = _fake_connect_factory([_YIZI_ROW], [_HANSHI_ROW], [_CAIPAN_ROW])
+    provider = _provider(connect=connect)
+
+    refs = provider.find_references(_info())
+
+    assert [r.doc_kind for r in refs] == ["司法院釋字", "行政函釋", "行政法院裁判"]
+    assert [params[0] for _, params in calls] == ["司法院釋字", "行政函釋", "行政法院裁判"]
+    for sql, params in calls:
+        assert "doc_kind" in sql
+        assert params[-1] == 15  # 每一類各自先多撈再去重,理由同 F3 的 _CASE_CHUNK_FETCH

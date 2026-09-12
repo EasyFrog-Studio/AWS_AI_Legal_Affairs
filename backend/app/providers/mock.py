@@ -14,7 +14,7 @@ from app.models import (
     SimilarCase,
     StandingAssessment,
 )
-from app.providers.aws import _REF_TOP_K, _TOP_K
+from app.providers.aws import _REF_DOC_KINDS, _REF_TOP_K, _TOP_K
 from app.providers.base import AIProvider
 
 _FALLBACK_NAME = "_fallback"
@@ -123,7 +123,9 @@ class MockProvider(AIProvider):
     def find_references(self, info: CaseInfo) -> list[ReferenceRef]:
         time.sleep(1)
         # 直接索引:樣本缺鍵要大聲壞掉,靜默回空清單會與「檢索後無結果」混為一談
-        return [ReferenceRef(**item) for item in self._match_by_info(info)["f2_refs"]][:_REF_TOP_K]
+        items = [ReferenceRef(**item) for item in self._match_by_info(info)["f2_refs"]]
+        # 逐類分組後各截上限,與真實 provider 的逐類檢索同一個形狀,兩種模式看到的才一致
+        return [r for kind in _REF_DOC_KINDS for r in [x for x in items if x.doc_kind == kind][:_REF_TOP_K]]
 
     def find_similar_cases(
         self, info: CaseInfo, screening: ScreeningResult, text: str

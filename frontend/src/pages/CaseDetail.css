@@ -152,34 +152,3 @@
   border-left: 3px solid var(--color-rule-strong);
   padding-left: var(--space-md);
 }
-
-/* ---------- 參考依據:法規 / 參考見解 同列分頁,案例另成一組在下 ---------- */
-
-.refs-stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xl);
-}
-
-.refs-group__title {
-  font-family: var(--font-display);
-  font-size: var(--text-lg);
-  font-weight: 600;
-  margin-block: 0 var(--space-xs);
-}
-
-/* 段落標題下的 3em 金線,與稿紙的 .decision__heading 同一套記號,不另發明一種 */
-.refs-group__title::after {
-  content: '';
-  display: block;
-  width: 3em;
-  margin-top: var(--space-xs);
-  border-top: 2px solid var(--color-gold);
-}
-
-.refs-group__note {
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  color: var(--color-ink-soft);
-  margin-block: 0 var(--space-sm);
-}

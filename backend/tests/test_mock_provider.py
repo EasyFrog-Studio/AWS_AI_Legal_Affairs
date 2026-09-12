@@ -146,10 +146,11 @@ def test_find_references_matches_sample_by_info():
 
     refs = provider.find_references(info)
 
-    assert [r.doc_kind for r in refs] == ["行政法院裁判", "行政函釋"]
-    assert refs[0].name == "最高行政法院 102年度判字第147號"
-    assert refs[1].issuer == "內政部"
-    assert refs[1].topic == ""  # 函釋樣本無題旨,與釋字樣本形狀不同
+    # 依 _REF_DOC_KINDS 的類別次序分組,與真實 provider 的逐類檢索一致
+    assert [r.doc_kind for r in refs] == ["行政函釋", "行政法院裁判"]
+    assert refs[0].issuer == "內政部"
+    assert refs[0].topic == ""  # 函釋樣本無題旨,與釋字樣本形狀不同
+    assert refs[1].name == "最高行政法院 102年度判字第147號"
 
 
 def test_find_references_second_sample_has_a_different_shape():
@@ -165,11 +166,39 @@ def test_find_references_second_sample_has_a_different_shape():
     assert ref.source_key is None
 
 
-def test_find_references_caps_at_three():
+def test_find_references_caps_each_kind_separately():
+    """上限是每一類各 3,不是三類共用 3:共用時樣本裡排在後面的那一類會整個分頁空著。"""
     provider = _provider()
     info = provider.extract_case_info("完全無關的隨機輸入文字,不含任何樣本關鍵詞")
 
-    assert len(provider.find_references(info)) == 3
+    refs = provider.find_references(info)
+
+    # _fallback 樣本有 2 釋字 + 1 裁判 + 1 函釋,四則都該留著
+    assert [(r.doc_kind, r.name) for r in refs] == [
+        ("司法院釋字", "釋字第423號"),
+        ("司法院釋字", "釋字第667號"),
+        ("行政函釋", "法務部 法律字第0930014628號"),
+        ("行政法院裁判", "最高行政法院 109年度上字第817號"),
+    ]
+
+
+def test_find_references_still_cuts_a_kind_that_exceeds_its_own_quota(tmp_path):
+    """每類各 3 是上限不是配額:某一類樣本給了 5 則,仍只出 3 則,與真實 provider 一致。"""
+    import json
+
+    data = json.loads((FIXTURES_DIR / "_fallback.json").read_text(encoding="utf-8"))
+    template = next(r for r in data["expected"]["f2_refs"] if r["doc_kind"] == "司法院釋字")
+    data["expected"]["f2_refs"] = [
+        {**template, "name": f"釋字第{n}號"} for n in range(400, 405)
+    ]
+    (tmp_path / "_fallback.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    provider = MockProvider(data_dir=str(tmp_path))
+    info = provider.extract_case_info("完全無關的隨機輸入文字")
+
+    refs = provider.find_references(info)
+
+    assert [r.name for r in refs] == ["釋字第400號", "釋字第401號", "釋字第402號"]
 
 
 def test_find_references_raises_when_sample_lacks_the_key(tmp_path):

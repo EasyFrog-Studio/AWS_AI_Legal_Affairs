@@ -862,10 +862,11 @@ def test_find_references_overfetches_so_one_long_document_cannot_starve_the_list
 
     refs = _provider(bedrock_agent_runtime=bart).find_references(_info())
 
+    # 逐類檢索後,結果依 _REF_DOC_KINDS 的類別次序分組,不再是單一檢索的相關性次序
     assert [r.name for r in refs] == [
-        "最高行政法院 102年度判字第147號",
         "釋字第469號",
         "法務部 法律字第1000002151號",
+        "最高行政法院 102年度判字第147號",
     ]
 
 
@@ -1159,3 +1160,65 @@ def test_generate_draft_schema_requires_gist():
     schema = kwargs["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
     assert "gist" in schema["properties"]
     assert "gist" in schema["required"]
+
+
+def test_find_references_gives_each_kind_its_own_quota():
+    """三類共用一個前 3 名時,排序靠前的那一類會把另兩類洗掉,畫面上那兩個分頁就是空的。
+    逐類各撈各的:函釋滿額不影響釋字與裁判各自被撈到。"""
+    rows = [
+        {
+            "content": {"text": f"法務部函釋第{n}號"},
+            "metadata": {
+                "law_name": f"法務部 法律字第{n}號",
+                "doc_kind": "行政函釋",
+                "law_type": "其他",
+            },
+        }
+        for n in range(1, 6)
+    ] + [
+        {
+            "content": {"text": "釋字第469號解釋文"},
+            "metadata": {"law_name": "釋字第469號", "doc_kind": "司法院釋字", "law_type": "其他"},
+        },
+        {
+            "content": {"text": "最高行政法院判決"},
+            "metadata": {
+                "law_name": "最高行政法院 102年度判字第147號",
+                "doc_kind": "行政法院裁判",
+                "law_type": "其他",
+            },
+        },
+    ]
+    bart = MagicMock()
+    bart.retrieve.side_effect = _filtering_retrieve(rows)
+
+    refs = _provider(bedrock_agent_runtime=bart).find_references(_info())
+
+    by_kind = {
+        k: [r.name for r in refs if r.doc_kind == k]
+        for k in ("司法院釋字", "行政函釋", "行政法院裁判")
+    }
+    assert by_kind["司法院釋字"] == ["釋字第469號"]
+    assert by_kind["行政法院裁判"] == ["最高行政法院 102年度判字第147號"]
+    assert by_kind["行政函釋"] == [f"法務部 法律字第{n}號" for n in range(1, 4)]  # 每類自己的上限仍是 3
+
+
+def test_find_references_returns_nothing_for_a_doc_kind_without_a_tab():
+    """三類是封閉集合:前端一類一個分頁,檢索也只認這三類。語料多出第四類時它不會悄悄
+    混進某一頁,而是整批不出現——要收它就得先給它一個分頁。"""
+    rows = [
+        {
+            "content": {"text": "訴願答辯書內容"},
+            "metadata": {"law_name": "某答辯書", "doc_kind": "訴願答辯書", "law_type": "其他"},
+        },
+        {
+            "content": {"text": "釋字第469號解釋文"},
+            "metadata": {"law_name": "釋字第469號", "doc_kind": "司法院釋字", "law_type": "其他"},
+        },
+    ]
+    bart = MagicMock()
+    bart.retrieve.side_effect = _filtering_retrieve(rows)
+
+    refs = _provider(bedrock_agent_runtime=bart).find_references(_info())
+
+    assert [r.name for r in refs] == ["釋字第469號"]
