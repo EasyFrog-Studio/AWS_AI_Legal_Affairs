@@ -775,7 +775,6 @@ table.list-table {
   text-align: left;
   padding: var(--space-md);
   border-left: 3px solid var(--color-rule-strong);
-  max-width: var(--measure);
 }
 
 .state-message--pending {
@@ -931,4 +930,37 @@ table.list-table {
 .roc-date__unreadable {
   color: var(--color-review);
   font-size: var(--text-sm);
+}
+
+/* 階段頁分頁列:F1 擷取的文件分頁與參考依據的法規/參考見解共用,只在這裡定義一次 */
+.stage-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  border-bottom: var(--rule-strong);
+  margin-bottom: var(--space-lg);
+}
+
+.stage-tab {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--space-xs) var(--space-sm);
+  margin-bottom: -1px;
+  cursor: pointer;
+  color: var(--color-ink-soft);
+}
+
+.stage-tab--current {
+  color: var(--color-ink);
+  font-weight: 600;
+  border-bottom-color: var(--color-gold-deep);
+}
+
+.stage-tab__flag {
+  margin-left: var(--space-2xs);
+  font-size: var(--text-sm);
+  color: var(--color-review);
 }

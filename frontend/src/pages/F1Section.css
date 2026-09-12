@@ -1,44 +1,9 @@
-/* F1Section 頁專用:五個文件分頁 + 欄位常駐輸入框 + 即時自動儲存 */
+/* F1Section 頁專用:欄位常駐輸入框 + 即時自動儲存(分頁列是共用的 .stage-tabs) */
 
 .f1-section__note {
   font-size: var(--text-sm);
   color: var(--color-ink-soft);
   margin: 0 0 var(--space-md);
-}
-
-/* ---------- 分頁列 ---------- */
-
-.f1-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-xs);
-  border-bottom: var(--rule-strong);
-  margin-bottom: var(--space-lg);
-}
-
-.f1-tab {
-  font-family: var(--font-ui);
-  font-size: var(--text-sm);
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  padding: var(--space-xs) var(--space-sm);
-  margin-bottom: -1px;
-  cursor: pointer;
-  color: var(--color-ink-soft);
-}
-
-.f1-tab--current {
-  color: var(--color-ink);
-  font-weight: 600;
-  border-bottom-color: var(--color-gold-deep);
-}
-
-.f1-tab__ocr,
-.f1-tab__flag {
-  margin-left: var(--space-2xs);
-  font-size: var(--text-sm);
-  color: var(--color-review);
 }
 
 /* ---------- 分頁內容 ---------- */

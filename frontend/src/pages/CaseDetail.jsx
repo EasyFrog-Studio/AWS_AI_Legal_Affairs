@@ -9,7 +9,7 @@ import SourceOverlay from '../components/SourceOverlay.jsx'
 import { DocumentsSection } from './DocumentsSection.jsx'
 import { F1Section } from './F1Section.jsx'
 import { ScreeningSection, DeadlineSection } from './ScreeningSection.jsx'
-import { F2Section, F2RefsSection, F3Section } from './RefsSections.jsx'
+import { RefsStage } from './RefsSections.jsx'
 import DraftWorkspace from './DraftWorkspace.jsx'
 import './CaseDetail.css'
 
@@ -141,39 +141,7 @@ function stageContent(key, caseData, onViewSource, onChanged, onRetry) {
     )
   }
   if (key === 'refs') {
-    // 三組同頁但各自標題:F2+ 參考見解沒有條號,湊不出引用格式、不進 F4 的可引用清單,
-    // 混成一鍋會讓承辦人把它當成可引用法條(見 glossary)。
-    return (
-      <div className="refs-stack">
-        <section className="refs-group">
-          <h3 className="refs-group__title">推薦法規（F2）</h3>
-          <F2Section
-            laws={caseData.f2}
-            track={caseData.track}
-            screening={caseData.screening}
-            running={isRunning('f2', caseData)}
-            onViewSource={onViewSource}
-          />
-        </section>
-        <section className="refs-group">
-          <h3 className="refs-group__title">參考見解（F2+）</h3>
-          <p className="refs-group__note">釋字、函釋與法院裁判供論理參考，沒有條號，不列入決定書的引用法條。</p>
-          <F2RefsSection
-            refs={caseData.f2_refs}
-            running={isRunning('f2_refs', caseData)}
-            onViewSource={onViewSource}
-          />
-        </section>
-        <section className="refs-group">
-          <h3 className="refs-group__title">相似案例（F3）</h3>
-          <F3Section
-            cases={caseData.f3}
-            running={isRunning('f3', caseData)}
-            onViewSource={onViewSource}
-          />
-        </section>
-      </div>
-    )
+    return <RefsStage caseData={caseData} isRunning={isRunning} onViewSource={onViewSource} />
   }
   return null
 }

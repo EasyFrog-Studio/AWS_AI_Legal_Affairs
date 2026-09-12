@@ -204,7 +204,7 @@ export function F1Section({ caseData, onChanged }) {
   return (
     <div className="f1-section">
       {disabled && <p className="f1-section__note">分析進行中，此時不開放修改案件資訊。</p>}
-      <div role="tablist" aria-label="卷證文件" className="f1-tabs">
+      <div role="tablist" aria-label="卷證文件" className="stage-tabs">
         {F1_GROUPS.map((group) => {
           const doc = caseData.documents?.[group.key]
           return (
@@ -215,12 +215,12 @@ export function F1Section({ caseData, onChanged }) {
               id={`f1-tab-${group.key}`}
               aria-selected={selectedTab === group.key}
               aria-controls={`f1-panel-${group.key}`}
-              className={`f1-tab ${selectedTab === group.key ? 'f1-tab--current' : ''}`}
+              className={`stage-tab ${selectedTab === group.key ? 'stage-tab--current' : ''}`}
               onClick={() => setSelectedTab(group.key)}
             >
               {group.label}
-              {doc?.ocr && <span className="f1-tab__ocr">OCR</span>}
-              {groupEdited(group) && <span className="f1-tab__flag">已修改</span>}
+              {doc?.ocr && <span className="stage-tab__flag">OCR</span>}
+              {groupEdited(group) && <span className="stage-tab__flag">已修改</span>}
             </button>
           )
         })}
