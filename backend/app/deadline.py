@@ -18,6 +18,14 @@ def format_roc(value: date) -> str:
     return f"{value.year - _ROC_YEAR_OFFSET}年{value.month}月{value.day}日"
 
 
+_FULLWIDTH_DIGITS = str.maketrans("0123456789", "０１２３４５６７８９")
+
+
+def fullwidth(value: int | str) -> str:
+    """期間敘述的數字一律全形(公文書體例);日期不轉,走 format_roc。"""
+    return str(value).translate(_FULLWIDTH_DIGITS)
+
+
 _PUBLIC_NOTICE_DAYS = 20  # 行政程序法§81 本文
 _PUBLIC_NOTICE_ABROAD_DAYS = 60  # 同條:依§78 I③(於外國或境外)為公示送達者
 _REPEAT_NOTICE_DAYS = 1  # 同條但書:§79 職權公示送達自黏貼公告欄翌日起生效

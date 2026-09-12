@@ -6,6 +6,8 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from app.deadline import fullwidth
+
 _DATA = Path(__file__).resolve().parent / "data" / "transit_days.json"
 
 
@@ -105,10 +107,10 @@ def resolve_transit_days(residence_text: str, agency_location: str) -> TransitLo
     if not values:
         return TransitLookup()
 
-    detail = "、".join(f"{key}{days}日" for key, days in sorted(groups.items()))
+    detail = "、".join(f"{key}{fullwidth(days)}日" for key, days in sorted(groups.items()))
     return TransitLookup(
         review_note=(
-            f"住居所行政區不明，{city}附表分組日數不同（{detail}，相差{max(values) - min(values)}日），"
+            f"住居所行政區不明，{city}附表分組日數不同（{detail}，相差{fullwidth(max(values) - min(values))}日），"
             "在途期間無從認定"
         )
     )

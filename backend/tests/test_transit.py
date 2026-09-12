@@ -40,7 +40,7 @@ def test_masked_district_declines_when_groups_differ_and_says_which():
     assert result.days is None
     assert "高雄市" in result.review_note
     assert "（一）" in result.review_note and "（二）" in result.review_note
-    assert "1" in result.review_note  # 差 1 日
+    assert "１" in result.review_note  # 差 1 日
 
 
 def test_masked_district_does_not_take_the_longer_of_two_different_values():

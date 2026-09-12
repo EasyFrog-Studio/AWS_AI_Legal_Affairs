@@ -25,7 +25,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
-from app.deadline import APPEAL_PERIOD_DAYS, format_roc, roc_to_date
+from app.deadline import APPEAL_PERIOD_DAYS, format_roc, fullwidth, roc_to_date
 from app.deadline_extract import ROC_DATE_PATTERN
 
 # 教示句判斷:以「句子裡同時談到救濟途徑、又寫了 N 日內」為準。不去比對「不服本處分」之類的
@@ -127,23 +127,23 @@ def classify_notice_clause(
             basis="one_year",
             finding="原處分書未告知救濟期間",
             review_note=(
-                "原處分書未告知救濟期間，期間依行政程序法第98條第3項認定為一年"
+                "原處分書未告知救濟期間，期間依行政程序法第９８條第３項認定為一年"
                 "（此分支未經語料驗證），不據以覆寫程序審查，須人工確認"
             ),
         )
 
     if days == APPEAL_PERIOD_DAYS:
         return NoticePeriodRule(
-            basis="statutory", stated_days=days, finding=f"原處分書教示救濟期間{days}日，與法定期間相符"
+            basis="statutory", stated_days=days, finding=f"原處分書教示救濟期間{fullwidth(days)}日，與法定期間相符"
         )
 
     if days > APPEAL_PERIOD_DAYS:
         return NoticePeriodRule(
             basis="stated_longer",
             stated_days=days,
-            finding=f"原處分書告知之救濟期間{days}日較法定{APPEAL_PERIOD_DAYS}日為長",
+            finding=f"原處分書告知之救濟期間{fullwidth(days)}日較法定{fullwidth(APPEAL_PERIOD_DAYS)}日為長",
             review_note=(
-                f"告知期間{days}日較法定期間為長，依行政程序法第98條第2項以原告知期間計算"
+                f"告知期間{fullwidth(days)}日較法定期間為長，依行政程序法第９８條第２項以原告知期間計算"
                 "（此分支未經語料驗證），不據以覆寫程序審查，須人工確認"
             ),
         )
@@ -154,9 +154,9 @@ def classify_notice_clause(
         return NoticePeriodRule(
             basis="one_year",
             stated_days=days,
-            finding=f"原處分書告知之救濟期間{days}日有錯誤，卷內載明未為更正",
+            finding=f"原處分書告知之救濟期間{fullwidth(days)}日有錯誤，卷內載明未為更正",
             review_note=(
-                f"告知期間{days}日有錯誤且卷內載明未為更正，期間依行政程序法第98條第3項"
+                f"告知期間{fullwidth(days)}日有錯誤且卷內載明未為更正，期間依行政程序法第９８條第３項"
                 "認定為一年（此分支未經語料驗證），不據以覆寫程序審查，須人工確認"
             ),
         )
@@ -167,9 +167,9 @@ def classify_notice_clause(
             return NoticePeriodRule(
                 basis="undetermined",
                 stated_days=days,
-                finding=f"原處分書告知之救濟期間{days}日有錯誤，卷內載有更正通知",
+                finding=f"原處分書告知之救濟期間{fullwidth(days)}日有錯誤，卷內載有更正通知",
                 review_note=(
-                    "更正通知之送達日無法認定，行政程序法第98條第1項之法定期間起算日"
+                    "更正通知之送達日無法認定，行政程序法第９８條第１項之法定期間起算日"
                     "因而無從認定，須人工調閱更正通知"
                 ),
             )
@@ -178,10 +178,10 @@ def classify_notice_clause(
             stated_days=days,
             correction_service_date=corrected_on,
             finding=(
-                f"原處分書告知之救濟期間{days}日有錯誤，更正通知於{format_roc(corrected_on)}送達"
+                f"原處分書告知之救濟期間{fullwidth(days)}日有錯誤，更正通知於{format_roc(corrected_on)}送達"
             ),
             review_note=(
-                "期間依行政程序法第98條第1項自更正通知送達之翌日起算"
+                "期間依行政程序法第９８條第１項自更正通知送達之翌日起算"
                 "（此分支未經語料驗證），不據以覆寫程序審查，須人工確認"
             ),
         )
@@ -189,9 +189,9 @@ def classify_notice_clause(
     return NoticePeriodRule(
         basis="undetermined",
         stated_days=days,
-        finding=f"原處分書告知之救濟期間{days}日與法定{APPEAL_PERIOD_DAYS}日不符",
+        finding=f"原處分書告知之救濟期間{fullwidth(days)}日與法定{fullwidth(APPEAL_PERIOD_DAYS)}日不符",
         review_note=(
-            f"告知期間{days}日有錯誤，而卷內未見有無通知更正之記載——更正通知非本系統收受之"
-            "三份文書，不得逕認未為更正。期間應依行政程序法第98條第1項或第3項認定，須人工調閱卷證"
+            f"告知期間{fullwidth(days)}日有錯誤，而卷內未見有無通知更正之記載——更正通知非本系統收受之"
+            "三份文書，不得逕認未為更正。期間應依行政程序法第９８條第１項或第３項認定，須人工調閱卷證"
         ),
     )

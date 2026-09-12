@@ -815,7 +815,7 @@ def test_check_deadline_falls_back_to_the_transit_table():
 
     check = check_deadline(text)
 
-    assert "在途3日" in check.detail
+    assert "在途３日" in check.detail
     assert check.due_date == date(2025, 2, 17)  # 與語料 1141011503 機關自己算的末日相同
 
 
@@ -830,7 +830,7 @@ def test_check_deadline_computes_with_a_masked_district_when_both_groups_agree()
     之分一天都不差。"""
     check = check_deadline(_MASKED_RESIDENCE_TEXT)
 
-    assert "在途5日" in check.detail
+    assert "在途５日" in check.detail
     assert check.overdue is True
 
 
@@ -846,7 +846,7 @@ def test_check_deadline_declines_with_a_masked_district_when_groups_differ(monke
 
     assert check.due_date is None
     assert "高雄市" in check.review_note
-    assert "相差1日" in check.review_note
+    assert "相差１日" in check.review_note
 
 
 def test_reconcile_deadline_computed_overdue_overrides_the_model():
@@ -1047,7 +1047,7 @@ def test_disposition_without_a_notice_clause_uses_the_one_year_period():
 
     assert check.due_date == date(2026, 5, 28)  # 起算日 114年5月29日 -> 一年後前一日
     assert check.overdue is False  # 收文日 114年10月31日在一年內
-    assert "第98條第3項" in check.review_note
+    assert "第９８條第３項" in check.review_note
     assert "未告知救濟期間" in check.detail
 
 
@@ -1058,10 +1058,10 @@ def test_longer_stated_period_uses_the_stated_period():
     )
 
     assert check.due_date == date(2025, 7, 28)  # 原末日 7月27日為星期日,順延至次一上班日
-    assert "期間60日" in check.detail
-    assert "第98條第2項" in check.review_note
+    assert "期間６０日" in check.detail
+    assert "第９８條第２項" in check.review_note
     # 連告知的較長期間都逾越:§98 II 的信賴保護不適用,但仍可能落入同條第3項的一年
-    assert "第98條第2項不適用" in check.review_note
+    assert "第９８條第２項不適用" in check.review_note
 
 
 def test_corrected_notice_clause_restarts_from_the_correction_notice():
@@ -1075,7 +1075,7 @@ def test_corrected_notice_clause_restarts_from_the_correction_notice():
 
     assert check.due_date == date(2025, 7, 10)  # 起算日 114年6月11日 + 30 日
     assert "更正通知送達日114年6月10日" in check.detail
-    assert "第98條第1項" in check.review_note
+    assert "第９８條第１項" in check.review_note
 
 
 def test_wrong_notice_clause_without_correction_record_computes_no_deadline():
@@ -1140,8 +1140,8 @@ def test_run_case_applies_the_notice_clause_from_this_round_of_f1():
     stored = store.get("c-98")
     assert stored.deadline.due_date == date(2026, 5, 28)  # 走一年,不是 30 日
     # 模型判第2款而算出未逾期,歧異記錄與§98 的期間認定要並存——後者才解釋得出歧異從何而來
-    assert "第98條第3項" in stored.deadline.review_note
-    assert "與程序審查認定之第2款不符" in stored.deadline.review_note
+    assert "第９８條第３項" in stored.deadline.review_note
+    assert "與程序審查認定之第２款不符" in stored.deadline.review_note
     assert stored.screening.matched_clause == "77條第2款"  # 未偷改模型結論
 
 

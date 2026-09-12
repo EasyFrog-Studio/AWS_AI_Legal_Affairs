@@ -172,7 +172,7 @@ def _service_date(text: str) -> tuple[Optional[date], bool, str]:
         if len(posted) != 1:
             return None, True, f"公示送達之公告日無法認定：抽到 {len(posted)} 個"
         if _PUBLIC_NOTICE_VARIANT.search(text):
-            return None, True, "公示送達之種類無法認定：卷內同時出現§78 I③或§79 之文字，等待期非 20 日"
+            return None, True, "公示送達之種類無法認定：卷內同時出現§78 I③或§79 之文字，等待期非２０日"
         return public_notice_service_date(posted[0]), True, ""
 
     service = _dates(_SERVICE_PATTERNS, text)
@@ -209,7 +209,7 @@ def _service_date_from_certificate(text: str) -> tuple[Optional[date], bool, str
         if len(posted) != 1:
             return None, True, f"公示送達之公告日無法認定：抽到 {len(posted)} 個"
         if _PUBLIC_NOTICE_VARIANT.search(text):
-            return None, True, "公示送達之種類無法認定：卷內同時出現§78 I③或§79 之文字，等待期非 20 日"
+            return None, True, "公示送達之種類無法認定：卷內同時出現§78 I③或§79 之文字，等待期非２０日"
         return public_notice_service_date(posted[0]), True, ""
 
     service = _dates(_SERVICE_CERT_PATTERNS, text)

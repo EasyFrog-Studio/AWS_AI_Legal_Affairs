@@ -10,6 +10,7 @@ from app.deadline import (
     compute_deadline,
     compute_one_year_deadline,
     format_roc,
+    fullwidth,
 )
 from app.deadline_extract import DeadlineExtraction, DeadlineFacts, extract_deadline_facts, extract_from_documents
 from app.holidays import covered_years, load_holidays
@@ -226,7 +227,7 @@ def _check_deadline_from_extraction(
         result = compute_one_year_deadline(facts.service_date, holidays=load_holidays())
         detail = (
             f"{prefix}送達生效日{format_roc(facts.service_date)}，起算日{format_roc(result.start_date)}，"
-            f"依行政程序法第98條第3項期間一年，末日{format_roc(result.due_date)}"
+            f"依行政程序法第９８條第３項期間一年，末日{format_roc(result.due_date)}"
         )
         return _with_filed_date(facts, result, detail, [rule.review_note])
 
@@ -253,8 +254,8 @@ def _check_deadline_from_extraction(
         )
         detail = (
             f"{prefix}更正通知送達日{format_roc(rule.correction_service_date)}，"
-            f"起算日{format_roc(result.start_date)}，依行政程序法第98條第1項期間"
-            f"{APPEAL_PERIOD_DAYS}日、在途{transit}日，末日{format_roc(result.due_date)}"
+            f"起算日{format_roc(result.start_date)}，依行政程序法第９８條第１項期間"
+            f"{fullwidth(APPEAL_PERIOD_DAYS)}日、在途{fullwidth(transit)}日，末日{format_roc(result.due_date)}"
         )
         return _with_filed_date(facts, result, detail, [rule.review_note])
 
@@ -270,15 +271,15 @@ def _check_deadline_from_extraction(
     )
     detail = (
         f"{prefix}送達生效日{format_roc(facts.service_date)}，起算日{format_roc(result.start_date)}，"
-        f"期間{period_days}日、在途{transit}日，末日{format_roc(result.due_date)}"
+        f"期間{fullwidth(period_days)}日、在途{fullwidth(transit)}日，末日{format_roc(result.due_date)}"
     )
     notes = [rule.review_note]
     if rule.basis == "stated_longer" and facts.filed_date is not None and result.is_overdue(facts.filed_date):
         # §98 II 的保護以「於原告知之期間內為之」為要件;連告知的較長期間都逾越時本項不適用,
         # 但此時仍可能落入同條第3項的一年,故不得以此逕認逾期。
         notes.append(
-            "訴願人未於原告知之期間內提起，行政程序法第98條第2項不適用，"
-            "是否落入同條第3項之一年期間須人工認定"
+            "訴願人未於原告知之期間內提起，行政程序法第９８條第２項不適用，"
+            "是否落入同條第３項之一年期間須人工認定"
         )
     return _with_filed_date(facts, result, detail, notes)
 
@@ -422,7 +423,7 @@ def reconcile_deadline(
         update = {"passed": False, "matched_clause": _OVERDUE_CLAUSE, "reasoning": reasoning}
         return screening.model_copy(update=update), check
     if check.overdue is False and parse_clause(screening.matched_clause) == _OVERDUE_CLAUSE_KEY:
-        note = "計算結果未逾期，與程序審查認定之第2款不符，須人工確認"
+        note = "計算結果未逾期，與程序審查認定之第２款不符，須人工確認"
         # 附加而非取代:既有的 review_note 裡是算式本身的保留事項(公示送達、採自述送達日、
         # §98 期間分支),那些正是解釋歧異從何而來的線索,覆蓋掉會讓承辦人只看到結論不一致。
         merged = join_review_notes(check.review_note, note)

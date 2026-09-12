@@ -29,7 +29,7 @@ def test_missing_notice_clause_switches_to_the_one_year_period():
 
     assert rule.basis == "one_year"
     assert "未告知救濟期間" in rule.finding
-    assert "第98條第3項" in rule.review_note
+    assert "第９８條第３項" in rule.review_note
     assert rule.review_note != ""  # 一律待人工確認
 
 
@@ -54,7 +54,7 @@ def test_longer_stated_period_is_honoured():
 
     assert rule.basis == "stated_longer"
     assert rule.stated_days == 60
-    assert "第98條第2項" in rule.review_note
+    assert "第９８條第２項" in rule.review_note
 
 
 def test_corrected_wrong_period_restarts_from_the_correction_notice():
@@ -67,7 +67,7 @@ def test_corrected_wrong_period_restarts_from_the_correction_notice():
 
     assert rule.basis == "restart_from_correction"
     assert rule.correction_service_date == date(2025, 6, 10)
-    assert "第98條第1項" in rule.review_note
+    assert "第９８條第１項" in rule.review_note
 
 
 def test_wrong_period_recorded_as_uncorrected_goes_to_the_one_year_period():
@@ -88,7 +88,7 @@ def test_wrong_period_without_any_correction_record_says_it_cannot_tell():
 
     assert rule.basis == "undetermined"
     assert "不得逕認未為更正" in rule.review_note
-    assert "第98條第1項或第3項" in rule.review_note
+    assert "第９８條第１項或第３項" in rule.review_note
 
 
 def test_correction_notice_without_a_service_date_is_undetermined():
