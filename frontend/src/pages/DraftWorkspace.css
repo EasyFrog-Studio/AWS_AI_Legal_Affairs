@@ -29,13 +29,15 @@
   margin: 0 0 var(--space-lg);
 }
 
-/* ---------- 表頭 / 結尾:結構化欄位,實線框輸入,兩欄排列 ---------- */
+/* ---------- 表頭 / 結尾:結構化欄位,實線框輸入,一列一欄位 ---------- */
 
 .draft-header,
 .draft-footer {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-md);
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-sm);
+  /* 稿紙比 F1 窄,標籤欄跟著收 */
+  --form-label-col: 9em;
 }
 
 .draft-header {
@@ -50,13 +52,8 @@
   border-top: var(--rule-hairline);
 }
 
-.draft-form-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2xs);
-}
-
-.draft-form-field label {
+.draft-form-field label,
+.draft-form-field .form-row__label {
   font-family: var(--font-ui);
   font-size: var(--text-ui);
   color: var(--color-ink-soft);
@@ -69,13 +66,6 @@
   font-size: var(--text-sm);
   color: var(--color-ink-soft);
   margin: var(--space-sm) 0 0;
-}
-
-@media (max-width: 767px) {
-  .draft-header,
-  .draft-footer {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 /* 引用法條:與主文／事實／理由同一組段落間距,讀起來是文件的最後一段 */

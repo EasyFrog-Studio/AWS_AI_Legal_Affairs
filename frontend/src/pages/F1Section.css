@@ -14,7 +14,9 @@
   margin: 0 0 var(--space-md);
 }
 
+/* 分節框收在欄位寬度上:框拉滿版面、欄位只佔左半邊會空一大塊 */
 .f1-fieldset {
+  max-width: 58em;
   border: var(--rule-strong);
   border-radius: var(--radius-sm, 4px);
   padding: var(--space-md);
@@ -28,15 +30,9 @@
 }
 
 .f1-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: var(--space-md);
-}
-
-.f1-field {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2xs);
+  gap: var(--space-sm);
 }
 
 .f1-field label {
@@ -45,30 +41,13 @@
   color: var(--color-wood);
 }
 
+/* 日期三格自己決定寬度,拉滿一欄會把「民國」擠成兩行 */
 .f1-field input,
-.f1-field select,
+.f1-field select:not(.roc-date__part),
 .f1-field textarea {
   width: 100%;
   font-family: inherit;
   font-size: inherit;
-}
-
-/* 改過的值用狀態層的琥珀,與「待人工確認」同一個訊號;旁邊附上模型原本抽的值 */
-.f1-field--edited label {
-  color: var(--color-review);
-}
-
-.f1-field__flag {
-  margin-left: var(--space-2xs);
-  font-weight: 400;
-}
-
-.f1-field__original {
-  display: inline-block;
-  font-size: var(--text-sm);
-  font-weight: 400;
-  color: var(--color-ink-soft);
-  text-decoration: line-through;
 }
 
 /* ---------- 自動儲存狀態列 / 底部 AI 生成 ---------- */
@@ -91,10 +70,4 @@
   font-size: var(--text-sm);
   color: var(--color-ink-soft);
   margin-right: var(--space-sm);
-}
-
-@media (max-width: 767px) {
-  .f1-grid {
-    grid-template-columns: 1fr;
-  }
 }

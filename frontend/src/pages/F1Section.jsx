@@ -34,15 +34,6 @@ function toInfo(local) {
   return info
 }
 
-/** 這一欄與模型原本擷取值不同:承辦人改過,顯示琥珀色標記與原值。 */
-function fieldEdited(field, local, system) {
-  if (!system) return null
-  const systemValue = LIST_FIELD_KEYS.has(field.key)
-    ? (system[field.key] || []).join('\n')
-    : (system[field.key] ?? '')
-  return systemValue !== local[field.key] ? systemValue : null
-}
-
 const CONFIRM_TEXT =
   '將依修改後的案件資訊重跑程序審查、參考依據與決定書草稿，程序審查的人工修改與草稿都會被覆蓋（草稿會先存一版）。確定要繼續？'
 
@@ -114,8 +105,6 @@ export function F1Section({ caseData, onChanged }) {
     )
   }
 
-  const system = caseData.f1_system
-
   function renderControl(field) {
     const id = `f1-${field.key}`
     const value = local[field.key] ?? ''
@@ -172,28 +161,13 @@ export function F1Section({ caseData, onChanged }) {
   }
 
   function renderField(field) {
-    const originalValue = fieldEdited(field, local, system)
-    const edited = originalValue !== null
+    // 多行文字欄擠不進右邊那一欄,標籤改排在上面、輸入全寬
+    const block = field.kind === 'long' || field.kind === 'list'
     return (
-      <div className={`f1-field ${edited ? 'f1-field--edited' : ''}`} key={field.key}>
-        <label htmlFor={`f1-${field.key}`}>
-          {field.label}
-          {edited && <span className="f1-field__flag">已修改</span>}
-        </label>
+      <div className={`f1-field form-row ${block ? 'form-row--block' : ''}`} key={field.key}>
+        <label htmlFor={`f1-${field.key}`}>{field.label}</label>
         {renderControl(field)}
-        {edited && (
-          <span className="f1-field__original" title={`模型原本擷取：${originalValue || '（空）'}`}>
-            {originalValue || '（空）'}
-          </span>
-        )}
       </div>
-    )
-  }
-
-  function groupEdited(group) {
-    if (!system) return false
-    return group.sections.some((section) =>
-      section.fields.some((field) => fieldEdited(field, local, system) !== null),
     )
   }
 
@@ -220,7 +194,6 @@ export function F1Section({ caseData, onChanged }) {
             >
               {group.label}
               {doc?.ocr && <span className="stage-tab__flag">OCR</span>}
-              {groupEdited(group) && <span className="stage-tab__flag">已修改</span>}
             </button>
           )
         })}

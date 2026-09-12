@@ -226,42 +226,6 @@ describe('F1 自動儲存', () => {
   })
 })
 
-describe('F1 已修改標記', () => {
-  it('與 f1_system 不同的欄位標「已修改」並顯示原值,相同的不標', () => {
-    setup({ f1_system: { ...doneAdmissible.f1, appellant: '王○明(系統)' } })
-
-    const changed = screen.getByText('訴願人姓名').closest('.f1-field')
-    expect(changed.className).toContain('f1-field--edited')
-    expect(within(changed).getByTitle(/模型原本擷取/)).toHaveTextContent('王○明(系統)')
-
-    const untouched = screen.getByText('聯絡電話').closest('.f1-field')
-    expect(untouched.className).not.toContain('f1-field--edited')
-  })
-
-  it('改過的欄位再改回與 f1_system 相同的值,已修改標記消失', async () => {
-    const user = userEvent.setup()
-    setup({ f1_system: { ...doneAdmissible.f1, appellant: '王○明(系統)' } })
-
-    // 欄位一開始就標「已修改」,label 的可存取名稱含琥珀色旗標文字,故不能用 getByLabelText 精確比對
-    const input = within(screen.getByText('訴願人姓名').closest('.f1-field')).getByRole('textbox')
-    await user.clear(input)
-    await user.type(input, '換一個名字')
-    expect(screen.getByText('訴願人姓名').closest('.f1-field').className).toContain('f1-field--edited')
-
-    await user.clear(input)
-    await user.type(input, '王○明(系統)')
-
-    expect(screen.getByText('訴願人姓名').closest('.f1-field').className).not.toContain(
-      'f1-field--edited',
-    )
-  })
-
-  it('沒有 f1_system 時一欄都不標', () => {
-    setup()
-    expect(document.querySelectorAll('.f1-field--edited')).toHaveLength(0)
-  })
-})
-
 describe('F1 OCR 提示', () => {
   it('文件為 OCR 時分頁有 OCR 標記與常駐提示句', () => {
     setup({ documents: { appeal: { slot: 'appeal', source: 'pdf', text: '…', ocr: true } } })

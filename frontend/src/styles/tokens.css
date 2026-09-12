@@ -62,6 +62,10 @@
   --leading-ui:   1.35;
   --measure:      36em;
 
+  /* ── 表單直排:左標籤欄寬 + 右輸入上限,標籤較短的表單在容器覆寫 ── */
+  --form-label-col:   11em;
+  --form-control-max: 30em;
+
   /* ── 間距(4pt)── */
   --space-2xs: 4px;  --space-xs: 8px;   --space-sm: 12px;  --space-md: 16px;
   --space-lg: 24px;  --space-xl: 32px;  --space-2xl: 48px; --space-3xl: 64px;

@@ -322,6 +322,46 @@
   line-height: var(--leading-body);
 }
 
+/* 欄位直排:一列一欄位,標籤固定一欄靠左、輸入在右收斂寬度;多行文字欄(--block)標籤在上、輸入全寬。
+   F1 擷取、程序審查、決定書表頭共用 */
+.form-row {
+  display: grid;
+  grid-template-columns: var(--form-label-col) minmax(0, var(--form-control-max));
+  align-items: start;
+  gap: var(--space-2xs) var(--space-md);
+}
+
+.form-row > label,
+.form-row > .field__label,
+.form-row > .form-row__label {
+  margin: 0;
+  /* 輸入框 40px 高、標籤 19px,對齊到輸入框裡那一行字而不是框頂 */
+  padding-top: 10px;
+  line-height: var(--leading-ui);
+}
+
+.form-row--block {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.form-row--block > label,
+.form-row--block > .field__label,
+.form-row--block > .form-row__label {
+  padding-top: 0;
+}
+
+@media (max-width: 767px) {
+  .form-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .form-row > label,
+  .form-row > .field__label,
+  .form-row > .form-row__label {
+    padding-top: 0;
+  }
+}
+
 /* inline 元素的基線空隙會讓切到文字分頁時整列長高 */
 .textarea--auto {
   display: block;
@@ -919,7 +959,14 @@ table.list-table {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2xs);
-  flex-wrap: wrap;
+  /* 年月日拆行讀不成一個日期;窄螢幕才准換行 */
+  flex-wrap: nowrap;
+}
+
+@media (max-width: 767px) {
+  .roc-date {
+    flex-wrap: wrap;
+  }
 }
 
 .roc-date__part {
@@ -927,9 +974,15 @@ table.list-table {
   min-width: 4.5em;
 }
 
+.roc-date > span {
+  white-space: nowrap;
+}
+
 .roc-date__unreadable {
   color: var(--color-review);
   font-size: var(--text-sm);
+  /* 同列不換行,這段 OCR 原文只能自己折,否則會頂出欄位框 */
+  overflow-wrap: anywhere;
 }
 
 /* 階段頁分頁列:F1 擷取的文件分頁與參考依據的法規/參考見解共用,只在這裡定義一次 */

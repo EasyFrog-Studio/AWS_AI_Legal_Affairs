@@ -300,7 +300,7 @@ export default function DraftWorkspace({
     <div className="draft-workspace" hidden={hidden}>
       <div className="draft-paper" role="group" aria-label="決定書稿紙">
         <section className="draft-header" aria-label="決定書表頭">
-          <div className="draft-form-field">
+          <div className="draft-form-field form-row">
             <label htmlFor="draft-header-case_no">案號</label>
             <input
               id="draft-header-case_no"
@@ -310,7 +310,7 @@ export default function DraftWorkspace({
               onChange={(e) => updateHeaderField('case_no', e.target.value)}
             />
           </div>
-          <div className="draft-form-field">
+          <div className="draft-form-field form-row">
             <label htmlFor="draft-header-gist">要旨</label>
             <input
               id="draft-header-gist"
@@ -320,7 +320,8 @@ export default function DraftWorkspace({
               onChange={(e) => updateHeaderField('gist', e.target.value)}
             />
           </div>
-          <div className="draft-form-field">
+          <div className="draft-form-field form-row">
+            <span className="form-row__label">發文日期</span>
             <RocDatePicker
               id="draft-header-issued_date"
               label="發文日期"
@@ -328,7 +329,7 @@ export default function DraftWorkspace({
               onChange={(v) => updateHeaderField('issued_date', v)}
             />
           </div>
-          <div className="draft-form-field">
+          <div className="draft-form-field form-row">
             <label htmlFor="draft-header-issued_no">發文字號</label>
             <input
               id="draft-header-issued_no"
@@ -339,7 +340,7 @@ export default function DraftWorkspace({
               onChange={(e) => updateHeaderField('issued_no', e.target.value)}
             />
           </div>
-          <div className="draft-form-field">
+          <div className="draft-form-field form-row form-row--block">
             <label htmlFor="draft-header-related_laws">相關法條</label>
             <AutoTextarea
               id="draft-header-related_laws"
@@ -347,7 +348,7 @@ export default function DraftWorkspace({
               onChange={(v) => updateHeaderField('related_laws', v)}
             />
           </div>
-          <div className="draft-form-field">
+          <div className="draft-form-field form-row">
             <label htmlFor="draft-header-appellant">訴願人</label>
             <input
               id="draft-header-appellant"
@@ -357,7 +358,7 @@ export default function DraftWorkspace({
               onChange={(e) => updateHeaderField('appellant', e.target.value)}
             />
           </div>
-          <div className="draft-form-field">
+          <div className="draft-form-field form-row">
             <label htmlFor="draft-header-agent_role">代理人或送達代收人</label>
             <select
               id="draft-header-agent_role"
@@ -370,7 +371,7 @@ export default function DraftWorkspace({
               <option value="送達代收人">送達代收人</option>
             </select>
           </div>
-          <div className="draft-form-field">
+          <div className="draft-form-field form-row">
             <label htmlFor="draft-header-agent_name">代理人姓名</label>
             <input
               id="draft-header-agent_name"
@@ -380,7 +381,7 @@ export default function DraftWorkspace({
               onChange={(e) => updateHeaderField('agent_name', e.target.value)}
             />
           </div>
-          <div className="draft-form-field">
+          <div className="draft-form-field form-row">
             <label htmlFor="draft-header-agency">原處分機關</label>
             <input
               id="draft-header-agency"
@@ -458,7 +459,7 @@ export default function DraftWorkspace({
         </div>
 
         <section className="draft-footer" aria-label="決定書結尾">
-          <div className="draft-form-field">
+          <div className="draft-form-field form-row">
             <label htmlFor="draft-footer-chairman">主任委員</label>
             <input
               id="draft-footer-chairman"
@@ -468,7 +469,7 @@ export default function DraftWorkspace({
               onChange={(e) => updateHeaderField('chairman', e.target.value)}
             />
           </div>
-          <div className="draft-form-field">
+          <div className="draft-form-field form-row form-row--block">
             <label htmlFor="draft-footer-committee">委員</label>
             <AutoTextarea
               id="draft-footer-committee"
@@ -476,7 +477,8 @@ export default function DraftWorkspace({
               onChange={(v) => updateHeaderField('committee', v)}
             />
           </div>
-          <div className="draft-form-field">
+          <div className="draft-form-field form-row">
+            <span className="form-row__label">決定日期</span>
             <RocDatePicker
               id="draft-footer-decided_date"
               label="決定日期"
