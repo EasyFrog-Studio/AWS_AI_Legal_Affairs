@@ -104,10 +104,6 @@ export function reanalyzeCase(id) {
   return request(`/cases/${id}/reanalyze`, { method: 'POST' })
 }
 
-export function finalizeCase(id) {
-  return request(`/cases/${id}/finalize`, { method: 'POST' })
-}
-
 /** 參考見解的存檔 PDF:帶金鑰抓回 blob 再開新分頁。不能直接 window.open 端點——
  *  那條路不會帶 X-API-Key,而把金鑰塞進網址等於把它留在瀏覽記錄與 referer 裡。 */
 export async function openSourceFile(key) {

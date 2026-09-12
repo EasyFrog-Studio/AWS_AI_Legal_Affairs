@@ -82,7 +82,7 @@ describe('案件清單', () => {
     expect(screen.getByRole('button', { name: '新增案件' })).toBeInTheDocument()
   })
 
-  it('needs_review 的案件在進度欄印「待人工確認」,狀況欄不重複,並可據此篩選', async () => {
+  it('needs_review 的案件在進度欄印「待人工確認」,結果欄不重複,並可據此篩選', async () => {
     const user = userEvent.setup()
     await renderList([{ ...listRows[0], needs_review: true }, listRows[1]])
 
@@ -105,7 +105,7 @@ describe('案件清單', () => {
     const headers = within(screen.getByRole('table'))
       .getAllByRole('columnheader')
       .map((h) => h.textContent)
-    expect(headers).toEqual(['案號', '案件類別', '狀況', '進度', '建立時間'])
+    expect(headers).toEqual(['案號', '案件類別', '結果', '進度', '建立時間'])
     expect(screen.queryByText('環保裁罰逾期')).toBeNull()
   })
 
@@ -227,9 +227,9 @@ describe('案件清單', () => {
     expect(options).toEqual(['全部', '待確認', '審理中', '待人工確認', '處理失敗', '已審結'])
   })
 
-  it('狀況篩選只有五種決定類型,不含待人工確認', async () => {
+  it('結果篩選只有五種決定類型,不含待人工確認', async () => {
     await renderList(listRows)
-    const options = within(screen.getByRole('combobox', { name: '狀況' }))
+    const options = within(screen.getByRole('combobox', { name: '結果' }))
       .getAllByRole('option')
       .map((o) => o.textContent)
     expect(options).toEqual([
@@ -270,7 +270,7 @@ describe('案件清單', () => {
     expect(within(dataRows()[1]).getAllByRole('cell')[3]).toHaveTextContent('待確認')
   })
 
-  it('進度與狀況分欄:done 案件進度顯示已審結,狀況如實顯示 result,無 result 顯示「—」', async () => {
+  it('進度與結果分欄:done 案件進度顯示已審結,結果欄如實顯示 result,無 result 顯示「—」', async () => {
     const rows = [
       {
         case_id: 'c-0201',
@@ -303,7 +303,7 @@ describe('案件清單', () => {
     expect(row1[2]).toHaveTextContent('—')
   })
 
-  it('狀況篩選:選駁回只留 result=駁回;待人工確認改由進度篩選', async () => {
+  it('結果篩選:選駁回只留 result=駁回;待人工確認改由進度篩選', async () => {
     const rows = [
       {
         case_id: 'c-0301',
@@ -340,10 +340,10 @@ describe('案件清單', () => {
     const user = userEvent.setup()
     await renderList(rows)
 
-    await user.selectOptions(screen.getByRole('combobox', { name: '狀況' }), '駁回')
+    await user.selectOptions(screen.getByRole('combobox', { name: '結果' }), '駁回')
     expect(dataRows()).toHaveLength(1)
     expect(dataRows()[0]).toHaveTextContent('c-0301')
-    await user.selectOptions(screen.getByRole('combobox', { name: '狀況' }), '全部')
+    await user.selectOptions(screen.getByRole('combobox', { name: '結果' }), '全部')
 
     await user.selectOptions(screen.getByRole('combobox', { name: '進度' }), '待人工確認')
     expect(dataRows()).toHaveLength(1)

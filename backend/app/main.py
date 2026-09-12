@@ -446,7 +446,7 @@ def update_case_info(case_id: str, info: CaseInfo) -> Case:
 
 @app.patch("/api/cases/{case_id}/draft-text", dependencies=[Depends(require_api_key)])
 def update_draft_text(case_id: str, patch: DraftTextPatch):
-    """決定書全文的修改,每次存一版。定稿後仍然允許修改——定稿只是標記,不鎖。"""
+    """決定書全文的修改,每次存一版;附帶承辦人維護的引用法條清單。定稿後仍然允許修改——定稿只是標記,不鎖。"""
     case = store.get(case_id)
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
@@ -465,6 +465,9 @@ def update_draft_text(case_id: str, patch: DraftTextPatch):
         )
 
     fields = {"draft_plain_text": patch.text, **_appended_versions(case, _version_of(patch.text))}
+    if patch.cited_laws is not None:
+        # 只動 cited_laws,不碰 f4_system:那個快照是「決定結果被改過」的憑據,不是法條清單的
+        fields["f4"] = case.f4.model_copy(update={"cited_laws": patch.cited_laws})
     store.update(case_id, fields)
     return {"ok": True, "version": len(fields["draft_versions"])}
 

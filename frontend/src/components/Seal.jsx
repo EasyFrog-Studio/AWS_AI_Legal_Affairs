@@ -32,7 +32,7 @@ export function resolveCaseSeal(caseData) {
 /**
  * 清單頁「進度」欄:只回流程狀態,不摻決定結果(結果另由 resolveResultSeal 給)。
  * error 或 collecting+documents_failed → 處理失敗;collecting → 待確認;processing → 審理中;
- * done+needs_review → 待人工確認;done → 已審結。待人工確認併進本欄,狀況欄只留決定結果。
+ * done+needs_review → 待人工確認;done → 已審結。待人工確認併進本欄,結果欄只留決定結果。
  */
 export function resolveProgressSeal(row) {
   if (row?.status === 'error') return { kind: 'error', text: '處理失敗' }
@@ -48,7 +48,7 @@ export function resolveProgressSeal(row) {
 }
 
 /**
- * 清單頁「狀況」欄:如實顯示最終決定結果,不參與流程狀態判斷。
+ * 清單頁「結果」欄:如實顯示最終決定結果,不參與流程狀態判斷。
  * 優先讀清單摘要的 result,詳情頁形狀(無 result)退回讀 f4.draft_type;都沒有回 null,呼叫端印「—」。
  */
 export function resolveResultSeal(row) {

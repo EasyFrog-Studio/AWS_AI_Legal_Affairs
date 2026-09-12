@@ -199,6 +199,8 @@ class DraftTextPatch(BaseModel):
 
     text: str
     base_version: Optional[int] = None
+    # 承辦人維護的引用法條清單;None 代表這次不動它,空清單代表清空
+    cited_laws: Optional[list[str]] = None
 
 
 class ScreeningOverride(BaseModel):
@@ -352,7 +354,7 @@ class CaseSummary(BaseModel):
     case_type: Optional[str] = None
     # 清單上要一眼看出哪幾件不能直接送:待人工確認的案子與正常案子長得一模一樣是最糟的
     needs_review: bool = False
-    # 最終結果(f4.draft_type),清單的「狀況」欄;還沒產出草稿就是 None
+    # 最終結果(f4.draft_type),清單的「結果」欄;還沒產出草稿就是 None
     result: Optional[DraftType] = None
     # 任一送來的文件被判定不是該類文件:案件卡在收案,清單要標成處理失敗而不是待確認
     documents_failed: bool = False

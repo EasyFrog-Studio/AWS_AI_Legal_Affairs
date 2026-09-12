@@ -60,7 +60,7 @@ describe('resolveProgressSeal:清單頁「進度」欄,僅四值', () => {
     expect(resolveProgressSeal({ status: 'done' })).toEqual({ kind: 'accent', text: '已審結' })
   })
 
-  it('done 且 needs_review → 待人工確認(併入進度欄,狀況欄只留決定結果)', () => {
+  it('done 且 needs_review → 待人工確認(併入進度欄,結果欄只留決定結果)', () => {
     expect(resolveProgressSeal({ status: 'done', needs_review: true })).toEqual({
       kind: 'review',
       text: '待人工確認',
@@ -72,7 +72,7 @@ describe('resolveProgressSeal:清單頁「進度」欄,僅四值', () => {
   })
 })
 
-describe('resolveResultSeal:清單頁「狀況」欄,如實顯示最終決定結果', () => {
+describe('resolveResultSeal:清單頁「結果」欄,如實顯示最終決定結果', () => {
   it('result=駁回 → reject', () => {
     expect(resolveResultSeal({ result: '駁回' })).toEqual({ kind: 'reject', text: '駁回' })
   })

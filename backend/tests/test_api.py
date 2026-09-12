@@ -473,7 +473,7 @@ def test_full_flow_create_analyze_list_get_completed_case(monkeypatch):
     assert case["track"] == "admissible"
     assert case["f1"]["appellant"] == "王大明"
     assert case["f4"] is not None
-    # 清單的「狀況」欄就是草稿的決定結果,兩處不能各講各的
+    # 清單的「結果」欄就是草稿的決定結果,兩處不能各講各的
     assert row["result"] == case["f4"]["draft_type"]
 
 

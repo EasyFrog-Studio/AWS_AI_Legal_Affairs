@@ -1057,9 +1057,6 @@ export default function CaseDetail() {
               cases={caseData.f3}
               track={caseData.track}
               versionCount={caseData.draft_versions?.length ?? 0}
-              versionsTruncated={Boolean(caseData.draft_versions_truncated)}
-              finalizedAt={caseData.finalized_at}
-              resultSystem={caseData.f4_system?.draft_type}
               onViewSource={handleViewSource}
               onSaved={load}
               hidden={effectiveSelected !== 'draft'}

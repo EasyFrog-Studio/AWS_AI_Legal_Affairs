@@ -291,3 +291,70 @@ def test_the_opening_paragraph_never_repeats_the_era_name():
 def test_a_date_without_an_era_name_still_gets_one():
     line = _opening_line("110年8月31日")
     assert "不服原處分機關民國110年8月31日" in line
+
+
+def test_patch_draft_replaces_cited_laws():
+    """承辦人自行維護引用法條清單:送什麼就存什麼,不受模型可引用清單限制。"""
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main_module.app)
+    _make_case("c-draft010", with_f4=True)
+
+    resp = client.patch(
+        "/api/cases/c-draft010/draft-text",
+        json={"text": "全文一", "cited_laws": ["訴願法#79", "行政程序法#92"]},
+        headers=_headers(),
+    )
+    assert resp.status_code == 200
+    body = client.get("/api/cases/c-draft010", headers=_headers()).json()
+    assert body["f4"]["cited_laws"] == ["訴願法#79", "行政程序法#92"]
+
+    # 第二種輸入:清成空清單,不是「沒送就不改」
+    resp = client.patch(
+        "/api/cases/c-draft010/draft-text",
+        json={"text": "全文二", "cited_laws": []},
+        headers=_headers(),
+    )
+    assert resp.status_code == 200
+    body = client.get("/api/cases/c-draft010", headers=_headers()).json()
+    assert body["f4"]["cited_laws"] == []
+    assert body["draft_plain_text"] == "全文二"
+
+
+def test_patch_draft_cited_laws_does_not_mark_result_overridden():
+    """改法條不是改決定結果:f4_system 一旦被填,review 的「受理案卻不受理」判準就被關掉。"""
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main_module.app)
+    _make_case("c-draft011", with_f4=True)
+
+    client.patch(
+        "/api/cases/c-draft011/draft-text",
+        json={"text": "全文", "cited_laws": ["訴願法#79"]},
+        headers=_headers(),
+    )
+    body = client.get("/api/cases/c-draft011", headers=_headers()).json()
+    assert body["f4_system"] is None
+    assert body["f4"]["draft_type"] == "駁回"
+
+
+def test_patch_draft_version_conflict_leaves_cited_laws_untouched():
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main_module.app)
+    _make_case("c-draft012", with_f4=True)
+    client.patch(
+        "/api/cases/c-draft012/draft-text",
+        json={"text": "第一版", "base_version": 0},
+        headers=_headers(),
+    )
+
+    resp = client.patch(
+        "/api/cases/c-draft012/draft-text",
+        json={"text": "第二版", "cited_laws": ["自創法#1"], "base_version": 0},
+        headers=_headers(),
+    )
+    assert resp.status_code == 409
+    body = client.get("/api/cases/c-draft012", headers=_headers()).json()
+    assert body["f4"]["cited_laws"] == ["廢棄物清理法#46"]
+    assert body["draft_plain_text"] == "第一版"

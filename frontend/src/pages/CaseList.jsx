@@ -161,7 +161,7 @@ export default function CaseList() {
       </div>
       <div className="case-list-filter-group">
         <label htmlFor="case-list-result" className="rail-label">
-          狀況
+          結果
         </label>
         <select
           id="case-list-result"
@@ -264,7 +264,7 @@ export default function CaseList() {
               <tr>
                 <th>案號</th>
                 <th>案件類別</th>
-                <th>狀況</th>
+                <th>結果</th>
                 <th>進度</th>
                 <th>建立時間</th>
               </tr>

@@ -4,7 +4,6 @@ import {
   updateDraftResult,
   downloadDraftPdf,
   downloadDraftDocx,
-  finalizeCase,
 } from '../api'
 import AutoTextarea from '../components/AutoTextarea.jsx'
 import SourceSiteLink from '../components/SourceSiteLink.jsx'
@@ -129,30 +128,34 @@ export default function DraftWorkspace({
   cases,
   track,
   versionCount = 0,
-  versionsTruncated = false,
-  finalizedAt = null,
-  resultSystem,
   onViewSource,
   onSaved,
   hidden,
 }) {
+  const savedCitations = useMemo(() => draft.cited_laws ?? [], [draft.cited_laws])
   const [plain, setPlain] = useState(text || '')
+  const [citations, setCitations] = useState(savedCitations)
+  const [result, setResult] = useState(draft.draft_type)
   const [state, setState] = useState('idle') // idle | saving | saved | error
   const [message, setMessage] = useState('')
-  const [resultState, setResultState] = useState('idle') // idle | saving | error
-  const [resultMessage, setResultMessage] = useState('')
   const prevCaseIdRef = useRef(caseId)
   const syncedPlainRef = useRef(text || '')
+  const syncedCitationsRef = useRef(savedCitations.join('\n'))
+  const syncedResultRef = useRef(draft.draft_type)
 
   useEffect(() => {
     if (prevCaseIdRef.current !== caseId) {
       prevCaseIdRef.current = caseId
       setPlain(text || '')
       syncedPlainRef.current = text || ''
+      setCitations(savedCitations)
+      syncedCitationsRef.current = savedCitations.join('\n')
+      setResult(draft.draft_type)
+      syncedResultRef.current = draft.draft_type
       setState('idle')
       setMessage('')
     }
-  }, [caseId, draft])
+  }, [caseId, draft, savedCitations])
 
   // 重跑會重新產生全文,那份內容要接得住;但使用者已經在改的字不能被輪詢回來的值蓋掉,
   // 故只在「本地仍等於上次同步的值」時採用。
@@ -165,7 +168,30 @@ export default function DraftWorkspace({
     setPlain((current) => (current === previous ? next : current))
   }, [text])
 
-  const dirty = plain !== (text || '')
+  // 重跑會換掉引用法條清單,接法與全文同一套:只在本地仍等於上次同步的值時採用
+  useEffect(() => {
+    const next = savedCitations.join('\n')
+    if (next === syncedCitationsRef.current) return
+    const previous = syncedCitationsRef.current
+    syncedCitationsRef.current = next
+    setCitations((current) => (current.join('\n') === previous ? savedCitations : current))
+  }, [savedCitations])
+
+  // 重跑會改判決定結果,接法與全文同一套
+  useEffect(() => {
+    const next = draft.draft_type
+    if (next === syncedResultRef.current) return
+    const previous = syncedResultRef.current
+    syncedResultRef.current = next
+    setResult((current) => (current === previous ? next : current))
+  }, [draft.draft_type])
+
+  // 空白列只是還沒打字的格子,不送出也不算修改
+  const trimmedCitations = citations.map((l) => l.trim()).filter(Boolean)
+  const textDirty = plain !== (text || '')
+  const citationsDirty = trimmedCitations.join('\n') !== savedCitations.join('\n')
+  const resultDirty = result !== draft.draft_type
+  const dirty = textDirty || citationsDirty || resultDirty
 
   useNavGuard(dirty, '草稿有未儲存的修改，離開後將遺失。確定要離開？')
 
@@ -175,25 +201,38 @@ export default function DraftWorkspace({
     setPlain(joinDraft(sections.map((s) => (s.key === key ? { ...s, body } : s))))
   }
 
-  async function handleResultChange(draft_type) {
-    setResultState('saving')
-    setResultMessage('')
-    try {
-      await updateDraftResult(caseId, { draft_type })
-      setResultState('idle')
-      setResultMessage('已更新決定結果')
-      onSaved?.()
-    } catch (err) {
-      setResultState('error')
-      setResultMessage(err.message || '更新失敗，請重試。')
-    }
+  function updateCitation(index, value) {
+    setCitations(citations.map((law, i) => (i === index ? value : law)))
+  }
+
+  function addCitation() {
+    setCitations([...citations, ''])
+  }
+
+  function removeCitation(index) {
+    setCitations(citations.filter((_, i) => i !== index))
   }
 
   async function handleSave() {
+    if (state === 'saving') return
+    if (!dirty) {
+      setState('error')
+      setMessage('沒有可儲存的修改')
+      return
+    }
     setState('saving')
     setMessage('')
     try {
-      await updateDraftText(caseId, { text: plain, base_version: versionCount })
+      // 只改結果時不送全文:那會平白多存一版,版本歷史讀起來像改過內容但沒改
+      if (textDirty || citationsDirty) {
+        await updateDraftText(caseId, {
+          text: plain,
+          cited_laws: trimmedCitations,
+          base_version: versionCount,
+        })
+        setCitations(trimmedCitations)
+      }
+      if (resultDirty) await updateDraftResult(caseId, { draft_type: result })
       setState('saved')
       setMessage('已儲存')
       onSaved?.()
@@ -206,29 +245,17 @@ export default function DraftWorkspace({
   }
 
   async function handleDownload(format) {
+    // 下載的是伺服器上那一份,未儲存就下載會拿到跟畫面不同的文件,故先擋下
+    if (dirty) {
+      setState('error')
+      setMessage('尚未儲存修改')
+      return
+    }
     try {
-      // 先存再下載:下載到的必須是畫面上這一份,不是上次存的那一份
-      if (dirty) await updateDraftText(caseId, { text: plain, base_version: versionCount })
       await (format === 'docx' ? downloadDraftDocx(caseId) : downloadDraftPdf(caseId))
     } catch (err) {
       setState('error')
       setMessage(err.message || '下載失敗，請重試。')
-      if (err.status === 409) onSaved?.()
-    }
-  }
-
-  async function handleFinalize() {
-    setState('saving')
-    setMessage('')
-    try {
-      if (dirty) await updateDraftText(caseId, { text: plain, base_version: versionCount })
-      const result = await finalizeCase(caseId)
-      setState('saved')
-      setMessage(`已標記定稿（${result.pdf_location || '已落地'}）`)
-      onSaved?.()
-    } catch (err) {
-      setState('error')
-      setMessage(err.message || '定稿失敗，請重試。')
       if (err.status === 409) onSaved?.()
     }
   }
@@ -266,20 +293,36 @@ export default function DraftWorkspace({
             </div>
           ))
         )}
-        {draft.cited_laws?.length > 0 && (
-          <div className="draft-field">
-            <span className="draft-paper__section-title">引用法條</span>
-            <p className="mono">{draft.cited_laws.join('、')}</p>
-          </div>
-        )}
+        <div className="draft-citations">
+          <span className="draft-paper__section-title">引用法條</span>
+          {citations.map((law, i) => (
+            <div className="draft-citation" key={i}>
+              <input
+                className="input draft-citation__input"
+                aria-label={`引用法條 ${i + 1}`}
+                value={law}
+                onChange={(e) => updateCitation(i, e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn-link"
+                aria-label={`刪除引用法條 ${i + 1}`}
+                onClick={() => removeCitation(i)}
+              >
+                刪除
+              </button>
+            </div>
+          ))}
+          <button type="button" className="btn-link draft-citations__add" onClick={addCitation}>
+            新增法條
+          </button>
+        </div>
         <div className="draft-result">
-          <label htmlFor="draft-result">決定結果</label>
           <select
-            id="draft-result"
+            aria-label="結果"
             className="input"
-            value={draft.draft_type}
-            onChange={(e) => handleResultChange(e.target.value)}
-            disabled={resultState === 'saving'}
+            value={result}
+            onChange={(e) => setResult(e.target.value)}
           >
             {DRAFT_RESULT_OPTIONS.map((t) => (
               <option key={t} value={t}>
@@ -287,27 +330,8 @@ export default function DraftWorkspace({
               </option>
             ))}
           </select>
-          {resultSystem && resultSystem !== draft.draft_type && (
-            <span className="doc-check">已由承辦人修改（系統原判：{resultSystem}）</span>
-          )}
-          {resultMessage && (
-            <span
-              className={
-                resultState === 'error' ? 'form-result form-result--error' : 'draft-actions__ok'
-              }
-            >
-              {resultMessage}
-            </span>
-          )}
         </div>
-        <p className="doc-intro draft-result__hint">
-          改結果不會改動全文，主文與理由請在上方自行修改。
-        </p>
         <div className="action-row draft-actions">
-          <span className="draft-actions__meta">
-            已存 {versionCount} 版{versionsTruncated ? '（最舊版本已捨棄）' : ''}
-            {finalizedAt ? ` · 定稿於 ${finalizedAt}` : ''}
-          </span>
           {message && (
             <span
               className={
@@ -318,23 +342,32 @@ export default function DraftWorkspace({
             </span>
           )}
           <div className="draft-actions__buttons">
+            {/* 未儲存不用 disabled:按鈕要按得下去才說得出「尚未儲存修改」 */}
             <button
               type="button"
               className="btn btn-secondary"
-              onClick={handleSave}
-              disabled={state === 'saving' || !dirty}
+              aria-disabled={dirty}
+              onClick={() => handleDownload('docx')}
             >
-              {state === 'saving' ? '儲存中…' : '儲存修改'}
-            </button>
-            <button type="button" className="btn btn-secondary" onClick={() => handleDownload('docx')}>
               下載 Word
             </button>
-            {/* 定稿只是標記,不鎖:定稿後仍可修改,改了再存一版 */}
-            <button type="button" className="btn btn-secondary" onClick={handleFinalize}>
-              {finalizedAt ? '重新定稿' : '標記定稿'}
+            <button
+              type="button"
+              className="btn btn-secondary"
+              aria-disabled={dirty}
+              onClick={() => handleDownload('pdf')}
+            >
+              下載 PDF
             </button>
-            <button type="button" className="btn btn-primary btn-submit" onClick={() => handleDownload('pdf')}>
-              下載 PDF 寄審
+            {/* 與新增案件的送出鍵同一套:aria-disabled 保住主色,原生 disabled 會連游標一起吃掉 */}
+            <button
+              type="button"
+              className={`btn btn-primary btn-submit ${state === 'saving' ? 'btn--loading' : ''}`}
+              aria-disabled={state === 'saving' || !dirty}
+              onClick={handleSave}
+            >
+              {state === 'saving' && <span className="btn__spinner" aria-hidden="true" />}
+              {state === 'saving' ? '儲存中…' : '儲存修改'}
             </button>
           </div>
         </div>

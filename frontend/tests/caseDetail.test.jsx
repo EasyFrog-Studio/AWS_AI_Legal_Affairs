@@ -623,25 +623,68 @@ describe('決定書版面', () => {
     expect(api.getCase).toHaveBeenCalledTimes(1)
   })
 
-  it('標記定稿後仍可再修改(定稿不鎖)', async () => {
+  it('草稿頁只有三個動作:儲存與兩種下載,不再有定稿與版本字樣', async () => {
     api.getCase.mockResolvedValue({ ...doneAdmissible, finalized_at: '2026-08-27T05:00:00+00:00' })
-    const user = userEvent.setup()
     renderDetail()
     await screen.findByLabelText('決定書全文')
 
-    expect(screen.getByRole('button', { name: '重新定稿' })).toBeInTheDocument()
-    expect(screen.getByText(/定稿於/)).toBeInTheDocument()
-    expect(screen.getByLabelText('決定書全文')).toBeEnabled()
+    expect(screen.queryByRole('button', { name: /定稿/ })).toBeNull()
+    expect(screen.queryByText(/已存/)).toBeNull()
+    expect(screen.queryByText(/定稿於/)).toBeNull()
   })
 
-  it('引用法條顯示在草稿頁', async () => {
+  it('引用法條逐條一格,可改可增可刪,儲存時一併送出', async () => {
     api.getCase.mockResolvedValue({
       ...doneInadmissible,
       f4: { ...doneInadmissible.f4, cited_laws: ['訴願法#77', '訴願法#14'] },
     })
+    const user = userEvent.setup()
     renderDetail('c-2')
 
-    expect(await screen.findByText('訴願法#77、訴願法#14')).toBeInTheDocument()
+    expect(await screen.findByLabelText('引用法條 1')).toHaveValue('訴願法#77')
+    expect(screen.getByLabelText('引用法條 2')).toHaveValue('訴願法#14')
+
+    await user.click(screen.getByRole('button', { name: '刪除引用法條 2' }))
+    await user.click(screen.getByRole('button', { name: '新增法條' }))
+    await user.type(screen.getByLabelText('引用法條 2'), '行政程序法#92')
+    await user.click(screen.getByRole('button', { name: '儲存修改' }))
+
+    expect(api.updateDraftText).toHaveBeenCalledWith('c-2', {
+      text: doneInadmissible.draft_plain_text,
+      cited_laws: ['訴願法#77', '行政程序法#92'],
+      base_version: 0,
+    })
+  })
+
+  it('沒有引用法條時仍可新增', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible)
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByLabelText('決定書全文')
+
+    await user.click(screen.getByRole('button', { name: '新增法條' }))
+    await user.type(screen.getByLabelText('引用法條 1'), '訴願法#79')
+
+    expect(screen.getByRole('button', { name: '儲存修改' })).not.toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
+  })
+
+  it('沒有修改時儲存鍵不改色,點了說沒有可儲存的修改', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible)
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByLabelText('決定書全文')
+
+    api.updateDraftText.mockClear()
+    const save = screen.getByRole('button', { name: '儲存修改' })
+    expect(save).toHaveAttribute('aria-disabled', 'true')
+    expect(save).toHaveClass('btn-primary', 'btn-submit')
+    await user.click(save)
+
+    expect(api.updateDraftText).not.toHaveBeenCalled()
+    expect(screen.getByText('沒有可儲存的修改')).toBeInTheDocument()
   })
 })
 
@@ -667,6 +710,7 @@ describe('決定書草稿:整份可改、兩種下載', () => {
     // base_version 一起送:兩個視窗同時改時,後送出的那份不該無聲蓋掉前一份
     expect(api.updateDraftText).toHaveBeenCalledWith('c-1', {
       text: '新北市政府訴願決定書 主文:訴願駁回。 補一句',
+      cited_laws: [],
       base_version: 0,
     })
     // 逐欄輸入已經不存在:文件只有一份
@@ -682,7 +726,49 @@ describe('決定書草稿:整份可改、兩種下載', () => {
     await user.click(screen.getByRole('button', { name: '下載 Word' }))
     expect(api.downloadDraftDocx).toHaveBeenCalledWith('c-1')
 
-    await user.click(screen.getByRole('button', { name: '下載 PDF 寄審' }))
+    await user.click(screen.getByRole('button', { name: '下載 PDF' }))
+    expect(api.downloadDraftPdf).toHaveBeenCalledWith('c-1')
+  })
+
+  it('有未儲存的修改時不給下載,點了只提示尚未儲存', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible)
+    const user = userEvent.setup()
+    renderDetail()
+    await user.type(await screen.findByLabelText('決定書全文'), '改一句')
+
+    api.downloadDraftDocx.mockClear()
+    api.downloadDraftPdf.mockClear()
+    const word = screen.getByRole('button', { name: '下載 Word' })
+    expect(word).toHaveAttribute('aria-disabled', 'true')
+    await user.click(word)
+    expect(api.downloadDraftDocx).not.toHaveBeenCalled()
+    expect(screen.getByText('尚未儲存修改')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '下載 PDF' }))
+    expect(api.downloadDraftPdf).not.toHaveBeenCalled()
+  })
+
+  it('儲存之後就能下載', async () => {
+    const saved = { ...doneAdmissible }
+    api.getCase.mockResolvedValue(saved)
+    const user = userEvent.setup()
+    renderDetail()
+    const box = await screen.findByLabelText('決定書全文')
+    await user.type(box, '改一句')
+
+    api.getCase.mockResolvedValue({
+      ...saved,
+      draft_plain_text: `${saved.draft_plain_text}改一句`,
+    })
+    await user.click(screen.getByRole('button', { name: '儲存修改' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '下載 PDF' })).not.toHaveAttribute(
+        'aria-disabled',
+        'true',
+      ),
+    )
+    await user.click(screen.getByRole('button', { name: '下載 PDF' }))
     expect(api.downloadDraftPdf).toHaveBeenCalledWith('c-1')
   })
 })
@@ -732,13 +818,14 @@ describe('決定書草稿分段', () => {
     )
     expect(api.updateDraftText).toHaveBeenCalledWith('c-7', {
       text: expectedText,
+      cited_laws: [],
       base_version: 0,
     })
   })
 
   it('儲存失敗(版本衝突)時畫面顯示錯誤，理由格保留剛打的字', async () => {
     api.getCase.mockResolvedValue(doneAdmissibleSectioned)
-    api.updateDraftText.mockRejectedValue(Object.assign(new Error('版本衝突'), { status: 409 }))
+    api.updateDraftText.mockRejectedValueOnce(Object.assign(new Error('版本衝突'), { status: 409 }))
     const user = userEvent.setup()
     renderDetail('c-7')
 
@@ -1060,20 +1147,57 @@ describe('F1 卷證總匯表', () => {
 })
 
 describe('決定結果修改', () => {
-  it('選擇新結果後呼叫 API 並重新載入', async () => {
+  it('選了新結果要按儲存修改才送出', async () => {
     api.getCase.mockResolvedValue(doneAdmissible)
     const user = userEvent.setup()
     renderDetail()
     await screen.findByLabelText('決定書全文')
-    api.getCase.mockClear()
+    api.updateDraftResult.mockClear()
 
-    await user.selectOptions(screen.getByLabelText('決定結果'), '撤銷另處')
+    await user.selectOptions(screen.getByLabelText('結果'), '撤銷另處')
+    expect(api.updateDraftResult).not.toHaveBeenCalled()
+
+    api.getCase.mockClear()
+    await user.click(screen.getByRole('button', { name: '儲存修改' }))
 
     expect(api.updateDraftResult).toHaveBeenCalledWith('c-1', { draft_type: '撤銷另處' })
     await waitFor(() => expect(api.getCase).toHaveBeenCalledTimes(1))
   })
 
-  it('已被改過的案件同時顯示現行結果與系統原判', async () => {
+  it('只改結果時不動全文,不多存一版', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible)
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByLabelText('決定書全文')
+    api.updateDraftText.mockClear()
+
+    await user.selectOptions(screen.getByLabelText('結果'), '原處分撤銷')
+    await user.click(screen.getByRole('button', { name: '儲存修改' }))
+
+    expect(api.updateDraftText).not.toHaveBeenCalled()
+    expect(api.updateDraftResult).toHaveBeenCalledWith('c-1', { draft_type: '原處分撤銷' })
+  })
+
+  it('全文與結果一起改,兩支 API 都送', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible)
+    const user = userEvent.setup()
+    renderDetail()
+    api.updateDraftText.mockClear()
+    api.updateDraftResult.mockClear()
+
+    await user.type(await screen.findByLabelText('決定書全文'), '補一句')
+    await user.selectOptions(screen.getByLabelText('結果'), '撤銷另處')
+    await user.click(screen.getByRole('button', { name: '儲存修改' }))
+
+    expect(api.updateDraftText).toHaveBeenCalledWith('c-1', {
+      text: `${doneAdmissible.draft_plain_text}補一句`,
+      cited_laws: [],
+      base_version: 0,
+    })
+    expect(api.updateDraftResult).toHaveBeenCalledWith('c-1', { draft_type: '撤銷另處' })
+  })
+
+  it('改過的案件只顯示現行結果,不在稿紙上談系統原判', async () => {
     api.getCase.mockResolvedValue({
       ...doneAdmissible,
       f4: { ...doneAdmissible.f4, draft_type: '撤銷另處' },
@@ -1081,19 +1205,35 @@ describe('決定結果修改', () => {
     })
     renderDetail()
 
-    expect(await screen.findByText(/系統原判：駁回/)).toBeInTheDocument()
+    expect(await screen.findByLabelText('結果')).toHaveValue('撤銷另處')
+    expect(screen.queryByText(/系統原判/)).toBeNull()
   })
 
-  it('更新失敗時顯示錯誤訊息，且選單值不樂觀更新，維持原本的值', async () => {
+  it('儲存失敗時錯誤看得見,選單留著承辦人挑的值不回捲', async () => {
     api.getCase.mockResolvedValue(doneAdmissible)
     api.updateDraftResult.mockRejectedValueOnce(new Error('案件正在分析中'))
     const user = userEvent.setup()
     renderDetail()
     await screen.findByLabelText('決定書全文')
 
-    await user.selectOptions(screen.getByLabelText('決定結果'), '撤銷另處')
+    await user.selectOptions(screen.getByLabelText('結果'), '撤銷另處')
+    await user.click(screen.getByRole('button', { name: '儲存修改' }))
 
     expect(await screen.findByText('案件正在分析中')).toBeInTheDocument()
-    expect(screen.getByLabelText('決定結果')).toHaveValue('駁回')
+    expect(screen.getByLabelText('結果')).toHaveValue('撤銷另處')
+  })
+
+  it('未儲存的結果修改擋住下載', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible)
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByLabelText('決定書全文')
+    api.downloadDraftPdf.mockClear()
+
+    await user.selectOptions(screen.getByLabelText('結果'), '撤銷另處')
+    await user.click(screen.getByRole('button', { name: '下載 PDF' }))
+
+    expect(api.downloadDraftPdf).not.toHaveBeenCalled()
+    expect(screen.getByText('尚未儲存修改')).toBeInTheDocument()
   })
 })

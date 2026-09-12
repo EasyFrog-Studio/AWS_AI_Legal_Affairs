@@ -29,8 +29,34 @@
   margin: 0 0 var(--space-lg);
 }
 
-.draft-field {
-  margin-bottom: var(--space-md);
+/* 引用法條:與主文／事實／理由同一組段落間距,讀起來是文件的最後一段 */
+.draft-citations {
+  margin-top: var(--space-lg);
+}
+
+.draft-citation {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-2xs);
+}
+
+/* 與段落文字框同一套:無框透明底,滑過才看得出可編輯 */
+.draft-citation__input {
+  flex: 1;
+  max-width: 28em;
+  background: transparent;
+  border-color: transparent;
+  padding-inline: 0;
+  font-family: var(--font-body);
+}
+
+.draft-citation__input:hover {
+  border-color: var(--color-rule-soft);
+}
+
+.draft-citations__add {
+  margin-top: var(--space-sm);
 }
 
 /* 決定結果選擇器:排在全文之後,以髮絲線與稿紙正文隔開;寬度收在一眼看得完的範圍,不撐成整列 */
@@ -107,11 +133,10 @@
   color: var(--color-pass);
 }
 
-/* 版本數與定稿時間:承辦人要看得出「這份改過幾次、是否已定稿」 */
-.draft-actions__meta {
-  font-family: var(--font-ui);
-  font-size: var(--text-sm);
-  color: var(--color-ink-soft);
+/* 未儲存時擋下載:仍要按得下去才說得出「尚未儲存修改」,故只換游標不吃掉點擊 */
+.draft-actions .btn[aria-disabled='true'] {
+  pointer-events: auto;
+  cursor: not-allowed;
 }
 
 /* ---------- 依據面板:隨頁捲動,套全站卡片語彙 ---------- */

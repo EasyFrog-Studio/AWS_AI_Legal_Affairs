@@ -19,7 +19,7 @@
   margin-bottom: var(--space-md);
 }
 
-/* 進度為純文字,不套印章框,以免與狀況欄的決定結果章搶視線 */
+/* 進度為純文字,不套印章框,以免與結果欄的決定結果章搶視線 */
 .case-list-progress {
   font-family: var(--font-ui);
   font-size: var(--text-ui);
