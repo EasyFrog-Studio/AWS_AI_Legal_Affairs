@@ -1,11 +1,10 @@
 /* CaseDetail 頁專用 */
 
-/* ---------- F1 擷取(2 欄格線)---------- */
+/* ---------- F1 擷取(單欄直排)---------- */
 
 .f1-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-md) var(--space-lg);
+  gap: var(--space-md);
   margin: 0;
 }
 
@@ -43,10 +42,6 @@
   margin: 0 0 var(--space-md);
 }
 
-.f1-field--editing {
-  grid-column: 1 / -1;
-}
-
 .f1-field input,
 .f1-field textarea {
   width: 100%;
@@ -82,7 +77,6 @@
 
 .screening-result__reasoning {
   font-family: var(--font-body);
-  max-width: var(--measure);
 }
 
 /* ---------- F2 法規參照 ---------- */
@@ -146,12 +140,6 @@
   margin-top: var(--space-xs);
 }
 
-@media (max-width: 767px) {
-  .f1-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 /* ---------- 期間認定 ---------- */
 
 .deadline__head {
@@ -199,7 +187,6 @@
 .deadline__detail,
 .deadline__note {
   font-family: var(--font-body);
-  max-width: var(--measure);
 }
 
 .deadline__note {
