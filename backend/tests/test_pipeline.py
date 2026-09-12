@@ -63,7 +63,7 @@ class StubAdmissibleProvider(AIProvider):
                 topic="怠於執行職務之國家賠償責任",
                 text="保護規範理論之判準…",
                 source_key=None,
-                relevance="向量檢索命中(KB-LAW,非法規)",
+                relevance="向量檢索命中（KB-LAW，非法規）",
             )
         ]
 
@@ -130,7 +130,7 @@ class StubInadmissibleProvider(AIProvider):
                 topic="怠於執行職務之國家賠償責任",
                 text="保護規範理論之判準…",
                 source_key=None,
-                relevance="向量檢索命中(KB-LAW,非法規)",
+                relevance="向量檢索命中（KB-LAW，非法規）",
             )
         ]
 
@@ -184,7 +184,7 @@ class StubErrorProvider(AIProvider):
                 topic="怠於執行職務之國家賠償責任",
                 text="保護規範理論之判準…",
                 source_key=None,
-                relevance="向量檢索命中(KB-LAW,非法規)",
+                relevance="向量檢索命中（KB-LAW，非法規）",
             )
         ]
 
@@ -547,7 +547,7 @@ def test_run_case_auto_overrides_to_77_1_when_appellant_and_agency_both_missing(
                     topic="怠於執行職務之國家賠償責任",
                     text="保護規範理論之判準…",
                     source_key=None,
-                    relevance="向量檢索命中(KB-LAW,非法規)",
+                    relevance="向量檢索命中（KB-LAW，非法規）",
                 )
             ]
 
@@ -611,7 +611,7 @@ def test_run_case_calls_assess_standing_only_when_recipient_inconsistent():
                     topic="怠於執行職務之國家賠償責任",
                     text="保護規範理論之判準…",
                     source_key=None,
-                    relevance="向量檢索命中(KB-LAW,非法規)",
+                    relevance="向量檢索命中（KB-LAW，非法規）",
                 )
             ]
 
@@ -680,7 +680,7 @@ def test_run_case_does_not_override_when_model_cites_no_protective_norm():
                     topic="怠於執行職務之國家賠償責任",
                     text="保護規範理論之判準…",
                     source_key=None,
-                    relevance="向量檢索命中(KB-LAW,非法規)",
+                    relevance="向量檢索命中（KB-LAW，非法規）",
                 )
             ]
 

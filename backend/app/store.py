@@ -188,7 +188,7 @@ class PostgresStore(CaseStore):
 
     def __init__(self, url, connect=None) -> None:
         if not url:
-            raise RuntimeError("POSTGRES_URL 未設定,local 模式需要 Postgres 連線字串")
+            raise RuntimeError("POSTGRES_URL 未設定，local 模式需要 Postgres 連線字串")
         if connect is None:
 
             def connect():

@@ -294,8 +294,8 @@ def test_a_clean_screening_gets_only_the_new_note():
     """原本沒有保留事項時不得留下空段或多餘的分號。"""
     screening = ScreeningResult(passed=True, matched_clause=None, reasoning="無")
     result = apply_article_77_3(screening, StandingCheck(consistent=False, has_standing=None))
-    assert not result.review_note.startswith(";")
-    assert ";;" not in result.review_note
+    assert not result.review_note.startswith("；")
+    assert "；；" not in result.review_note
 
 
 # ---------- §56 I⑤「訴願之事實及理由」是一款兩件事 ----------

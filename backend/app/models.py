@@ -130,7 +130,7 @@ class ScreeningResult(BaseModel):
 
 def join_review_notes(*notes: Optional[str]) -> str:
     """保留事項一律附加:多個檢核同時成立時整段覆寫,承辦人就只看得到最後一個複核理由。"""
-    return ";".join(n for n in notes if n)
+    return "；".join(n for n in notes if n)
 
 
 # 款次由 LLM 產出,條文本身以「一、二、…」列款,故中文數字與阿拉伯數字都要收

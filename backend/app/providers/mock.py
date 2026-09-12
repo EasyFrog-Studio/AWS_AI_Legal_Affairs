@@ -37,7 +37,7 @@ class MockProvider(AIProvider):
         fallback = self._samples.get(_FALLBACK_NAME)
         if fallback is None:
             raise RuntimeError(
-                f"MockProvider: 找不到 {_FALLBACK_NAME}.json,樣本目錄={self._dir}"
+                f"MockProvider: 找不到 {_FALLBACK_NAME}.json，樣本目錄={self._dir}"
             )
         return fallback["expected"]
 
@@ -114,7 +114,7 @@ class MockProvider(AIProvider):
                         text="",
                         amend_date="未收錄",
                         source_key=None,
-                        relevance="條號精查,樣本未收錄",
+                        relevance="條號精查，樣本未收錄",
                     )
                 )
         return refs

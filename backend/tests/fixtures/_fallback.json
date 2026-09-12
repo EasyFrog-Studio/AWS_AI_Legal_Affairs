@@ -97,7 +97,7 @@
         "topic": "行政處分之認定",
         "text": "行政機關行使公權力,就特定具體之公法事件所為對外發生法律上效果之單方行政行為,皆屬行政處分…",
         "source_key": null,
-        "relevance": "向量檢索命中(KB-LAW,非法規)"
+        "relevance": "向量檢索命中（KB-LAW，非法規）"
       },
       {
         "doc_kind": "行政法院裁判",
@@ -107,7 +107,7 @@
         "topic": "政府資訊公開法18條2項",
         "text": "政府資訊含有限制公開之事項者,應僅就該部分不予公開…",
         "source_key": null,
-        "relevance": "向量檢索命中(KB-LAW,非法規)"
+        "relevance": "向量檢索命中（KB-LAW，非法規）"
       },
       {
         "doc_kind": "行政函釋",
@@ -117,7 +117,7 @@
         "topic": "",
         "text": "關於寄存送達自寄存之日起經十日發生效力…",
         "source_key": null,
-        "relevance": "向量檢索命中(KB-LAW,非法規)"
+        "relevance": "向量檢索命中（KB-LAW，非法規）"
       },
       {
         "doc_kind": "司法院釋字",
@@ -127,7 +127,7 @@
         "topic": "訴願書送達",
         "text": "訴願文書之送達,應向訴願人本人為之…",
         "source_key": null,
-        "relevance": "向量檢索命中(KB-LAW,非法規)"
+        "relevance": "向量檢索命中（KB-LAW，非法規）"
       }
     ]
   }

@@ -187,7 +187,7 @@ class AWSProvider(AIProvider):
         for block in content:
             if "toolUse" in block:
                 return block["toolUse"]["input"]
-        raise RuntimeError(f"Bedrock converse 未回傳 toolUse 結果: {resp}")
+        raise RuntimeError(f"Bedrock converse 未回傳 toolUse 結果：{resp}")
 
     def extract_case_info(self, text: str) -> CaseInfo:
         schema = case_info_json_schema()
@@ -270,7 +270,7 @@ class AWSProvider(AIProvider):
                     # 一律來自 DynamoDB,查無資料填死值,禁止由 LLM 生成修正日期
                     amend_date=(item.get("amend_date") or "未收錄") if item else "未收錄",
                     source_key=item.get("source_key") if item else None,
-                    relevance="條號精查(DynamoDB)" if item else "條號精查,DynamoDB 未查得資料",
+                    relevance="條號精查（DynamoDB）" if item else "條號精查，DynamoDB 未查得資料",
                 )
             )
         return refs
@@ -297,7 +297,7 @@ class AWSProvider(AIProvider):
                 text=r.get("content", {}).get("text", ""),
                 amend_date=metadata.get("amend_date") or "未收錄",  # 一律來自 KB metadata,LLM 不生成
                 source_key=viewable_source_key(metadata),
-                relevance="向量檢索命中(KB-LAW)",
+                relevance="向量檢索命中（KB-LAW）",
             )
 
         # F1 cited_articles 走 DynamoDB 精查,補齊 KB 檢索未涵蓋的引用法條;先濾掉「未載明」等假條號
@@ -324,7 +324,7 @@ class AWSProvider(AIProvider):
                 )
                 for r in retrieved
             ],
-            "向量檢索命中(KB-LAW,非法規)",
+            "向量檢索命中（KB-LAW，非法規）",
         )
 
     def find_similar_cases(

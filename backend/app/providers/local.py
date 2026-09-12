@@ -55,7 +55,7 @@ class LocalProvider(AIProvider):
 
         if connect is None:
             if not settings.POSTGRES_URL:
-                raise RuntimeError("POSTGRES_URL 未設定,local 模式需要 Postgres 連線字串")
+                raise RuntimeError("POSTGRES_URL 未設定，local 模式需要 Postgres 連線字串")
 
             def _default_connect():
                 import psycopg
@@ -175,7 +175,7 @@ class LocalProvider(AIProvider):
                     # 一律來自 law_articles,查無資料填死值,禁止由 LLM 生成修正日期
                     amend_date=(metadata.get("amend_date") or "未收錄") if hit else "未收錄",
                     source_key=metadata.get("source_key"),
-                    relevance="條號精查(law_articles)" if hit else "條號精查,law_articles 未查得資料",
+                    relevance="條號精查（law_articles）" if hit else "條號精查，law_articles 未查得資料",
                 )
             )
         return refs
@@ -204,7 +204,7 @@ class LocalProvider(AIProvider):
                 text=text,
                 amend_date=metadata.get("amend_date") or "未收錄",  # 一律來自檢索 metadata,LLM 不生成
                 source_key=viewable_source_key(metadata),
-                relevance="向量檢索命中(pgvector law_chunks)",
+                relevance="向量檢索命中（pgvector law_chunks）",
             )
 
         # F1 cited_articles 走 law_articles 精查,補齊向量檢索未涵蓋的引用法條;先濾掉「未載明」等假條號
@@ -228,7 +228,7 @@ class LocalProvider(AIProvider):
         )
         return build_references(
             [((metadata or {}).get("law_name", ""), text, metadata or {}) for text, metadata in rows],
-            "向量檢索命中(pgvector law_chunks,非法規)",
+            "向量檢索命中（pgvector law_chunks，非法規）",
         )
 
     def _search_cases(
