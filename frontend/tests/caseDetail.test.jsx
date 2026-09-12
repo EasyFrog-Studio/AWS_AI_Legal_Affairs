@@ -30,6 +30,7 @@ function renderDetail(id = 'c-1') {
   )
 }
 
+const pdf = (name) => new File(['%PDF-1.4'], name, { type: 'application/pdf' })
 const rail = (name) => screen.getByRole('button', { name })
 const isCurrent = (name) => rail(name).getAttribute('aria-current') === 'true'
 
@@ -161,38 +162,48 @@ describe('案件詳情', () => {
 })
 
 describe('待確認階段(collecting)', () => {
-  it('預設落在文件確認,三份皆符合時可以開始分析', async () => {
+  it('預設落在文件確認,四份皆符合時可以開始分析', async () => {
     api.getCase.mockResolvedValue(collectingAllMatched)
     renderDetail('c-5')
 
     await screen.findByRole('button', { name: '開始分析' })
     expect(isCurrent(/^文件確認/)).toBe(true)
     expect(screen.getByRole('button', { name: '開始分析' })).toBeEnabled()
-    // 三槽皆為 matched:true,徽章應顯示已確認而非「無法確認」
-    expect(screen.getAllByText(/確認為此文件/).length).toBe(3)
+    // 四槽皆為 matched:true,徽章應顯示已確認而非「無法確認」
+    expect(screen.getAllByText(/確認為此文件/).length).toBe(4)
   })
 
-  it('選填的訴願答辯書留空時標「未提供」,不擋開始分析', async () => {
+  it('訴願答辯書標必填,只有送達證書是選填', async () => {
     api.getCase.mockResolvedValue(collectingAllMatched)
+    renderDetail('c-5')
+
+    await screen.findByRole('button', { name: '開始分析' })
+    const answerHead = screen.getByText('訴願答辯書').closest('.doc-slot__head')
+    expect(within(answerHead).getByText('必填')).toBeInTheDocument()
+    expect(screen.getAllByText('必填')).toHaveLength(3)
+    expect(screen.getAllByText('選填')).toHaveLength(1)
+  })
+
+  it('舊案的答辯書空槽不再視為「未提供」,照必填擋住開始分析', async () => {
+    // 答辯書改必填後,空的那一槽是「沒確認」而不是「本來就沒有」——放行等於漏掉一份必備卷證
+    api.getCase.mockResolvedValue({
+      ...collectingAllMatched,
+      documents: {
+        ...collectingAllMatched.documents,
+        answer: {
+          slot: 'answer',
+          source: 'text',
+          text: '',
+          check: { matched: null, method: 'none', note: '文件內容為空,無法確認' },
+        },
+      },
+    })
     renderDetail('c-5')
 
     await screen.findByRole('button', { name: '開始分析' })
     const slot = screen.getByText('訴願答辯書').closest('.doc-slot')
-    // 沒送來跟送來但看不懂是兩件事,不能都顯示「無法自動確認」
-    expect(within(slot).getByText(/未提供/)).toBeInTheDocument()
-    expect(within(slot).queryByText(/無法自動確認/)).toBeNull()
-    // 沒送來過的槽談不上「重新」上傳
-    expect(within(slot).getByRole('button', { name: '補上傳' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '開始分析' })).toBeEnabled()
-  })
-
-  it('選填的答辯書留空不列進待人工確認,否則每一件新案都恆亮', async () => {
-    api.getCase.mockResolvedValue(collectingAllMatched)
-    renderDetail('c-5')
-
-    await screen.findByRole('button', { name: '開始分析' })
-    // 空槽沒有東西可確認;把它算成待複核等於讓這個警示對每一件新案都亮,訊號就廢了
-    expect(screen.queryByText(/訴願答辯書尚未確認無誤/)).toBeNull()
+    expect(within(slot).queryByText(/未提供/)).toBeNull()
+    expect(screen.getByRole('button', { name: '開始分析' })).toHaveAttribute('aria-disabled', 'true')
   })
 
   it('答辯書有內容卻還沒確認時,仍要列進待人工確認', async () => {
@@ -286,6 +297,19 @@ describe('待確認階段(collecting)', () => {
     expect(within(serviceSlot).getByText(/不是送達證書/)).toBeInTheDocument()
   })
 
+  it('重傳只收 PDF,沒有貼上文字的輸入框', async () => {
+    api.getCase.mockResolvedValue(collectingWithMismatch)
+    const user = userEvent.setup()
+    renderDetail('c-6')
+
+    await screen.findByText(/不是送達證書/)
+    const serviceSlot = screen.getByText('送達證書').closest('.doc-slot')
+    await user.click(within(serviceSlot).getByRole('button', { name: '重新上傳' }))
+
+    expect(within(serviceSlot).queryByRole('textbox')).toBeNull()
+    expect(within(serviceSlot).getByText(/拖曳 PDF/)).toBeInTheDocument()
+  })
+
   it('重傳的落件框拒收非 PDF,不讓壞檔走到後端', async () => {
     api.getCase.mockResolvedValue(collectingWithMismatch)
     const user = userEvent.setup()
@@ -305,7 +329,7 @@ describe('待確認階段(collecting)', () => {
     expect(api.replaceDocument).not.toHaveBeenCalled()
   })
 
-  it('換一槽重傳不把上一槽打到一半的字帶過去', async () => {
+  it('換一槽重傳不把上一槽挑好的檔案帶過去', async () => {
     api.getCase.mockResolvedValue(collectingWithMismatch)
     const user = userEvent.setup()
     renderDetail('c-6')
@@ -313,12 +337,13 @@ describe('待確認階段(collecting)', () => {
     await screen.findByText(/不是送達證書/)
     const serviceSlot = screen.getByText('送達證書').closest('.doc-slot')
     await user.click(within(serviceSlot).getByRole('button', { name: '重新上傳' }))
-    await user.type(within(serviceSlot).getByPlaceholderText('或貼上送達證書全文'), '打到一半')
+    await user.upload(within(serviceSlot).getByLabelText('送達證書 PDF'), pdf('送達證書.pdf'))
 
     const appealSlot = screen.getByText('訴願書').closest('.doc-slot')
     await user.click(within(appealSlot).getByRole('button', { name: '重新上傳' }))
 
-    expect(within(appealSlot).getByPlaceholderText('或貼上訴願書全文')).toHaveValue('')
+    expect(within(appealSlot).queryByText('送達證書.pdf')).toBeNull()
+    expect(within(appealSlot).getByRole('button', { name: '送出' })).toBeDisabled()
   })
 
   it('OCR 取字的槽要在卡片上講出來,日期不能被當成已核對', async () => {
@@ -357,7 +382,7 @@ describe('待確認階段(collecting)', () => {
     await screen.findByText(/不是送達證書/)
     const serviceSlot = screen.getByText('送達證書').closest('.doc-slot')
     await user.click(within(serviceSlot).getByRole('button', { name: '重新上傳' }))
-    await user.type(within(serviceSlot).getByPlaceholderText('或貼上送達證書全文'), '新全文')
+    await user.upload(within(serviceSlot).getByLabelText('送達證書 PDF'), pdf('送達證書.pdf'))
     api.getCase.mockClear()
     await user.click(within(serviceSlot).getByRole('button', { name: '送出' }))
 
@@ -373,7 +398,7 @@ describe('待確認階段(collecting)', () => {
     await screen.findByText(/不是送達證書/)
     const serviceSlot = screen.getByText('送達證書').closest('.doc-slot')
     await user.click(within(serviceSlot).getByRole('button', { name: '重新上傳' }))
-    await user.type(within(serviceSlot).getByPlaceholderText('或貼上送達證書全文'), '新的送達證書全文')
+    await user.upload(within(serviceSlot).getByLabelText('送達證書 PDF'), pdf('新的送達證書.pdf'))
     api.getCase.mockClear()
     await user.click(within(serviceSlot).getByRole('button', { name: '送出' }))
 
@@ -1067,15 +1092,35 @@ describe('F1 卷證總匯表', () => {
     expect(within(group('原處分書')).queryByText('寄存於板橋郵局')).toBeNull()
   })
 
-  it('機關尚未答辯時,那一組講得出是「尚未答辯」而不是留白或「無」', async () => {
+  it('答辯書三欄抽不到時逐欄印「—」,不整組換成一句話', async () => {
+    // 答辯書改必填後,整組空代表擷取失敗而不是「尚未答辯」;講成後者會把失效說成常態
     api.getCase.mockResolvedValue(doneAdmissible) // 樣本無答辯書欄位
     const user = userEvent.setup()
     renderDetail()
     await screen.findByRole('button', { name: /^F1 擷取/ })
     await user.click(rail(/^F1 擷取/))
 
-    expect(within(group('訴願答辯書')).getByText('尚未答辯')).toBeInTheDocument()
-    expect(within(group('訴願答辯書')).queryByText('無')).toBeNull()
+    const answer = group('訴願答辯書')
+    expect(within(answer).getByText('答辯聲明')).toBeInTheDocument()
+    expect(within(answer).getAllByText('—')).toHaveLength(3)
+    expect(within(answer).queryByText('尚未答辯')).toBeNull()
+  })
+
+  it('卷內無送達證書時那一組照樣在,兩欄都印「—」', async () => {
+    // 整組藏起來會讓「沒這份文書」看起來像「系統沒這一欄」;空值一律印 — 才看得出是沒抽到
+    api.getCase.mockResolvedValue({
+      ...doneAdmissible,
+      f1: { ...doneAdmissible.f1, service_date: null, service_method: null },
+    })
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByRole('button', { name: /^F1 擷取/ })
+    await user.click(rail(/^F1 擷取/))
+
+    const service = group('送達證書')
+    expect(within(service).getByText('送達時間')).toBeInTheDocument()
+    expect(within(service).getByText('送達方式')).toBeInTheDocument()
+    expect(within(service).getAllByText('—')).toHaveLength(2)
   })
 
   it('單值欄位可就地改,送出的是整份案件資訊且只有該欄變了', async () => {

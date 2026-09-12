@@ -1,10 +1,11 @@
 // 四個文件槽的定義,NewCase(上傳)與 CaseDetail(確認/重傳)共用同一份,不重複寫兩次。
-// optional 的槽收案時可以留空:答辯書是原處分機關受理後才送來的,收案當下本來就不會有。
+// optional 的槽收案時可以留空:送達證書非必備文書(觀念通知等案件本無此文書,缺件時期間一律
+// 視為未逾期)。
 export const DOCUMENT_SLOTS = [
   { key: 'appeal', label: '訴願書' },
-  { key: 'service', label: '送達證書' },
+  { key: 'service', label: '送達證書', optional: true },
   { key: 'disposition', label: '原處分書' },
-  { key: 'answer', label: '訴願答辯書', optional: true },
+  { key: 'answer', label: '訴願答辯書' },
 ]
 
 // F1 卷證總匯表的分組:每個欄位掛在它實際抄自的那一份文件底下。kind 決定呈現與編輯方式
@@ -45,8 +46,6 @@ export const F1_GROUPS = [
   {
     key: 'answer',
     label: '訴願答辯書',
-    // 機關受理後才送答辯書,收案當下本來就沒有;整組都空要講「尚未答辯」,不是留白
-    emptyNote: '尚未答辯',
     fields: [
       { label: '答辯聲明', key: 'answer_statement', kind: 'text' },
       { label: '已自行撤銷或變更', key: 'answer_self_revoked', kind: 'text' },

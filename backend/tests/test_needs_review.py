@@ -262,11 +262,22 @@ def _with_empty_answer_slot(text=""):
     return documents
 
 
-def test_an_empty_optional_answer_slot_does_not_need_review():
-    """答辯書是機關受理後才送來的,收案當下本來就沒有;空槽算待複核的話每一件新案都會恆亮,
-    「待複核」這個訊號就廢了。/analyze 的擋門早就放行空槽(main.py),兩處判準必須一致。"""
-    for text in ("", "   \n "):
-        assert needs_review(_case(documents=_with_empty_answer_slot(text))) is False
+def test_an_empty_required_answer_slot_needs_review():
+    """答辯書必填,空槽就是缺一份必備卷證而不是「本來就沒有」;不標的話清單上它與齊備的案子
+    長得一模一樣。/analyze 的擋門同樣擋它(main.py),兩處判準必須一致。"""
+    for text in ("", "   "):
+        assert needs_review(_case(documents=_with_empty_answer_slot(text))) is True
+
+
+def test_an_empty_optional_service_slot_does_not_need_review():
+    """送達證書選填,觀念通知等案型本無此文書;空槽算待複核的話這個訊號對那類案件恆亮。"""
+    documents = _confirmed_documents()
+    documents["service"] = CaseDocument(slot="service", source="text", text="", check=DocumentCheck())
+    documents["answer"] = CaseDocument(
+        slot="answer", source="text", text="答辯書 內容", check=DocumentCheck(matched=True, method="rule")
+    )
+
+    assert needs_review(_case(documents=documents)) is False
 
 
 def test_an_answer_slot_with_content_still_needs_confirmation():

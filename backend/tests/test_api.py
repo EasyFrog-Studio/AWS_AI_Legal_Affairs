@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 import app.main as main_module
 from app.config import settings
+from app.models import DocumentCheck
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -24,6 +25,14 @@ _DISPOSITION_TEXT = (
     "事實:訴願人於指定清除地區內棄置廢棄物。\n理由:經稽查屬實。\n教示條款:如不服本處分得提起訴願。"
 )
 
+_ANSWER_TEXT = (
+    "訴願答辯書\n原處分機關：彰化縣環境保護局\n"
+    "訴願人因違反廢棄物清理法事件，不服本局裁處書，提起訴願，謹依法答辯如下：\n"
+    "答辯聲明：本件訴願駁回。\n"
+    "理由：一、程序答辯：本件訴願為合法。二、實體答辯：違規事證明確。\n"
+    "三、檢附原卷1宗，敬請察核。"
+)
+
 _INADMISSIBLE_APPEAL_TEXT = "訴願書\n訴願人:李小華對臺北市政府社會局不服,逾期提起社會救助訴願。"
 
 
@@ -35,16 +44,14 @@ def _create_case_form(
     appeal_text=_APPEAL_TEXT,
     service_text=_SERVICE_TEXT,
     disposition_text=_DISPOSITION_TEXT,
-    answer_text=None,
+    answer_text=_ANSWER_TEXT,
 ):
-    form = {
+    return {
         "appeal_text": appeal_text,
         "service_text": service_text,
         "disposition_text": disposition_text,
+        "answer_text": answer_text,
     }
-    if answer_text is not None:  # 選填槽:不帶這個 key 才是「這件沒有答辯書」
-        form["answer_text"] = answer_text
-    return form
 
 
 def test_health_no_api_key_required():
@@ -81,13 +88,11 @@ def test_create_case_with_all_three_documents_returns_case_id_and_checks(monkeyp
     body = resp.json()
     assert body["case_id"].startswith("c-")
     assert set(body["documents"].keys()) == {"appeal", "service", "disposition", "answer"}
-    # 三槽文字皆內嵌各自的強特徵字面,規則層應能直接判斷,不必落到 Gemini 備援
-    for slot in ("appeal", "service", "disposition"):
+    # 四槽文字皆內嵌各自的強特徵字面,規則層應能直接判斷,不必落到 Gemini 備援
+    for slot in ("appeal", "service", "disposition", "answer"):
         check = body["documents"][slot]
         assert check["matched"] is True, f"{slot} 應能被規則判斷命中:{check}"
         assert check["method"] == "rule"
-    # 這件沒附答辯書:空槽誠實回「無法確認」,不得混成已確認
-    assert body["documents"]["answer"]["matched"] is None
 
 
 def test_create_case_uses_supplied_case_id(monkeypatch):
@@ -285,7 +290,11 @@ def test_uploaded_filename_is_kept_on_the_slot_and_pasted_text_has_none(monkeypa
     client = TestClient(main_module.app)
     resp = client.post(
         "/api/cases",
-        data={"service_text": _SERVICE_TEXT, "disposition_text": _DISPOSITION_TEXT},
+        data={
+            "service_text": _SERVICE_TEXT,
+            "disposition_text": _DISPOSITION_TEXT,
+            "answer_text": _ANSWER_TEXT,
+        },
         files={"appeal_file": ("01_訴願書.pdf", _text_pdf_bytes(_APPEAL_TEXT), "application/pdf")},
         headers=_headers(),
     )
@@ -316,7 +325,11 @@ def test_scanned_pdf_in_mock_mode_is_refused_with_a_reason(monkeypatch):
 
     resp = client.post(
         "/api/cases",
-        data={"service_text": _SERVICE_TEXT, "disposition_text": _DISPOSITION_TEXT},
+        data={
+            "service_text": _SERVICE_TEXT,
+            "disposition_text": _DISPOSITION_TEXT,
+            "answer_text": _ANSWER_TEXT,
+        },
         files={"appeal_file": ("掃描件.pdf", _scanned_pdf_bytes(), "application/pdf")},
         headers=_headers(),
     )
@@ -342,7 +355,11 @@ def test_scanned_pdf_goes_through_ocr_and_the_slot_is_flagged(monkeypatch):
 
     resp = client.post(
         "/api/cases",
-        data={"appeal_text": _APPEAL_TEXT, "disposition_text": _DISPOSITION_TEXT},
+        data={
+            "appeal_text": _APPEAL_TEXT,
+            "disposition_text": _DISPOSITION_TEXT,
+            "answer_text": _ANSWER_TEXT,
+        },
         files={"service_file": ("掃描件.pdf", _scanned_pdf_bytes(), "application/pdf")},
         headers=_headers(),
     )
@@ -369,7 +386,11 @@ def test_ocr_output_that_is_still_unreadable_is_refused(monkeypatch):
 
     resp = client.post(
         "/api/cases",
-        data={"appeal_text": _APPEAL_TEXT, "disposition_text": _DISPOSITION_TEXT},
+        data={
+            "appeal_text": _APPEAL_TEXT,
+            "disposition_text": _DISPOSITION_TEXT,
+            "answer_text": _ANSWER_TEXT,
+        },
         files={"service_file": ("掃描件.pdf", _scanned_pdf_bytes(), "application/pdf")},
         headers=_headers(),
     )
@@ -542,18 +563,28 @@ def test_analyze_is_not_blocked_by_an_absent_optional_slot(monkeypatch):
     assert resp.status_code == 200
 
 
-# ---------- 第四槽:訴願答辯書(選填) ----------
+def test_analyze_is_blocked_by_an_empty_required_slot(monkeypatch):
+    """收案已擋掉缺答辯書的案子,但舊案與直接打 API 兩條路仍到得了這裡:
+    必填槽空著就是沒確認,放行等於讓一份必備卷證從後門消失。"""
+    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+    client = TestClient(main_module.app)
+    case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
+    case = main_module.store.get(case_id)
+    emptied = case.documents["answer"].model_copy(update={"text": "", "check": DocumentCheck()})
+    main_module.store.update(case_id, {"documents": {**case.documents, "answer": emptied}})
 
-_ANSWER_TEXT = (
-    "訴願答辯書\n原處分機關：彰化縣環境保護局\n"
-    "訴願人因違反廢棄物清理法事件，不服本局裁處書，提起訴願，謹依法答辯如下：\n"
-    "答辯聲明：本件訴願駁回。\n"
-    "理由：一、程序答辯：本件訴願為合法。二、實體答辯：違規事證明確。\n"
-    "三、檢附原卷1宗，敬請察核。"
-)
+    resp = client.post(f"/api/cases/{case_id}/analyze", headers=_headers())
+
+    assert resp.status_code == 409
+    assert "訴願答辯書" in resp.json()["detail"]
+    assert main_module.store.get(case_id).status == "collecting"  # 沒有被推進 processing
 
 
-def test_create_case_accepts_the_optional_answer_brief(monkeypatch):
+# ---------- 第四槽:訴願答辯書 ----------
+
+
+
+def test_create_case_accepts_the_answer_brief(monkeypatch):
     monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
     client = TestClient(main_module.app)
 
@@ -582,21 +613,30 @@ def test_answer_brief_text_reaches_the_analysis_input():
     assert input_text.index("【訴願書】") < input_text.index("【訴願答辯書】")
 
 
-def test_case_without_answer_brief_still_starts_analysis():
-    """答辯書是機關事後才送來的,收案時多半沒有;空的選填槽不得擋住開始分析。"""
+def test_create_case_rejects_a_missing_answer_brief():
+    """訴願答辯書必填:整個欄位不帶時退回,並指名缺的是哪一份。"""
     client = TestClient(main_module.app)
-    case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
+    form = _create_case_form()
+    del form["answer_text"]
 
-    documents = client.get(f"/api/cases/{case_id}", headers=_headers()).json()["documents"]
-    assert documents["answer"]["text"] == ""
-    assert documents["answer"]["check"]["matched"] is None
+    resp = client.post("/api/cases", data=form, headers=_headers())
 
-    resp = client.post(f"/api/cases/{case_id}/analyze", headers=_headers())
-    assert resp.status_code == 200
+    assert resp.status_code == 400
+    assert "訴願答辯書" in resp.json()["detail"]
+
+
+def test_create_case_rejects_a_blank_answer_brief():
+    """帶一個空白字串不等於附了答辯書——空槽照樣退回,不得落成一件答辯欄全空的案子。"""
+    client = TestClient(main_module.app)
+
+    resp = client.post("/api/cases", data=_create_case_form(answer_text="   "), headers=_headers())
+
+    assert resp.status_code == 400
+    assert "訴願答辯書" in resp.json()["detail"]
 
 
 def test_answer_brief_can_be_replaced_after_the_case_is_created(monkeypatch):
-    """機關的答辯書晚幾天才到,收案當下沒有的那一槽必須補得上去。"""
+    """答辯書送錯或補正時整份重傳這一槽,與其他三槽同一條路徑。"""
     monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
     client = TestClient(main_module.app)
     case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]

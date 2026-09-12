@@ -2,73 +2,33 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createCase } from '../api'
 import AppShell from '../components/AppShell.jsx'
-import AutoTextarea from '../components/AutoTextarea.jsx'
 import DropZone from '../components/DropZone.jsx'
 import { DOCUMENT_SLOTS as SLOTS } from '../components/documentSlots.js'
 import './NewCase.css'
 
-/** 單一文件槽:PDF / 文字二擇一,自己管自己的輸入狀態。 */
-function DocumentSlotField({ slot, value, onChange, disabled }) {
-  const fieldId = `doc-${slot.key}`
+/** 單一文件槽:只收 PDF。 */
+function DocumentSlotField({ slot, file, onFile, disabled }) {
   return (
     <div className="doc-slot">
       <div className="doc-slot__head">
         <span className="doc-slot__label">{slot.label}</span>
         <span className="doc-slot__flag">{slot.optional ? '選填' : '必填'}</span>
       </div>
-      <div className="tabs tabs--sm">
-        <button
-          type="button"
-          className={`tab ${value.tab === 'pdf' ? 'tab--active' : ''}`}
-          onClick={() => onChange({ ...value, tab: 'pdf' })}
-          disabled={disabled}
-        >
-          上傳 PDF
-        </button>
-        <button
-          type="button"
-          className={`tab ${value.tab === 'text' ? 'tab--active' : ''}`}
-          onClick={() => onChange({ ...value, tab: 'text' })}
-          disabled={disabled}
-        >
-          貼上文字
-        </button>
-      </div>
-      {value.tab === 'pdf' && (
-        <DropZone
-          slot={slot}
-          fieldId={fieldId}
-          file={value.file}
-          onFile={(file) => onChange({ ...value, file })}
-          disabled={disabled}
-        />
-      )}
-      {value.tab === 'text' && (
-        <AutoTextarea
-          id={fieldId}
-          className="doc-slot__text"
-          value={value.text}
-          onChange={(text) => onChange({ ...value, text })}
-          placeholder={`請貼上${slot.label}全文`}
-          disabled={disabled}
-        />
-      )}
+      <DropZone
+        slot={slot}
+        fieldId={`doc-${slot.key}`}
+        file={file}
+        onFile={onFile}
+        disabled={disabled}
+      />
     </div>
   )
 }
 
-const EMPTY_SLOT_VALUE = { tab: 'pdf', file: null, text: '' }
-
-function isFilled(v) {
-  return v.tab === 'pdf' ? Boolean(v.file) : v.text.trim().length > 0
-}
-
-/** 建案頁只負責送出三份文件並取得 case_id;確認結果、重傳、開始分析都交給案件詳情頁——
+/** 建案頁只負責送出文件並取得 case_id;確認結果、重傳、開始分析都交給案件詳情頁——
  * 那裡本來就是狀態驅動渲染與輪詢的唯一位置,不在這裡另開一套。 */
 export default function NewCase() {
-  const [values, setValues] = useState(() =>
-    Object.fromEntries(SLOTS.map((s) => [s.key, { ...EMPTY_SLOT_VALUE }])),
-  )
+  const [files, setFiles] = useState(() => Object.fromEntries(SLOTS.map((s) => [s.key, null])))
   const [caseId, setCaseId] = useState('')
   const [status, setStatus] = useState('idle') // idle | loading | error
   const [errorMsg, setErrorMsg] = useState('')
@@ -76,12 +36,12 @@ export default function NewCase() {
   const [showMissing, setShowMissing] = useState(false)
   const navigate = useNavigate()
 
-  // 選填槽不列入送出條件:機關的答辯書多半晚幾天才到,收案時逼人補件等於卡住整個流程
-  const missing = SLOTS.filter((s) => !s.optional && !isFilled(values[s.key]))
+  // 選填槽不列入送出條件:送達證書非必備文書,收案時逼人補一份本來就不存在的卷證等於卡住流程
+  const missing = SLOTS.filter((s) => !s.optional && !files[s.key])
   const canSubmit = missing.length === 0
 
-  function updateSlot(key, next) {
-    setValues((prev) => ({ ...prev, [key]: next }))
+  function updateSlot(key, file) {
+    setFiles((prev) => ({ ...prev, [key]: file }))
   }
 
   async function handleSubmit(e) {
@@ -99,14 +59,7 @@ export default function NewCase() {
       // 留白就整個不送:後端才是產案號的地方,前端不預先生成也不送空字串
       if (caseId.trim()) formData.append('case_id', caseId.trim())
       for (const slot of SLOTS) {
-        const v = values[slot.key]
-        // 空的選填槽整個不送:送一個空字串進去,後端會把它當「使用者貼了空白文字」
-        if (!isFilled(v)) continue
-        if (v.tab === 'pdf') {
-          formData.append(`${slot.key}_file`, v.file)
-        } else {
-          formData.append(`${slot.key}_text`, v.text)
-        }
+        if (files[slot.key]) formData.append(`${slot.key}_file`, files[slot.key])
       }
       const res = await createCase(formData)
       navigate(`/cases/${res.case_id}`)
@@ -125,7 +78,11 @@ export default function NewCase() {
 
       <div className="newcase">
         <p className="doc-intro">
-          請分別提供訴願書、送達證書、原處分書三份文件（限 PDF 或貼上全文皆可）；原處分機關的訴願答辯書可不附加
+          請提供訴願書、原處分書與原處分機關的訴願答辯書 PDF；送達證書為選填，可事後補上。
+        </p>
+        {/* 缺件的後果要在收案時就講清楚:承辦人若以為系統照樣算了期間,不受理的漏判就看不出來 */}
+        <p className="newcase__hint">
+          未附送達證書時，本系統不計算訴願期間，一律視為未逾期，是否逾期須人工確認。
         </p>
 
         <form onSubmit={handleSubmit}>
@@ -149,8 +106,8 @@ export default function NewCase() {
               <DocumentSlotField
                 key={slot.key}
                 slot={slot}
-                value={values[slot.key]}
-                onChange={(next) => updateSlot(slot.key, next)}
+                file={files[slot.key]}
+                onFile={(file) => updateSlot(slot.key, file)}
                 disabled={status === 'loading'}
               />
             ))}
@@ -179,7 +136,7 @@ export default function NewCase() {
               {errorMsg}
               {/* 案號被退回時,提示檔案格式只會把人帶偏 */}
               {errorField !== 'case_id' && (
-                <span className="form-result__hint">請確認檔案格式後再試一次，或改用文字貼上。</span>
+                <span className="form-result__hint">請確認檔案為可讀取的 PDF 後再試一次。</span>
               )}
             </div>
           )}

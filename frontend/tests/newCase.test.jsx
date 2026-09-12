@@ -23,20 +23,29 @@ function renderNewCase() {
   )
 }
 
-/** 三個必填槽切到文字分頁、各填一字後送出——本輪新增的案號測試都只差在案號那一格。 */
+function pdf(name) {
+  return new File(['%PDF-1.4'], name, { type: 'application/pdf' })
+}
+
+/** 三個必填槽各上傳一份 PDF 後送出——本輪的案號測試都只差在案號那一格。 */
 async function fillRequiredSlotsAndSubmit(user) {
-  for (const btn of screen.getAllByRole('button', { name: '貼上文字' })) {
-    await user.click(btn)
-  }
-  const textareas = screen.getAllByPlaceholderText(/請貼上.+全文/)
-  await user.type(textareas[0], 'a')
-  await user.type(textareas[1], 'b')
-  await user.type(textareas[2], 'c')
+  await user.upload(screen.getByLabelText('訴願書 PDF'), pdf('訴願書.pdf'))
+  await user.upload(screen.getByLabelText('原處分書 PDF'), pdf('原處分書.pdf'))
+  await user.upload(screen.getByLabelText('訴願答辯書 PDF'), pdf('答辯書.pdf'))
   await user.click(screen.getByRole('button', { name: '送出並確認文件' }))
 }
 
-describe('新增案件(三檔上傳)', () => {
-  it('三個文件槽都是文字貼上前,送出按鈕按不動', async () => {
+describe('新增案件(四檔上傳)', () => {
+  it('只收 PDF:沒有分頁標籤,也沒有貼上文字的輸入框', () => {
+    renderNewCase()
+
+    expect(screen.queryByRole('button', { name: '貼上文字' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '上傳 PDF' })).toBeNull()
+    expect(screen.queryAllByRole('textbox')).toHaveLength(1) // 只剩案號那一格
+    expect(screen.getAllByText(/拖曳 PDF/)).toHaveLength(4)
+  })
+
+  it('必填三槽都沒帶檔案前,送出按鈕按不動', async () => {
     api.createCase.mockClear()
     const user = userEvent.setup()
     renderNewCase()
@@ -47,75 +56,47 @@ describe('新增案件(三檔上傳)', () => {
     expect(api.createCase).not.toHaveBeenCalled()
   })
 
-  it('三份文字皆填妥後可送出,成功後導向案件詳情頁', async () => {
+  it('只有送達證書標選填,留空仍可送出且不帶那個欄位', async () => {
+    api.createCase.mockClear()
     api.createCase.mockResolvedValue({ case_id: 'c-new', documents: {} })
     const user = userEvent.setup()
     renderNewCase()
 
-    // 三個槽都切到「貼上文字」再輸入,PDF 是每槽預設分頁
-    for (const btn of screen.getAllByRole('button', { name: '貼上文字' })) {
-      await user.click(btn)
-    }
+    const serviceHead = screen.getByText('送達證書').closest('.doc-slot__head')
+    expect(within(serviceHead).getByText('選填')).toBeInTheDocument()
+    const answerHead = screen.getByText('訴願答辯書').closest('.doc-slot__head')
+    expect(within(answerHead).getByText('必填')).toBeInTheDocument()
+    expect(screen.getAllByText('必填')).toHaveLength(3)
 
-    const textareas = screen.getAllByPlaceholderText(/請貼上.+全文/)
-    expect(textareas).toHaveLength(4)
-    await user.type(textareas[0], '訴願書全文內容')
-    await user.type(textareas[1], '送達證書全文內容')
-    await user.type(textareas[2], '原處分書全文內容')
+    await fillRequiredSlotsAndSubmit(user)
 
-    await user.click(screen.getByRole('button', { name: '送出並確認文件' }))
-
-    expect(api.createCase).toHaveBeenCalledTimes(1)
     const formData = api.createCase.mock.calls[0][0]
-    expect(formData.get('appeal_text')).toBe('訴願書全文內容')
-    expect(formData.get('service_text')).toBe('送達證書全文內容')
-    expect(formData.get('disposition_text')).toBe('原處分書全文內容')
-    // 答辯書留空:不帶這個欄位,而不是帶一個空字串進去
-    expect(formData.get('answer_text')).toBeNull()
+    expect(formData.get('appeal_file').name).toBe('訴願書.pdf')
+    expect(formData.get('disposition_file').name).toBe('原處分書.pdf')
+    expect(formData.get('answer_file').name).toBe('答辯書.pdf')
+    // 空的選填槽整個不送,而不是帶一個空欄位進去
+    expect(formData.get('service_file')).toBeNull()
     expect(mockNavigate).toHaveBeenCalledWith('/cases/c-new')
   })
 
-  it('訴願答辯書是選填,標示選填且留空不擋送出', async () => {
+  it('未附送達證書時,頁面要講出期間一律視為未逾期', () => {
     renderNewCase()
-    const user = userEvent.setup()
 
-    const answerHead = screen.getByText('訴願答辯書').closest('.doc-slot__head')
-    expect(within(answerHead).getByText('選填')).toBeInTheDocument()
-    // 其餘三槽標必填,承辦人不必回頭數哪幾份不能少
-    expect(screen.getAllByText('必填')).toHaveLength(3)
-
-    for (const btn of screen.getAllByRole('button', { name: '貼上文字' })) {
-      await user.click(btn)
-    }
-    const textareas = screen.getAllByPlaceholderText(/請貼上.+全文/)
-    await user.type(textareas[0], 'a')
-    await user.type(textareas[1], 'b')
-    await user.type(textareas[2], 'c')
-
-    expect(screen.getByRole('button', { name: '送出並確認文件' })).toHaveAttribute(
-      'aria-disabled',
-      'false',
-    )
+    expect(screen.getByText(/未附送達證書/)).toHaveTextContent('未逾期')
   })
 
-  it('有附答辯書時一併送出', async () => {
+  it('四槽都附上時一併送出', async () => {
     api.createCase.mockClear()
-    api.createCase.mockResolvedValue({ case_id: 'c-ans', documents: {} })
+    api.createCase.mockResolvedValue({ case_id: 'c-all', documents: {} })
     const user = userEvent.setup()
     renderNewCase()
 
-    for (const btn of screen.getAllByRole('button', { name: '貼上文字' })) {
-      await user.click(btn)
-    }
-    const textareas = screen.getAllByPlaceholderText(/請貼上.+全文/)
-    await user.type(textareas[0], 'a')
-    await user.type(textareas[1], 'b')
-    await user.type(textareas[2], 'c')
-    await user.type(textareas[3], '訴願答辯書全文內容')
+    await user.upload(screen.getByLabelText('送達證書 PDF'), pdf('送達證書.pdf'))
+    await fillRequiredSlotsAndSubmit(user)
 
-    await user.click(screen.getByRole('button', { name: '送出並確認文件' }))
-
-    expect(api.createCase.mock.calls[0][0].get('answer_text')).toBe('訴願答辯書全文內容')
+    const formData = api.createCase.mock.calls[0][0]
+    expect(formData.get('service_file').name).toBe('送達證書.pdf')
+    expect(formData.get('answer_file').name).toBe('答辯書.pdf')
   })
 
   it('案號欄位在文件槽之前,填了就一併送出', async () => {
@@ -173,14 +154,7 @@ describe('新增案件(三檔上傳)', () => {
     const user = userEvent.setup()
     renderNewCase()
 
-    for (const btn of screen.getAllByRole('button', { name: '貼上文字' })) {
-      await user.click(btn)
-    }
-    const textareas = screen.getAllByPlaceholderText(/請貼上.+全文/)
-    await user.type(textareas[0], 'a')
-    await user.type(textareas[1], 'b')
-    await user.type(textareas[2], 'c')
-    await user.click(screen.getByRole('button', { name: '送出並確認文件' }))
+    await fillRequiredSlotsAndSubmit(user)
 
     expect(await screen.findByText('檔案讀取失敗')).toBeInTheDocument()
     expect(mockNavigate).not.toHaveBeenCalled()
@@ -193,31 +167,27 @@ describe('新增案件(三檔上傳)', () => {
     renderNewCase()
 
     const zone = screen.getByLabelText('訴願書 PDF').closest('.dropzone')
-    const pdf = new File(['%PDF-1.4'], '訴願書.pdf', { type: 'application/pdf' })
-    fireEvent.drop(zone, { dataTransfer: { files: [pdf], types: ['Files'] } })
+    const dropped = pdf('訴願書.pdf')
+    fireEvent.drop(zone, { dataTransfer: { files: [dropped], types: ['Files'] } })
     expect(await screen.findByText('訴願書.pdf')).toBeInTheDocument()
 
-    for (const btn of screen.getAllByRole('button', { name: '貼上文字' }).slice(1)) {
-      await user.click(btn)
-    }
-    const textareas = screen.getAllByPlaceholderText(/請貼上.+全文/)
-    await user.type(textareas[0], 'b')
-    await user.type(textareas[1], 'c')
+    await user.upload(screen.getByLabelText('原處分書 PDF'), pdf('原處分書.pdf'))
+    await user.upload(screen.getByLabelText('訴願答辯書 PDF'), pdf('答辯書.pdf'))
     await user.click(screen.getByRole('button', { name: '送出並確認文件' }))
 
-    expect(api.createCase.mock.calls[0][0].get('appeal_file')).toBe(pdf)
+    expect(api.createCase.mock.calls[0][0].get('appeal_file')).toBe(dropped)
   })
 
   it('拖進非 PDF 時擋下並說明,該槽仍視為未填', async () => {
     renderNewCase()
-    const zone = screen.getByLabelText('送達證書 PDF').closest('.dropzone')
-    const docx = new File(['x'], '送達證書.docx', {
+    const zone = screen.getByLabelText('訴願書 PDF').closest('.dropzone')
+    const docx = new File(['x'], '訴願書.docx', {
       type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     })
     fireEvent.drop(zone, { dataTransfer: { files: [docx], types: ['Files'] } })
 
     expect(await screen.findByText(/只接受 PDF/)).toBeInTheDocument()
-    expect(screen.queryByText('送達證書.docx')).toBeNull()
+    expect(screen.queryByText('訴願書.docx')).toBeNull()
     expect(screen.getByRole('button', { name: '送出並確認文件' })).toHaveAttribute(
       'aria-disabled',
       'true',
@@ -229,8 +199,7 @@ describe('新增案件(三檔上傳)', () => {
     renderNewCase()
 
     const input = screen.getByLabelText('原處分書 PDF')
-    const pdf = new File(['%PDF-1.4'], '原處分書.pdf', { type: 'application/pdf' })
-    await user.upload(input, pdf)
+    await user.upload(input, pdf('原處分書.pdf'))
     expect(await screen.findByText('原處分書.pdf')).toBeInTheDocument()
 
     const zone = input.closest('.dropzone')
@@ -244,22 +213,18 @@ describe('新增案件(三檔上傳)', () => {
     const user = userEvent.setup()
     renderNewCase()
 
-    for (const btn of screen.getAllByRole('button', { name: '貼上文字' })) {
-      await user.click(btn)
-    }
-    await user.type(screen.getByPlaceholderText('請貼上訴願書全文'), 'a')
+    await user.upload(screen.getByLabelText('訴願書 PDF'), pdf('訴願書.pdf'))
     await user.click(screen.getByRole('button', { name: '送出並確認文件' }))
 
     const notice = await screen.findByText(/尚未提供/)
-    expect(notice).toHaveTextContent('送達證書')
     expect(notice).toHaveTextContent('原處分書')
-    // 答辯書是選填,缺了不算缺件
-    expect(notice).not.toHaveTextContent('訴願答辯書')
-    expect(notice).not.toHaveTextContent('訴願書、')
+    expect(notice).toHaveTextContent('訴願答辯書')
+    // 送達證書是選填,缺了不算缺件
+    expect(notice).not.toHaveTextContent('送達證書')
     expect(api.createCase).not.toHaveBeenCalled()
 
-    await user.type(screen.getByPlaceholderText('請貼上送達證書全文'), 'b')
-    await user.type(screen.getByPlaceholderText('請貼上原處分書全文'), 'c')
+    await user.upload(screen.getByLabelText('原處分書 PDF'), pdf('原處分書.pdf'))
+    await user.upload(screen.getByLabelText('訴願答辯書 PDF'), pdf('答辯書.pdf'))
     expect(screen.queryByText(/尚未提供/)).toBeNull()
   })
 })

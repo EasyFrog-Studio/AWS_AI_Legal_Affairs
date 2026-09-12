@@ -35,8 +35,7 @@ class CaseInfo(BaseModel):
     disposition_fine: str = ""  # 原處分書罰鍰金額(原文寫法)
     disposition_notice_clause: str = ""  # 原處分書教示條款原文,有無教示影響救濟期間認定
     disposition_recipient: str = ""  # 原處分相對人;多數與 appellant 同一人,但代理/繼受案可能不同
-    # 以下三欄取自訴願答辯書(第四槽,選填)。機關受理後才送來,收案當下本來就沒有,
-    # 故皆預設空值;答辯書的內容只能填這三欄,不得用來填訴願人那一側的欄位
+    # 以下三欄取自訴願答辯書(第四槽)。答辯書的內容只能填這三欄,不得用來填訴願人那一側的欄位
     answer_statement: str = ""  # 答辯聲明原文
     answer_self_revoked: str = ""  # 機關是否已自行撤銷或變更原處分(原文寫法)
     answer_arguments: list[str] = []  # 機關的答辯主張,逐條列出
@@ -247,6 +246,11 @@ DOCUMENT_SLOT_LABELS: dict[DocumentSlot, str] = {
 }
 
 
+# 收案時可以留空的槽:送達證書非必備文書(觀念通知等案型本無此文書),缺件時期間一律視為未逾期。
+# 收案驗證、/analyze 擋門與 needs_review 三處共用同一份,分開寫就會有一處放行、另一處擋下
+OPTIONAL_DOCUMENT_SLOTS: frozenset[DocumentSlot] = frozenset({"service"})
+
+
 class DocumentCheck(BaseModel):
     """文件型態確認結果。matched=None 代表規則判斷不出來、Gemini 亦未能確認(或未設定金鑰),須人工核對——
     不可靜默當作「已確認正確」,這正是規則式判斷失效時最容易被忽略的一步。"""
@@ -280,7 +284,7 @@ class DocumentReplace(BaseModel):
 
 
 def build_input_text(documents: dict[DocumentSlot, CaseDocument]) -> str:
-    """必填三槽(訴願書/送達證書/原處分書)加選填答辯書共四槽合一成 F1/程序審查吃的合併字串,
+    """四槽(訴願書/送達證書/原處分書/訴願答辯書)合一成 F1/程序審查吃的合併字串,
     分段標頭讓 F1 擷取知道欄位該從哪一段找。
     單一真相是 documents[slot].text,input_text 只是它的衍生值——收案、重傳、store 讀回
     都必須呼叫這支函式重建,不能各自維護一份,否則重傳文件後分析用的仍是舊文字而畫面上

@@ -282,16 +282,25 @@ def check_deadline(text: str) -> DeadlineCheck:
     return _check_deadline_from_extraction(extract_deadline_facts(text))
 
 
+# 送達證書缺件時唯一剩下的送達日出自訴願人自述,據以算出的逾期足以把案件打成不受理,
+# 而卷內沒有任何公文書可以核對它;此流程一律視為未逾期,是否逾期留給人工調卷認定。
+_ABSENT_SERVICE_NOTE = "卷內無送達證書，未計算期間，本流程視為未逾期，是否逾期須人工確認"
+
+
 def check_deadline_from_case(case: Case, info: CaseInfo | None = None) -> DeadlineCheck:
     """pipeline 用的入口:分槽讀 case.documents,service_date 只信送達證書槽、
     其餘只信訴願書槽,兩槽不一致時 extract_from_documents 會明講「不符」而非「抽不到」。
 
     info 是本輪 F1 的擷取結果(教示條款欄在裡面)。run_case 必須顯式傳入——它手上的 case
     是 F1 之前讀出來的快照,case.f1 還是 None,靠預設值會靜默漏掉整個§98 檢核。
+
+    送達證書槽空白即不計算期間,見 _ABSENT_SERVICE_NOTE。
     """
     appeal_text = case.documents["appeal"].text if "appeal" in case.documents else ""
     service_text = case.documents["service"].text if "service" in case.documents else ""
     disposition_text = case.documents["disposition"].text if "disposition" in case.documents else ""
+    if not service_text.strip():
+        return DeadlineCheck(overdue=False, review_note=_ABSENT_SERVICE_NOTE)
     case_info = info or case.f1
     notice = classify_notice_clause(
         case_info.disposition_notice_clause if case_info else "",
@@ -347,9 +356,17 @@ def reconcile_deadline(
         # 算式乾淨且明說未逾期:撤銷第2款認定。算式已被授權單方面把案件打成不受理
         # (上一個分支),不讓它擋下一個它明說不成立的不受理,就是只在對機關有利的方向信任它。
         withdrawn = join_review_notes(screening.review_note, "第2款認定經期間算式否定，已撤銷，須人工確認")
+        # 結論翻了理由也要跟著翻:留著模型那句「應不受理」,受理案的程序審查意見仍在說不受理,
+        # 而這份 reasoning 會原樣進 F4 的提示與畫面
+        retired = f"本件不以逾期論，第2款之認定已撤銷，須人工確認。程序審查意見：{screening.reasoning}"
         return (
             screening.model_copy(
-                update={"passed": True, "matched_clause": None, "review_note": withdrawn}
+                update={
+                    "passed": True,
+                    "matched_clause": None,
+                    "reasoning": retired,
+                    "review_note": withdrawn,
+                }
             ),
             check.model_copy(update={"review_note": merged}),
         )

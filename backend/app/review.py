@@ -5,7 +5,7 @@
 """
 import re
 
-from app.models import Case
+from app.models import OPTIONAL_DOCUMENT_SLOTS, Case
 from app.procedural_checks import check_required_fields, check_standing
 
 _REMAND_PERIOD_RE = re.compile(r"\d+\s*(?:日|個月)內")  # 訴願法§81 II:撤銷發回應指定相當期間,主文須寫出具體日數或月數
@@ -14,12 +14,17 @@ _REMAND_PERIOD_RE = re.compile(r"\d+\s*(?:日|個月)內")  # 訴願法§81 II:�
 def needs_review(case: Case) -> bool:
     """任一來源成立即為真。尚未分析的案件不算待複核(那只是還沒跑,不是有疑義),
     但文件槽未全確認是例外——那是收案階段就該處理的事實。"""
-    # 空槽的「未確認」不算:選填槽沒有文件就沒有東西可確認,而答辯書是機關受理後才送來的,
-    # 收案當下本來就沒有——把它算進來的話每一件新案都恆亮,待複核這個訊號就廢了。
-    # 判準與 /analyze 的擋門(main.py)一致:那裡早就放行空槽。
+    # 選填槽的空槽不算「未確認」:送達證書沒有文件就沒有東西可確認,把它算進來的話
+    # 每一件無送達證書的案子都恆亮,待複核這個訊號就廢了。必填槽空著則照標——
+    # 那是缺一份必備卷證,不標的話清單上它與齊備的案子長得一模一樣。
+    # 判準與 /analyze 的擋門(main.py)一致,兩處必須同時改。
     if any(
-        (doc.check.matched is not True and doc.text.strip()) or doc.review_note
-        for doc in case.documents.values()
+        (
+            doc.check.matched is not True
+            and (doc.text.strip() or slot not in OPTIONAL_DOCUMENT_SLOTS)
+        )
+        or doc.review_note
+        for slot, doc in case.documents.items()
     ):
         return True
     if case.deadline is not None and case.deadline.review_note:

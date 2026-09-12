@@ -198,12 +198,18 @@ class StubErrorProvider(AIProvider):
 
 
 def _new_case(store: MemoryStore, case_id="c-11111111") -> Case:
+    # 送達證書槽要有東西:空槽一律視為未逾期,會把 stub 判的§77(2)撤銷掉,測不到不受理那條路
+    from app.models import CaseDocument
+
     case = Case(
         case_id=case_id,
         created_at="2026-08-17T00:00:00",
         title="測試案件",
         source="text",
         input_text="訴願書原文內容",
+        documents={
+            "service": CaseDocument(slot="service", source="text", text="送達時間:中華民國114年5月28日。")
+        },
     )
     store.create(case)
     return case
@@ -1415,3 +1421,123 @@ def test_run_case_keeps_every_reason_when_two_checks_flag_the_same_case():
     note = store.get("c-88888888").screening.review_note
     assert "矛盾" in note
     assert "應依訴願法第62條通知" in note
+
+
+# --- 送達證書缺件:期間一律不認定為逾期 -------------------------------
+# 送達證書是選填槽(觀念通知等案件本無此文書)。缺件時只剩訴願人自述的收受日,
+# 據以算出的逾期是自述日的產物,卻足以把案件打成不受理,故此流程一律視為未逾期。
+
+# 訴願書範本的自述欄:單靠這一份就算得出逾期(114年5月28日收受、10月31日提起,法定30日)
+_APPEAL_SELF_REPORTED = """訴　　願　　書
+訴願人 姓名 王大明 住址 新北市板橋區中山路一段161號
+附註 收受或知悉行政處分日期：114年5月28日
+訴願人遲至114年10月31日始提起訴願。
+中華民國114年10月31日"""
+
+_SERVICE_WITHOUT_DATE = """新北市政府環境保護局 送達證書
+受送達人名稱姓名地址 新北市板橋區中山路一段161號"""
+
+
+def _case_without_service(appeal_text: str = _APPEAL_SELF_REPORTED) -> Case:
+    from app.models import CaseDocument
+
+    return Case(
+        case_id="c-noservice",
+        created_at="2026-09-12T00:00:00Z",
+        title="無送達證書",
+        source="pdf",
+        input_text="",
+        documents={
+            "appeal": CaseDocument(slot="appeal", source="pdf", text=appeal_text),
+            "service": CaseDocument(slot="service", source="pdf", text=""),
+            "disposition": CaseDocument(
+                slot="disposition", source="pdf", text=f"主旨:裁處罰鍰。{_FULL_NOTICE_CLAUSE}"
+            ),
+        },
+    )
+
+
+def test_an_absent_service_certificate_is_never_treated_as_overdue():
+    """訴願書自述的收受日足以算出逾期,但沒有送達證書可核對就不得據以打成不受理;
+    要說出「未計算期間」,不是假裝算過。"""
+    check = check_deadline_from_case(_case_without_service())
+
+    assert check.overdue is False
+    assert check.due_date is None
+    assert "卷內無送達證書" in check.review_note
+    assert check.override_blocked is False
+
+
+def test_an_absent_service_certificate_is_not_overdue_even_without_any_date_in_the_appeal():
+    """訴願書也抽不到日期時同樣視為未逾期——缺件的處理不因另一份文件寫了什麼而變。"""
+    check = check_deadline_from_case(_case_without_service("訴願人不服原處分,請求撤銷。"))
+
+    assert check.overdue is False
+    assert "卷內無送達證書" in check.review_note
+
+
+def test_an_absent_service_certificate_withdraws_a_model_overdue_finding():
+    """模型判了第2款逾期,但卷內根本沒有送達證書:撤銷該款改為受理,並留待人工確認。"""
+    screening = ScreeningResult(passed=False, matched_clause="77條第2款", reasoning="訴願逾期")
+
+    result, reconciled = reconcile_deadline(screening, check_deadline_from_case(_case_without_service()))
+
+    assert result.passed is True
+    assert result.matched_clause is None
+    assert "須人工確認" in result.review_note
+    assert "卷內無送達證書" in reconciled.review_note
+
+
+def test_withdrawing_the_overdue_clause_also_retires_the_model_reasoning():
+    """撤銷第2款卻留著「訴願逾期…應不受理」的理由,受理案的程序審查意見仍在說不受理——
+    那份理由會原樣進 F4 的提示與畫面。模型意見保留但降格,結論由前面那句講。"""
+    screening = ScreeningResult(
+        passed=False, matched_clause="77條第2款", reasoning="訴願人逾三十日始提起訴願，應不受理。"
+    )
+
+    result, _ = reconcile_deadline(screening, check_deadline_from_case(_case_without_service()))
+
+    assert result.reasoning.startswith("本件不以逾期論")
+    assert "程序審查意見：訴願人逾三十日始提起訴願，應不受理。" in result.reasoning
+
+
+def test_run_case_without_a_service_certificate_ends_up_admissible():
+    """整條 pipeline 跑完要讀得回來:模型判第2款不受理,但卷內無送達證書,
+    案件最後落在受理側(跑了 F2)、期間標未逾期,而不是停在不受理。"""
+    class OverdueScreeningProvider(StubAdmissibleProvider):
+        """模型判逾期不受理,其餘階段照受理側供應——撤銷後那條路才走得完。"""
+
+        def screen_admissibility(self, info, text):
+            return ScreeningResult(
+                passed=False, matched_clause="77條第2款", reasoning="訴願人逾三十日始提起訴願，應不受理。"
+            )
+
+    store = MemoryStore()
+    case = _case_without_service()
+    case.case_id = "c-noservice1"
+    store.create(case)
+
+    run_case("c-noservice1", store, OverdueScreeningProvider())
+
+    stored = store.get("c-noservice1")
+    assert stored.status == "done"
+    assert stored.track == "admissible"
+    assert stored.screening.passed is True
+    assert stored.screening.matched_clause is None
+    assert stored.f2 is not None  # 受理側才跑 F2,是分流真的換了邊的證據
+    assert stored.deadline.overdue is False
+    assert "卷內無送達證書" in stored.deadline.review_note
+
+
+def test_a_service_certificate_without_a_date_still_computes_and_still_blocks():
+    """缺件與「有文書但未載送達時間」是兩件事:後者仍退用自述日照算、照標待人工,行為不變。"""
+    from app.models import CaseDocument
+
+    case = _case_without_service()
+    case.documents["service"] = CaseDocument(slot="service", source="pdf", text=_SERVICE_WITHOUT_DATE)
+
+    check = check_deadline_from_case(case)
+
+    assert check.overdue is True
+    assert "未載送達時間" in check.review_note
+    assert check.override_blocked is True

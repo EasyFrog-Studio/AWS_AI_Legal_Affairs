@@ -25,6 +25,7 @@ from app.models import (
     DraftVersion,
     MAX_DRAFT_VERSIONS,
     OCR_REVIEW_NOTE,
+    OPTIONAL_DOCUMENT_SLOTS,
     ScreeningOverride,
     build_input_text,
 )
@@ -147,27 +148,28 @@ def _ocr_document(label: str, pdf_bytes: bytes) -> DocumentInput:
     if len(stripped) < MIN_TEXT_CHARS or is_unreadable(stripped):
         raise HTTPException(
             status_code=400,
-            detail=f"{label}逐頁抽字後仍無法辨識，請改用電子檔或直接貼上文字。",
+            detail=f"{label}逐頁抽字後仍無法辨識，請改用具文字層的電子檔 PDF。",
         )
     return DocumentInput(text=text, source="pdf", ocr=True)
 
 
 async def _read_document_input(
-    slot: DocumentSlot, file: Optional[UploadFile], text: Optional[str], *, required: bool = True
+    slot: DocumentSlot, file: Optional[UploadFile], text: Optional[str]
 ) -> DocumentInput:
     """(file, text) 二擇一 -> 純文字 + 來源。兩者皆無或皆空時:必填槽回 400,選填槽回空文字槽;
-    PDF 抽不到足量文字層時視為掃描件,依模式走 OCR 或明確拒收,不留下空白案件。"""
+    PDF 抽不到足量文字層時視為掃描件,依模式走 OCR 或明確拒收,不留下空白案件。
+    哪些槽選填由 models.OPTIONAL_DOCUMENT_SLOTS 決定,呼叫端不各自帶旗標。"""
     label = DOCUMENT_SLOT_LABELS[slot]
     if file is not None:
         pdf_bytes = await file.read()
         if len(pdf_bytes) > 20 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail=f"{label}檔案超過 20MB 上限，請改用文字貼上。")
+            raise HTTPException(status_code=400, detail=f"{label}檔案超過 20MB 上限，請壓縮或分拆後再上傳。")
         if not pdf_bytes.startswith(b"%PDF"):
-            raise HTTPException(status_code=400, detail=f"{label}檔案讀取失敗，請改用文字貼上。")
+            raise HTTPException(status_code=400, detail=f"{label}檔案讀取失敗，請確認為未加密的 PDF。")
         try:
             extracted = extract_text_quality(pdf_bytes)
         except Exception:
-            raise HTTPException(status_code=400, detail=f"{label}檔案讀取失敗，請改用文字貼上。")
+            raise HTTPException(status_code=400, detail=f"{label}檔案讀取失敗，請確認為未加密的 PDF。")
         document = (
             _ocr_document(label, pdf_bytes)
             if extracted.char_count < MIN_TEXT_CHARS
@@ -176,7 +178,7 @@ async def _read_document_input(
         return document._replace(filename=file.filename or "")
     if text is not None and text.strip():
         return DocumentInput(text=text, source="text")
-    if not required:
+    if slot in OPTIONAL_DOCUMENT_SLOTS:
         return DocumentInput(text="", source="text")
     raise HTTPException(status_code=400, detail=f"必須提供{label}的 file（PDF）或 text")
 
@@ -231,12 +233,13 @@ async def create_case(
     answer_text: Optional[str] = Form(None),
 ):
     """四份文件各自上傳並確認型態;不在此觸發分析,見 /analyze。
-    送達證書選填:觀念通知等案件本無此文書,擋在收案就測不到後續;缺槽由期間計算標記人工確認。
-    訴願答辯書同為選填,理由不同:它是原處分機關受理後才送來的,收案當下本來就不會有。"""
+    送達證書選填:觀念通知等案件本無此文書,擋在收案就測不到後續;缺槽時期間不予計算,
+    一律視為未逾期(見 pipeline.check_deadline_from_case)。
+    訴願答辯書必填:機關的答辯是實體審理的另一造主張,缺了只聽得到訴願人一方。"""
     appeal = await _read_document_input("appeal", appeal_file, appeal_text)
-    service = await _read_document_input("service", service_file, service_text, required=False)
+    service = await _read_document_input("service", service_file, service_text)
     disposition = await _read_document_input("disposition", disposition_file, disposition_text)
-    answer = await _read_document_input("answer", answer_file, answer_text, required=False)
+    answer = await _read_document_input("answer", answer_file, answer_text)
 
     documents = {
         "appeal": _build_document("appeal", appeal),
@@ -293,7 +296,7 @@ async def replace_document(
 
 @app.post("/api/cases/{case_id}/analyze", dependencies=[Depends(require_api_key)])
 def analyze_case(case_id: str, background_tasks: BackgroundTasks):
-    """使用者確認必填三槽文件無誤後按下「開始分析」,才觸發既有的 F1->審查->F2/F3->F4 pipeline。"""
+    """使用者確認文件無誤後按下「開始分析」,才觸發既有的 F1->審查->F2/F3->F4 pipeline。"""
     case = store.get(case_id)
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
@@ -302,12 +305,14 @@ def analyze_case(case_id: str, background_tasks: BackgroundTasks):
 
     # 前端擋了未確認的槽,但後端自己也要擋——直接打 API 不能繞過文件確認這一關。
     # matched 為 False 或 None 都不算確認完成,None 尤其不可當「還沒查」跟「已放行」混在一起。
-    # 空槽除外:選填槽沒有文件就沒有東西可確認,擋在這裡等於收案放行卻分析不了;
-    # 缺這份文書的後果由期間計算標成 review_note,不在此處攔。
+    # 選填槽的空槽除外:沒有文件就沒有東西可確認,擋在這裡等於收案放行卻分析不了;
+    # 缺送達證書的後果由期間計算標成 review_note,不在此處攔。必填槽空著則照擋——
+    # 收案已擋掉一次,但舊案與直接打 API 兩條路仍到得了這裡。
     unconfirmed = [
         DOCUMENT_SLOT_LABELS[slot]
         for slot, doc in case.documents.items()
-        if doc.check.matched is not True and doc.text.strip()
+        if doc.check.matched is not True
+        and (doc.text.strip() or slot not in OPTIONAL_DOCUMENT_SLOTS)
     ]
     if unconfirmed:
         raise HTTPException(

@@ -459,47 +459,6 @@ table.list-table {
   font-family: var(--font-mono);
 }
 
-/* ---------- Tabs ---------- */
-
-.tabs {
-  display: flex;
-  gap: var(--space-lg);
-  border-bottom: var(--rule-hairline);
-  margin-bottom: var(--space-lg);
-}
-
-.tab {
-  font-family: var(--font-ui);
-  font-size: var(--text-ui);
-  font-weight: 500;
-  color: var(--color-ink-soft);
-  background: none;
-  border: none;
-  min-height: 40px;
-  padding: var(--space-xs) 0;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
-}
-
-.tab:hover {
-  color: var(--color-ink);
-}
-
-.tab--active {
-  color: var(--color-ink);
-  border-bottom-color: var(--color-gold);
-}
-
-.tab:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 2px;
-}
-
-.tabs--sm {
-  margin-bottom: var(--space-sm);
-}
-
 /* ---------- 文件槽(NewCase 上傳 / CaseDetail 待確認共用)---------- */
 
 .doc-slot {
@@ -600,12 +559,6 @@ table.list-table {
   min-height: 152px;
 }
 
-/* 補一份文件的貼上框,不必跟收案時的整頁落件一樣高 */
-.doc-replace__text.textarea {
-  min-height: 96px;
-  margin-top: var(--space-xs);
-}
-
 .doc-replace__actions {
   display: flex;
   justify-content: flex-end;
@@ -621,7 +574,7 @@ table.list-table {
 .doc-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  /* 各槽自己決定高度:文字槽長出來時,同列的落件框不該跟著被拉高留一段空白 */
+  /* 各槽自己決定高度:展開重傳的槽不該把同列的落件框一起拉高留一段空白 */
   align-items: start;
   gap: var(--space-xl);
 }
@@ -647,8 +600,7 @@ table.list-table {
   border-radius: var(--radius);
 }
 
-/* 兩欄與單欄的落件框等高,切換分頁時版面不跳動 */
-.doc-slot__text.textarea,
+/* 兩欄與單欄的落件框等高,版面不隨槽位跳動 */
 .dropzone {
   min-height: 220px;
 }

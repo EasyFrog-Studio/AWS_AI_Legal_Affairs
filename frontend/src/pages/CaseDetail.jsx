@@ -57,15 +57,6 @@ function parseClause(matchedClause) {
   return m ? `第 ${m[1]} 款` : ''
 }
 
-/** 頁首標題:F1 有結果就用「訴願人 案由類別事件」,比文件片段更一眼認得出案件;
- * F1 還沒跑出來時退回原標題,折疊連續空白——PDF 抽出來的原文常帶著排版用的空白。 */
-function pageTitle(caseData) {
-  const appellant = caseData.f1?.appellant
-  const caseType = caseData.f1?.case_type
-  if (appellant && caseType) return `${appellant}　${caseType}事件`
-  return (caseData.title || '（未命名案件）').replace(/\s+/g, ' ')
-}
-
 function stageMarker(key, caseData) {
   // 參考依據是三個後端階段的合併節點:F3 跑完才算這一組完成,「不適用」只屬於裡面的法規那一組
   const isRefs = key === 'refs'
@@ -137,13 +128,6 @@ function ReviewSlotCard({ slot, doc, replace, busy }) {
             onFile={replace.onFile}
             disabled={busy}
           />
-          <AutoTextarea
-            className="doc-replace__text"
-            value={replace.text}
-            onChange={replace.onText}
-            placeholder={`或貼上${slot.label}全文`}
-            disabled={busy || Boolean(replace.file)}
-          />
           <div className="doc-replace__actions">
             <button type="button" className="btn btn-secondary" onClick={replace.onClose} disabled={busy}>
               取消
@@ -152,7 +136,7 @@ function ReviewSlotCard({ slot, doc, replace, busy }) {
               type="button"
               className="btn btn-primary"
               onClick={replace.onSubmit}
-              disabled={busy || (!replace.text.trim() && !replace.file)}
+              disabled={busy || !replace.file}
             >
               送出
             </button>
@@ -183,7 +167,6 @@ function ReviewSlotCard({ slot, doc, replace, busy }) {
  * 版面與收案頁同一個卷證工作檯(doc-grid),兩處看到的是同一批槽,不該長成兩種東西。 */
 function CollectingSection({ caseData, onReplaced, onAnalyzed }) {
   const [replacing, setReplacing] = useState(null) // 目前正在重傳哪一槽(key),null 代表沒有
-  const [replaceText, setReplaceText] = useState('')
   const [replaceFile, setReplaceFile] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -192,10 +175,9 @@ function CollectingSection({ caseData, onReplaced, onAnalyzed }) {
   // 選填槽沒送來就沒有東西可確認,不能讓它永遠擋著開始分析;送來了就照樣要通過型態確認
   const allMatched = DOCUMENT_SLOTS.every((s) => ['ok', 'na'].includes(verdictOf(s, documents[s.key])))
 
-  // 三個重傳狀態是全體共用的,換槽不清掉的話會把上一槽打到一半的字帶過去
+  // 重傳狀態是全體共用的,換槽不清掉的話會把上一槽挑好的檔案帶過去
   function closeReplace() {
     setReplacing(null)
-    setReplaceText('')
     setReplaceFile(null)
   }
 
@@ -204,9 +186,7 @@ function CollectingSection({ caseData, onReplaced, onAnalyzed }) {
     setError('')
     try {
       const formData = new FormData()
-      // 走 PDF 的案子重傳也要能給 PDF,只收貼上文字等於斷了一半的重傳路徑
-      if (replaceFile) formData.append('file', replaceFile)
-      else formData.append('text', replaceText)
+      formData.append('file', replaceFile)
       await replaceDocument(caseData.case_id, slotKey, formData)
       closeReplace()
       onReplaced()
@@ -251,14 +231,12 @@ function CollectingSection({ caseData, onReplaced, onAnalyzed }) {
             replace={{
               active: replacing === slot.key,
               file: replaceFile,
-              text: replaceText,
               onOpen: () => {
                 closeReplace()
                 setReplacing(slot.key)
               },
               onClose: closeReplace,
               onFile: setReplaceFile,
-              onText: setReplaceText,
               onSubmit: () => handleReplaceSubmit(slot.key),
             }}
           />
@@ -400,40 +378,31 @@ function F1Section({ info, system, editable, onSave }) {
         <p className="f1-summary__note">分析進行中，此時不開放修改案件資訊。</p>
       )}
       <div className="doc-grid doc-grid--stack">
-        {F1_GROUPS.map((group) => {
-          const empty = group.fields.every((f) => !fieldText(info, f))
-          return (
-            <section
-              className="doc-slot doc-slot--card"
-              key={group.key}
-              role="group"
-              aria-label={group.label}
-            >
-              <div className="doc-slot__head">
-                <span className="doc-slot__label">{group.label}</span>
-                {groupEdited(info, system, group) && (
-                  <span className="doc-slot__flag">已修改</span>
-                )}
-              </div>
-              {empty && group.emptyNote ? (
-                <p className="state-message state-message--na">{group.emptyNote}</p>
-              ) : (
-                <dl className="f1-grid">
-                  {group.fields.map((field) => (
-                    <F1Field
-                      key={field.key}
-                      info={info}
-                      system={system}
-                      field={field}
-                      editable={editable}
-                      onSave={onSave}
-                    />
-                  ))}
-                </dl>
-              )}
-            </section>
-          )
-        })}
+        {F1_GROUPS.map((group) => (
+          <section
+            className="doc-slot doc-slot--card"
+            key={group.key}
+            role="group"
+            aria-label={group.label}
+          >
+            <div className="doc-slot__head">
+              <span className="doc-slot__label">{group.label}</span>
+              {groupEdited(info, system, group) && <span className="doc-slot__flag">已修改</span>}
+            </div>
+            <dl className="f1-grid">
+              {group.fields.map((field) => (
+                <F1Field
+                  key={field.key}
+                  info={info}
+                  system={system}
+                  field={field}
+                  editable={editable}
+                  onSave={onSave}
+                />
+              ))}
+            </dl>
+          </section>
+        ))}
       </div>
     </div>
   )
@@ -999,8 +968,11 @@ export default function CaseDetail() {
       {!error && caseData && (
         <>
           <div className="page-header page-header--tight">
-            <div>
-              <h1 className="page-header__title">{pageTitle(caseData)}</h1>
+            <div className="page-header__heading">
+              <h1 className="page-header__title">
+                {effectiveSelected === 'draft' ? '決定書草稿' : '審理歷程'}
+              </h1>
+              <span className="page-header__meta">{caseData.case_id}</span>
             </div>
             <div className="page-header__actions">
               <Seal kind={resolveCaseSeal(caseData).kind} size="lg">
@@ -1017,7 +989,6 @@ export default function CaseDetail() {
                   {reanalyzing ? '重跑中…' : '重跑分析'}
                 </button>
               )}
-              <span className="page-header__meta">{caseData.case_id}</span>
             </div>
           </div>
 
