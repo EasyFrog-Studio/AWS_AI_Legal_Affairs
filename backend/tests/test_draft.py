@@ -153,9 +153,9 @@ def test_get_draft_pdf_inadmissible_omits_empty_fact_section():
 
     doc = fitz.open(stream=resp.content, filetype="pdf")
     extracted = "".join(page.get_text() for page in doc)
-    assert "主　文" in extracted
-    assert "理　由" in extracted
-    assert "事　實" not in extracted  # 內文為空,整段不輸出
+    assert "主    文" in extracted
+    assert "理    由" in extracted
+    assert "事    實" not in extracted  # 內文為空,整段不輸出
     assert "訴願不受理" in extracted
     assert "本件訴願逾法定期間" in extracted
 
@@ -194,8 +194,8 @@ def test_get_draft_pdf_admissible_keeps_heading_of_empty_section():
 
     doc = fitz.open(stream=resp.content, filetype="pdf")
     extracted = "".join(page.get_text() for page in doc)
-    assert "事　實" in extracted
-    assert "理　由" in extracted  # 內文雖空,標題仍在
+    assert "事    實" in extracted
+    assert "理    由" in extracted  # 內文雖空,標題仍在
 
 
 def test_get_draft_pdf_case_not_found_returns_404():
@@ -257,25 +257,19 @@ def test_inadmissible_track_still_offers_every_value():
 
 
 def _opening_line(disposition_date: str) -> str:
+    from app.decision_header import opening_paragraph
     from app.models import CaseInfo
-    from app.pdf_render import build_decision_blocks
 
-    case = _make_case(f"c-open{abs(hash(disposition_date)) % 10000:04d}", with_f4=True)
-    main_module.store.update(
-        case.case_id,
-        {
-            "f1": CaseInfo(
-                appellant="王大明",
-                agency="新北市政府環境保護局",
-                disposition_date=disposition_date,
-                disposition_no="新北環稽字第1號",
-                disposition_summary="裁處罰鍰",
-                case_type="廢棄物清理法",
-            )
-        },
+    return opening_paragraph(
+        CaseInfo(
+            appellant="王大明",
+            agency="新北市政府環境保護局",
+            disposition_date=disposition_date,
+            disposition_no="新北環稽字第1號",
+            disposition_summary="裁處罰鍰",
+            case_type="廢棄物清理法",
+        )
     )
-    blocks = build_decision_blocks(main_module.store.get(case.case_id))
-    return next(text for _, text in blocks if "上列訴願人因" in text)
 
 
 def test_the_opening_paragraph_never_repeats_the_era_name():

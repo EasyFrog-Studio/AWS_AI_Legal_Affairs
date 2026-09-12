@@ -3,6 +3,10 @@
 from app.models import Case, CaseInfo, DecisionHeader, DraftResult
 from app.pdf_render import build_decision_blocks, decision_body_text
 
+TAB = "\t"
+FULL_SPACE = "　"
+NEWLINE = "\n"
+
 
 def _case(f1=None, f4=None, **overrides):
     base = dict(
@@ -41,16 +45,16 @@ def _f4(draft_type="駁回"):
     return DraftResult(draft_type=draft_type, fact="事實", reason="理由", main_text="主文")
 
 
-def test_the_masthead_carries_the_authority_name_and_an_empty_case_number():
-    """案號是機關收文後才編的,系統編不出來,留空白讓承辦人填,而不是拿 case_id 冒充。"""
+def test_the_masthead_carries_the_authority_name_and_the_default_case_number():
+    """案號預設帶案件編號:機關收文編號要承辦人填,但欄位不能一片空白,連抬頭右側都沒有。"""
     blocks = build_decision_blocks(_case(f1=_info(), f4=DraftResult(
         draft_type="駁回", fact="事實內容", reason="理由內容", main_text="訴願駁回。")))
     texts = _texts(blocks)
 
-    assert ("title", "新北市政府訴願決定書") in blocks
-    case_no_line = next(t for t in texts if t.startswith("案"))
-    assert "號" in case_no_line
-    assert "c-pdf0001" not in "".join(texts)
+    assert f"案　　號：{FULL_SPACE}c-pdf0001" in texts
+    kind, masthead = next(b for b in blocks if b[1].startswith("新北市政府訴願決定書"))
+    assert kind == "split"
+    assert masthead.endswith("案號：c-pdf0001  號")
 
 
 def test_the_parties_and_the_disposition_under_appeal_come_from_f1():
@@ -153,19 +157,19 @@ def test_a_revoke_and_remand_decision_carries_no_litigation_notice():
     assert "如不服本決定" not in joined
 
 
-def test_the_issue_date_line_is_left_blank_for_the_officer():
+def test_an_unfilled_decision_date_prints_the_era_word_alone():
+    """畫面上那一列只有欄名,列印就只印欄名;補一排年月日空格線是畫面上沒有的內容。"""
     blocks = build_decision_blocks(_case(f1=_info(), f4=_f4()))
     date_line = next(t for _k, t in blocks if t.startswith("中華民國"))
 
-    assert "年" in date_line and "月" in date_line and "日" in date_line
-    assert not any(ch.isdigit() for ch in date_line)
+    assert date_line == "中華民國　"
 
 
-def test_the_configured_kai_font_is_used_when_the_file_exists(tmp_path, monkeypatch):
-    """決定書要用標楷體;字型以檔案內嵌,PDF 的文字才抽得回來(fitz 內建 china-t 沒有 ToUnicode)。"""
+def test_the_configured_ming_font_is_used_when_the_file_exists(tmp_path, monkeypatch):
+    """決定書要用新細明體;字型以檔案內嵌,PDF 的文字才抽得回來(fitz 內建 china-t 沒有 ToUnicode)。"""
     from app import pdf_render
 
-    font_file = tmp_path / "ukai.ttc"
+    font_file = tmp_path / "uming.ttf"
     font_file.write_bytes(b"not-a-real-font")  # 只驗選檔邏輯,不驗字型解析
     monkeypatch.setattr(pdf_render.settings, "DECISION_FONT_FILE", str(font_file))
 
@@ -210,18 +214,19 @@ def test_the_parties_can_be_corrected_without_touching_f1():
     case = _case(f1=_info(), f4=_f4(), decision_header=DecisionHeader(appellant="鄭○芳"))
     texts = _texts(build_decision_blocks(case))
 
-    assert any(t.startswith("　訴願人") and "鄭○芳" in t for t in texts)
-    assert not any(t.startswith("　訴願人") and "鄭婉芳" in t for t in texts)
+    assert any(t.strip().startswith("訴願人") and "鄭○芳" in t for t in texts)
+    assert not any(t.strip().startswith("訴願人") and "鄭婉芳" in t for t in texts)
 
 
-def test_an_empty_header_field_keeps_the_blank_for_handwriting():
-    """沒填就維持可書寫的空白,不得因為多了這個欄位而變成印出空字串的光禿一行。"""
-    case = _case(f1=_info(), f4=_f4(), decision_header=DecisionHeader())
+def test_an_empty_header_field_prints_the_label_alone():
+    """列印的內容要與畫面上的決定書草稿一致:空欄就是空的,不補空白格也不猜委員人數。"""
+    case = _case(f1=_info(), f4=_f4(), decision_header=DecisionHeader(gist="只填要旨"))
     texts = _texts(build_decision_blocks(case))
 
-    case_no_line = next(t for t in texts if t.startswith("案"))
-    assert case_no_line.strip("案號:： 　") == ""
-    assert sum(1 for t in texts if t.startswith("委員")) == 12
+    assert f"案　　號：{FULL_SPACE}" in texts
+    assert f"要　　旨：{FULL_SPACE}只填要旨" in texts
+    assert [t for t in texts if t.startswith("委員")] == ["委員  "]
+    assert "訴願審議委員會主任委員  " in texts
 
 
 # ---------- 結構化表頭五欄:案號/要旨/發文日期/發文字號/相關法條 ----------
@@ -235,51 +240,177 @@ def test_the_gist_and_dates_are_printed_from_the_structured_header():
     )
     joined = "".join(_texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=header))))
 
-    assert "要　　旨：因違反建築法事件提起訴願" in joined
-    assert "發文日期：114年12月17日" in joined  # 「民國」由抬頭模板統一補,欄位本身脫掉
-    assert "發文字號：新北府訴決字第1141934721號" in joined
+    assert "要　　旨：　因違反建築法事件提起訴願" in joined
+    assert "發文日期：　民國114年12月17日" in joined  # 表頭欄位自帶紀年,樣本即如此
+    assert "發文字號：　新北府訴決字第1141934721號" in joined
 
 
-def test_a_blank_issued_no_prints_the_placeholder_gazette_number():
-    """發文字號發文時才由案管系統配,留空印固定套語的空號,而不是一片空白看不出這是哪一欄。"""
-    joined = "".join(_texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=DecisionHeader()))))
+def test_a_blank_issued_no_prints_nothing_after_its_label():
+    """發文字號發文時才由案管系統配;畫面上是空的,列印就不該冒出一組套語空號。"""
+    texts = _texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=DecisionHeader(gist="只填要旨"))))
 
-    assert "發文字號：新北府訴決字第　　　　號" in joined
+    assert f"發文字號：{FULL_SPACE}" in texts
+    assert not any("新北府訴決字第" in t for t in texts)
 
 
 def test_related_laws_print_one_law_per_line():
     header = DecisionHeader(related_laws="訴願法 第 81 條\n建築法 第 2 條")
     texts = _texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=header)))
 
-    assert "相關法條：訴願法 第 81 條" in texts
-    assert "建築法 第 2 條" in texts
+    assert "相關法條：　訴願法 第 81 條" in texts
+    assert any(line.strip() == "建築法 第 2 條" for line in texts)
 
 
 def test_empty_related_laws_prints_a_blank_line():
     joined = "".join(_texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=DecisionHeader()))))
 
-    assert "相關法條：" in joined
+    assert "相關法條：　" in joined
 
 
 # ---------- 代理人列:agent_name 空整列不印,標籤依 agent_role ----------
 
 
-def test_an_empty_agent_name_prints_no_agent_row_at_all():
+def test_the_agent_row_is_always_there_because_the_officer_sees_it():
+    """當事人三列是畫面上那份欄位表,列印照印;要不要留這一列由承辦人決定。"""
     texts = _texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=DecisionHeader(agent_name=""))))
 
-    assert not any(t.startswith("　代理人") or t.startswith("　送達代收人") for t in texts)
+    assert "    代理人  " in texts
 
 
 def test_an_agent_row_uses_the_officer_supplied_role_label():
     header = DecisionHeader(agent_role="送達代收人", agent_name="陳大文")
     texts = _texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=header)))
 
-    assert any(t.startswith("　送達代收人") and "陳大文" in t for t in texts)
-    assert not any(t.startswith("　代理人") for t in texts)
+    assert any(t.strip().startswith("送達代收人") and "陳大文" in t for t in texts)
+    assert not any(t.strip().startswith("代理人") for t in texts)
 
 
 def test_an_agent_row_defaults_to_the_agent_label_when_the_role_is_blank():
     header = DecisionHeader(agent_role="", agent_name="陳大文")
     texts = _texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=header)))
 
-    assert any(t.startswith("　代理人") and "陳大文" in t for t in texts)
+    assert any(t.strip().startswith("代理人") and "陳大文" in t for t in texts)
+
+
+# ---------- 體例:逐字對照語料 17.114年-違反廢棄物清理法事件-79I-訴願無理由-駁回 ----------
+
+
+def test_the_meta_block_spaces_two_character_labels_to_four_and_ends_with_the_full_text_label():
+    """查詢系統印出來的表頭標籤一律四字寬:「案　　號」與「發文日期」左右對齊。"""
+    header = DecisionHeader(case_no="1141061379", gist="因違反廢棄物清理法事件提起訴願")
+    texts = _texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=header)))
+
+    assert "案　　號：　1141061379" in texts
+    assert "要　　旨：　因違反廢棄物清理法事件提起訴願" in texts
+    assert "全　　文：" in texts
+    assert texts.index("全　　文：") > texts.index("案　　號：　1141061379")
+
+
+def test_related_law_continuation_lines_align_under_the_first_law():
+    header = DecisionHeader(related_laws="訴願法 第 79 條\n行政罰法 第 18 條")
+    texts = _texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=header)))
+
+    assert "相關法條：　訴願法 第 79 條" in texts
+    assert "　　　　　　行政罰法 第 18 條" in texts
+
+
+def test_the_masthead_is_one_split_line_with_the_case_number_on_the_right():
+    """語料的抬頭是同一列:機關名靠左、案號靠右。畫面分成兩行,列印時併回一列。"""
+    header = DecisionHeader(case_no="1141061379")
+    blocks = build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=header))
+
+    kind, text = next(b for b in blocks if b[1].startswith("新北市政府訴願決定書"))
+    assert kind == "split"
+    left, right = text.split(TAB)
+    assert left == "新北市政府訴願決定書"
+    assert right == "案號：1141061379  號"
+
+
+def test_a_blank_case_number_leaves_the_masthead_without_a_right_hand_column():
+    blocks = build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=DecisionHeader(gist="只填要旨")))
+
+    _kind, text = next(b for b in blocks if b[1].startswith("新北市政府訴願決定書"))
+    assert TAB not in text
+
+
+def test_the_parties_are_indented_four_spaces_with_a_two_space_gap():
+    header = DecisionHeader(appellant="鄭○芳", agent_role="代理人", agent_name="陳大文",
+                            agency="新北市政府環境保護局")
+    texts = _texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=header)))
+
+    assert "    訴願人  鄭○芳" in texts
+    assert "    代理人  陳大文" in texts
+    assert "    原處分機關  新北市政府環境保護局" in texts
+
+
+def test_the_body_headings_are_indented_and_spaced_out_for_printing():
+    """承辦人編輯的是「主　文」,印出來要是語料的「    主    文」;本文內容逐字不動。"""
+    case = _case(f1=_info(), f4=_f4(), draft_plain_text="主　文\n訴願駁回。\n\n理　由\n一、按訴願法…")
+    texts = _texts(build_decision_blocks(case))
+    body = next(t for t in texts if "訴願駁回。" in t)
+
+    assert "    主    文" in body
+    assert "    理    由" in body
+    assert "主　文" not in body
+    assert "一、按訴願法…" in body
+
+
+def test_the_committee_block_uses_two_space_gaps():
+    header = DecisionHeader(chairman="蔡庭榕", committee="陳明燦\n陳立夫")
+    texts = _texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=header)))
+
+    assert "訴願審議委員會主任委員  蔡庭榕" in texts
+    assert "委員  陳明燦" in texts and "委員  陳立夫" in texts
+
+
+def test_the_decision_date_does_not_repeat_the_era_word():
+    """日期欄存的是標準寫法「民國114年12月11日」,抬頭模板自己寫了中華民國。"""
+    header = DecisionHeader(decided_date="民國114年12月11日")
+    texts = _texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=header)))
+
+    assert "中華民國　114年12月11日" in texts
+    assert not any("中華民國民國" in t for t in texts)
+
+
+# ---------- 列印:抬頭靠右、條列續行懸掛縮排 ----------
+
+
+def _pdf_lines(blob):
+    """回傳 [(x0, 這一行的文字)],依版面由上而下。"""
+    import fitz
+
+    doc = fitz.open(stream=blob, filetype="pdf")
+    out = []
+    for page in doc:
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                text = "".join(span["text"] for span in line["spans"])
+                out.append((round(line["bbox"][0], 1), round(line["bbox"][2], 1), text))
+    return out
+
+
+def test_the_case_number_is_printed_flush_right_on_the_masthead_line():
+    """語料的抬頭是機關名靠左、案號靠右的同一列;製表符是版面指令,不能印成字。"""
+    from app.pdf_render import render_draft_pdf
+
+    case = _case(f1=_info(), f4=_f4(), decision_header=DecisionHeader(case_no="1141061379"))
+    lines = _pdf_lines(render_draft_pdf(case))
+
+    assert not any(TAB in text for _x0, _x1, text in lines)
+    title = next(l for l in lines if l[2].startswith("新北市政府訴願決定書"))
+    number = next(l for l in lines if "1141061379" in l[2] and "案號" in l[2])
+    assert abs(title[0] - number[0]) > 100  # 案號不接在機關名後面,是另一端
+    assert number[1] > title[1] + 100  # 靠右界收尾
+
+
+def test_a_wrapped_numbered_item_hangs_under_its_own_text():
+    """理由欄逐條編號,折行對齊到條號之後;不縮排會讓下一行看起來像新的一條。"""
+    from app.pdf_render import render_draft_pdf
+
+    long_item = "一、按廢棄物清理法第 4 條規定：" + "○" * 120
+    case = _case(f1=_info(), f4=_f4(), draft_plain_text=f"理　由{NEWLINE}{long_item}")
+    lines = [l for l in _pdf_lines(render_draft_pdf(case)) if "○" in l[2]]
+
+    assert len(lines) > 1, "測資不夠長,沒有折行就量不到懸掛縮排"
+    assert not lines[0][2].startswith(" ")
+    assert lines[1][2].startswith("    ")  # 續行退到條號之後

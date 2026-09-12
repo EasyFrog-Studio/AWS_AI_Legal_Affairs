@@ -157,7 +157,9 @@ def test_legacy_shaped_case_data_is_stripped_and_not_stale_on_read():
     assert case.draft_plain_text.startswith("主　文")
     assert "新北市政府訴願決定書" not in case.draft_plain_text
     assert "訴願審議委員會主任委員" not in case.draft_plain_text
-    assert case.decision_header == DecisionHeader()  # 舊資料沒有這個欄位,預設空白,不臆測補值
+    # 舊資料沒有這個欄位:讀出時以自己的 f1/f4 補上預設值,畫面與下載才不會少了案號與當事人
+    assert case.decision_header.case_no == "c-legacy-guard"
+    assert case.decision_header.appellant == _info().appellant
     assert case.f1_stale is False  # 尚未起跑過下游(screening_input_f1 為 None),不算改過
 
 

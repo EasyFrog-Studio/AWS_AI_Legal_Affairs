@@ -255,8 +255,9 @@ class DecisionHeader(BaseModel):
     agent_role: str = ""  # 值域見 AGENT_ROLES;agent_name 空則整列不印
     agent_name: str = ""
     agency: str = ""
+    preamble: str = ""  # 敘明句「上列訴願人因…決定如下：」,落地時由 f1 填,承辦人可改
     chairman: str = ""
-    committee: str = ""  # 一行一位委員;留空則維持 12 行空白
+    committee: str = ""  # 一行一位委員
     decided_date: str = ""
 
 
@@ -473,6 +474,11 @@ class Case(BaseModel):
             self.draft_plain_text = decision_plain_text(self)
         # 表頭改結構化之前的全文含表頭與結尾列,讀出時剝成本文;補的值不回寫,下次寫入才落地
         self.draft_plain_text = body_from_legacy_text(self.draft_plain_text)
+        # store 內仍有表頭一片空白的舊案:讀出時補預設值,否則畫面與下載都少了案號與當事人
+        if self.f4 is not None and not self.decision_header.model_dump(exclude_defaults=True):
+            from app.decision_header import decision_header_defaults
+
+            self.decision_header = decision_header_defaults(self)
         return self
 
 

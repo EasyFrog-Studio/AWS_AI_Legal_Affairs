@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from './apiMock.js'
 import {
@@ -215,17 +215,15 @@ describe('決定書草稿:整份可改、兩種下載', () => {
 })
 
 describe('決定書草稿分段', () => {
-  it('受理案件分成主文、事實、理由三格，表頭與結尾是結構化區塊不是文字框', () => {
+  it('受理案件分成主文、事實、理由三格，基本資訊與結尾各自是一個文字框', () => {
     renderWorkspace(doneAdmissibleSectioned, { text: SECTIONED_ADMISSIBLE_TEXT })
 
     const sections = splitDraft(SECTIONED_ADMISSIBLE_TEXT)
     expect(screen.getByLabelText('主文')).toHaveValue(sections.find((s) => s.key === 'main').body)
     expect(screen.getByLabelText('事實')).toHaveValue(sections.find((s) => s.key === 'fact').body)
     expect(screen.getByLabelText('理由')).toHaveValue(sections.find((s) => s.key === 'reason').body)
-    expect(screen.getByRole('region', { name: '決定書表頭' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '決定書結尾' })).toBeInTheDocument()
-    expect(screen.queryByRole('textbox', { name: '決定書表頭' })).toBeNull()
-    expect(screen.queryByRole('textbox', { name: '決定書結尾' })).toBeNull()
+    expect(screen.getByRole('textbox', { name: '基本資訊' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '決定書結尾' })).toBeInTheDocument()
     expect(screen.queryByLabelText('決定書全文')).toBeNull()
   })
 
@@ -235,7 +233,7 @@ describe('決定書草稿分段', () => {
     expect(screen.getByLabelText('主文')).toBeInTheDocument()
     expect(screen.queryByLabelText('事實')).toBeNull()
     expect(screen.getByLabelText('理由')).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '決定書結尾' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '決定書結尾' })).toBeInTheDocument()
   })
 
   it('在理由末尾打字後儲存，送出的全文是 join 回去的完整逐字結果', async () => {
@@ -369,60 +367,114 @@ describe('決定結果修改', () => {
   })
 })
 
-describe('決定書表頭與結尾', () => {
-  it('表頭九欄與結尾三欄都能以 label 找到', () => {
+describe('稿紙版面', () => {
+  it('依基本資訊、本文、結尾、引用法條排序,沒有「全文」這個標題', () => {
+    renderWorkspace(doneAdmissibleSectioned, { text: SECTIONED_ADMISSIBLE_TEXT })
+
+    const paper = screen.getByRole('group', { name: '決定書稿紙' })
+    expect(
+      within(paper)
+        .getAllByText(/^(基本資訊|全文|引用法條)$/)
+        .map((node) => node.textContent),
+    ).toEqual(['基本資訊', '引用法條'])
+
+    const footer = screen.getByLabelText('決定書結尾')
+    const citations = within(paper).getByText('引用法條')
+    expect(footer.compareDocumentPosition(citations) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const main = screen.getByLabelText('主文')
+    expect(main.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+describe('決定書表頭與結尾:整段純文字', () => {
+  it('基本資訊與結尾各是一個文字框,十二欄逐列寫成「欄名：」', () => {
     renderWorkspace(doneAdmissible)
 
-    ;[
-      '案號',
-      '要旨',
-      '發文日期',
-      '發文字號',
-      '相關法條',
-      '訴願人',
-      '代理人或送達代收人',
-      '代理人姓名',
-      '原處分機關',
-      '主任委員',
-      '委員',
-      '決定日期',
-    ].forEach((label) => {
-      expect(screen.getByLabelText(label)).toBeInTheDocument()
-    })
+    const info = screen.getByLabelText('基本資訊')
+    ;['案　　號：　', '要　　旨：　', '發文日期：　', '發文字號：　', '相關法條：　', '　　訴願人　', '　　代理人　', '　　原處分機關　'].forEach(
+      (label) => expect(info.value).toContain(label),
+    )
+    const footer = screen.getByLabelText('決定書結尾')
+    ;['訴願審議委員會主任委員　', '委員　', '中華民國　'].forEach((label) =>
+      expect(footer.value).toContain(label),
+    )
+    // 逐欄的輸入框與日期選擇器都不在了:編輯單位是這兩段文字
+    expect(screen.queryByRole('combobox', { name: '發文日期年' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: '案號' })).toBeNull()
   })
 
-  it('發文日期與決定日期是三格 combobox，沒有同名 textbox', () => {
-    renderWorkspace(doneAdmissible)
-
-    expect(screen.getByRole('combobox', { name: '發文日期年' })).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: '發文日期月' })).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: '發文日期日' })).toBeInTheDocument()
-    expect(screen.queryByRole('textbox', { name: '發文日期' })).toBeNull()
-    expect(screen.getByRole('combobox', { name: '決定日期年' })).toBeInTheDocument()
-    expect(screen.queryByRole('textbox', { name: '決定日期' })).toBeNull()
-  })
-
-  it('只改案號時儲存只送表頭,不送全文', async () => {
+  it('只改案號那一列時儲存只送表頭,其餘欄位原樣回存', async () => {
     const user = userEvent.setup()
     renderWorkspace(doneAdmissible)
 
-    await user.clear(screen.getByLabelText('案號'))
-    await user.type(screen.getByLabelText('案號'), '新')
+    const info = screen.getByLabelText('基本資訊')
+    fireEvent.change(info, { target: { value: info.value.replace('案　　號：　', '案　　號：　1141061379') } })
     await user.click(screen.getByRole('button', { name: '儲存修改' }))
 
     expect(api.updateDecisionHeader).toHaveBeenCalledWith('c-1', {
       ...doneAdmissible.decision_header,
-      case_no: '新',
+      case_no: '1141061379',
     })
     expect(api.updateDraftText).not.toHaveBeenCalled()
   })
 
-  it('案號與全文一起改,兩支 API 都送且表頭先送', async () => {
+  it('多行欄位照打:相關法條與委員一行一筆,存回去仍是同一欄', async () => {
     const user = userEvent.setup()
     renderWorkspace(doneAdmissible)
 
-    await user.clear(screen.getByLabelText('案號'))
-    await user.type(screen.getByLabelText('案號'), '新')
+    const info = screen.getByLabelText('基本資訊')
+    fireEvent.change(info, {
+      target: {
+        value: info.value.replace('相關法條：　', '相關法條：　訴願法 第 79 條\n　　　　　行政罰法 第 18 條'),
+      },
+    })
+    const footer = screen.getByLabelText('決定書結尾')
+    fireEvent.change(footer, {
+      target: { value: ['主任委員：', '委員：王○○', '委員：李○○', '中華民國：'].join('\n') },
+    })
+    await user.click(screen.getByRole('button', { name: '儲存修改' }))
+
+    expect(api.updateDecisionHeader).toHaveBeenCalledWith('c-1', {
+      ...doneAdmissible.decision_header,
+      related_laws: '訴願法 第 79 條\n行政罰法 第 18 條',
+      committee: '王○○\n李○○',
+    })
+  })
+
+  it('代理人那一列改成送達代收人,身分與姓名一起送出', async () => {
+    const user = userEvent.setup()
+    renderWorkspace(doneAdmissible)
+
+    const info = screen.getByLabelText('基本資訊')
+    fireEvent.change(info, { target: { value: info.value.replace('　　代理人　', '　　送達代收人　林○○') } })
+    await user.click(screen.getByRole('button', { name: '儲存修改' }))
+
+    expect(api.updateDecisionHeader).toHaveBeenCalledWith('c-1', {
+      ...doneAdmissible.decision_header,
+      agent_role: '送達代收人',
+      agent_name: '林○○',
+    })
+  })
+
+  it('欄名打錯的行擋下整次儲存,不讓那一行被丟掉', async () => {
+    const user = userEvent.setup()
+    renderWorkspace(doneAdmissible)
+
+    const info = screen.getByLabelText('基本資訊')
+    fireEvent.change(info, { target: { value: `${info.value}\n案虎：打錯的欄名` } })
+    await user.click(screen.getByRole('button', { name: '儲存修改' }))
+
+    expect(await screen.findByText(/認不出是哪一欄/)).toBeInTheDocument()
+    expect(api.updateDecisionHeader).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('基本資訊').value).toContain('案虎：打錯的欄名')
+  })
+
+  it('表頭與全文一起改,兩支 API 都送且表頭先送', async () => {
+    const user = userEvent.setup()
+    renderWorkspace(doneAdmissible)
+
+    const info = screen.getByLabelText('基本資訊')
+    fireEvent.change(info, { target: { value: info.value.replace('案　　號：　', '案　　號：　新') } })
     await user.type(screen.getByLabelText('決定書全文'), '補一句')
     await user.click(screen.getByRole('button', { name: '儲存修改' }))
 
@@ -445,40 +497,24 @@ describe('決定書表頭與結尾', () => {
     const user = userEvent.setup()
     renderWorkspace(doneAdmissible)
 
-    await user.clear(screen.getByLabelText('案號'))
-    await user.type(screen.getByLabelText('案號'), '新')
+    const info = screen.getByLabelText('基本資訊')
+    fireEvent.change(info, { target: { value: info.value.replace('案　　號：　', '案　　號：　新') } })
     await user.type(screen.getByLabelText('決定書全文'), '補一句')
     await user.click(screen.getByRole('button', { name: '儲存修改' }))
 
     expect(await screen.findByText('儲存表頭失敗')).toBeInTheDocument()
     expect(api.updateDraftText).not.toHaveBeenCalled()
-    expect(screen.getByLabelText('案號')).toHaveValue('新')
+    expect(screen.getByLabelText('基本資訊').value).toContain('案　　號：　新')
     expect(screen.getByLabelText('決定書全文')).toHaveValue(
       `${doneAdmissible.draft_plain_text}補一句`,
     )
   })
 
-  it('代理人或送達代收人可選並填姓名,一起送出', async () => {
-    const user = userEvent.setup()
+  it('表頭有未儲存修改時下載鍵也 aria-disabled', () => {
     renderWorkspace(doneAdmissible)
 
-    await user.selectOptions(screen.getByLabelText('代理人或送達代收人'), '代理人')
-    await user.type(screen.getByLabelText('代理人姓名'), '林○○')
-    await user.click(screen.getByRole('button', { name: '儲存修改' }))
-
-    expect(api.updateDecisionHeader).toHaveBeenCalledWith('c-1', {
-      ...doneAdmissible.decision_header,
-      agent_role: '代理人',
-      agent_name: '林○○',
-    })
-  })
-
-  it('表頭有未儲存修改時下載鍵也 aria-disabled', async () => {
-    const user = userEvent.setup()
-    renderWorkspace(doneAdmissible)
-
-    await user.clear(screen.getByLabelText('案號'))
-    await user.type(screen.getByLabelText('案號'), '新')
+    const info = screen.getByLabelText('基本資訊')
+    fireEvent.change(info, { target: { value: info.value.replace('案　　號：　', '案　　號：　新') } })
 
     expect(screen.getByRole('button', { name: '下載 PDF' })).toHaveAttribute(
       'aria-disabled',
@@ -486,14 +522,9 @@ describe('決定書表頭與結尾', () => {
     )
   })
 
-  it('輪詢換回未變的表頭不蓋掉使用者正在編輯但尚未儲存的欄位;換了的欄位仍會更新', async () => {
-    const user = userEvent.setup()
+  it('沒在編輯時輪詢回來的表頭跟著更新;正在編輯就不被蓋掉', () => {
     const { rerender } = renderWorkspace(doneAdmissible)
 
-    await user.clear(screen.getByLabelText('案號'))
-    await user.type(screen.getByLabelText('案號'), '正在打的字')
-
-    // 模擬重跑或另一視窗改了要旨,案號在後端仍是舊值:案號的編輯不該被蓋掉,要旨要跟著更新
     rerender(
       <DraftWorkspace
         {...propsFrom(doneAdmissible, {
@@ -501,9 +532,18 @@ describe('決定書表頭與結尾', () => {
         })}
       />,
     )
+    expect(screen.getByLabelText('基本資訊').value).toContain('要　　旨：　因違反環保法規事件提起訴願')
 
-    expect(screen.getByLabelText('案號')).toHaveValue('正在打的字')
-    expect(screen.getByLabelText('要旨')).toHaveValue('因違反環保法規事件提起訴願')
+    const info = screen.getByLabelText('基本資訊')
+    fireEvent.change(info, { target: { value: info.value.replace('案　　號：　', '案　　號：　正在打的字') } })
+    rerender(
+      <DraftWorkspace
+        {...propsFrom(doneAdmissible, {
+          header: { ...doneAdmissible.decision_header, gist: '另一個人改的要旨' },
+        })}
+      />,
+    )
+    expect(screen.getByLabelText('基本資訊').value).toContain('案　　號：　正在打的字')
   })
 
   it('原處分撤銷與撤銷另處不印教示條款,其餘結果顯示', () => {

@@ -29,39 +29,18 @@
   margin: 0 0 var(--space-lg);
 }
 
-/* ---------- 表頭 / 結尾:結構化欄位,實線框輸入,一列一欄位 ---------- */
+/* ---------- 基本資訊 / 結尾:整段純文字,逐欄的「欄名：值」由 decisionHeaderText 攤開與解析 ---------- */
 
-.draft-header,
-.draft-footer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-sm);
-  /* 稿紙比 F1 窄,標籤欄跟著收 */
-  --form-label-col: 9em;
+.draft-block {
+  margin-block: var(--space-lg);
 }
 
-.draft-header {
-  padding-bottom: var(--space-lg);
-  margin-bottom: var(--space-lg);
-  border-bottom: var(--rule-hairline);
-}
-
-.draft-footer {
-  padding-top: var(--space-lg);
-  margin-top: var(--space-lg);
-  border-top: var(--rule-hairline);
-}
-
-.draft-form-field label,
-.draft-form-field .form-row__label {
-  font-family: var(--font-ui);
-  font-size: var(--text-ui);
-  color: var(--color-ink-soft);
+.draft-block:first-child {
+  margin-top: 0;
 }
 
 /* 教示條款:承辦人看得到理由但改不動,故不套輸入框樣式 */
 .draft-notice {
-  grid-column: 1 / -1;
   font-family: var(--font-ui);
   font-size: var(--text-sm);
   color: var(--color-ink-soft);
@@ -80,18 +59,10 @@
   margin-top: var(--space-2xs);
 }
 
-/* 與段落文字框同一套:無框透明底,滑過才看得出可編輯 */
 .draft-citation__input {
   flex: 1;
   max-width: 28em;
-  background: transparent;
-  border-color: transparent;
-  padding-inline: 0;
   font-family: var(--font-body);
-}
-
-.draft-citation__input:hover {
-  border-color: var(--color-rule-soft);
 }
 
 .draft-citations__add {
@@ -147,15 +118,22 @@
   margin-top: 0;
 }
 
-/* 讀起來是一份文件,不是五個框:無邊框透明底,滑過才看得到可編輯 */
-.draft-paper .draft-section__text {
-  min-height: 2.5em;
+/* 讀起來是一份文件,不是一疊框:無邊框透明底,滑過才看得到可編輯 */
+.draft-paper .draft-section__text,
+.draft-paper .draft-block__text,
+.draft-paper .draft-citation__input {
   background: transparent;
   border-color: transparent;
   padding-inline: 0;
 }
 
-.draft-paper .draft-section__text:hover {
+.draft-paper .draft-section__text {
+  min-height: 2.5em;
+}
+
+.draft-paper .draft-section__text:hover,
+.draft-paper .draft-block__text:hover,
+.draft-paper .draft-citation__input:hover {
   border-color: var(--color-rule-soft);
 }
 
@@ -191,7 +169,7 @@
   margin-block: 0 var(--space-sm);
 }
 
-/* 段落標題下的 3em 金線,與 .refs-group__title 同一套記號 */
+/* 段落標題下的 3em 金線,與稿紙的 .decision__heading 同一套記號 */
 .basis-panel__heading::after {
   content: '';
   display: block;

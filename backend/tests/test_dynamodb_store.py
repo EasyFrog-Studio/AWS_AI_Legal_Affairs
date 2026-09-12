@@ -309,6 +309,7 @@ def test_roundtrip_keeps_every_case_field_the_pipeline_or_the_clerk_writes():
         "agent_role": "代理人",
         "agent_name": "陳大文",
         "agency": "彰化縣環境保護局",
+        "preamble": "上列訴願人因…本府依法決定如下：",
         "chairman": "林○○",
         "committee": "委員甲\n委員乙",
         "decided_date": "民國114年8月1日",

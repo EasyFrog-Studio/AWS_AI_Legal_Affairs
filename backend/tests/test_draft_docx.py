@@ -1,4 +1,4 @@
-"""決定書草稿的 Word 下載:印的是 decision_full_text(結構化表頭+本文+結構化結尾),與 PDF 同一份全文。"""
+"""決定書草稿的 Word 下載:逐區塊印 build_decision_blocks,與 PDF 同一份版面定義。"""
 import io
 
 import app.main as main_module
@@ -6,6 +6,9 @@ from app.config import settings
 from app.docx_render import render_draft_docx
 from app.models import Case, DecisionHeader, DraftResult
 from app.pdf_render import decision_plain_text
+
+TAB = "\t"
+NEWLINE = "\n"
 
 
 def _headers():
@@ -44,10 +47,10 @@ def test_the_docx_carries_the_whole_document():
     text = _docx_text(render_draft_docx(_case("c-docx001")))
 
     assert "新北市政府訴願決定書" in text
-    assert "案　　號：1141021559" in text
-    assert "主　文" in text and "訴願駁回。" in text
-    assert "理　由" in text and "理由欄內容。" in text
-    assert "訴願審議委員會主任委員　王主委" in text
+    assert "案　　號：　1141021559" in text
+    assert "主    文" in text and "訴願駁回。" in text
+    assert "理    由" in text and "理由欄內容。" in text
+    assert "訴願審議委員會主任委員  王主委" in text
 
 
 def test_the_docx_prints_the_edited_body_inside_the_structured_header_and_footer():
@@ -56,8 +59,8 @@ def test_the_docx_prints_the_edited_body_inside_the_structured_header_and_footer
     text = _docx_text(render_draft_docx(case))
 
     assert "承辦人自己排的版 第二行" in text
-    assert "案　　號：1141021559" in text
-    assert "訴願審議委員會主任委員　王主委" in text
+    assert "案　　號：　1141021559" in text
+    assert "訴願審議委員會主任委員  王主委" in text
 
 
 def test_the_docx_keeps_the_inadmissible_form():
@@ -67,7 +70,7 @@ def test_the_docx_keeps_the_inadmissible_form():
     )
     text = _docx_text(render_draft_docx(case))
 
-    assert "事　實" not in text  # 訴願法§89 I③ 得不記載
+    assert "事    實" not in text  # 訴願法§89 I③ 得不記載
     assert "訴願不受理。" in text
 
 
@@ -110,3 +113,56 @@ def test_the_download_requires_the_api_key():
     _case("c-docx006")
 
     assert client.get("/api/cases/c-docx006/draft.docx").status_code == 401
+
+
+# ---------- 版面:抬頭靠右、條列懸掛縮排 ----------
+
+
+def _paragraphs(blob: bytes):
+    from docx import Document
+
+    return list(Document(io.BytesIO(blob)).paragraphs)
+
+
+def test_the_masthead_puts_the_case_number_on_a_right_aligned_tab_stop():
+    """Word 的靠右不能用空白湊:字寬隨字型變,湊出來的位置在別人機器上就歪了。"""
+    from docx.enum.text import WD_TAB_ALIGNMENT
+
+    paragraphs = _paragraphs(render_draft_docx(_case("c-docx010")))
+    masthead = next(p for p in paragraphs if p.text.startswith("新北市政府訴願決定書"))
+
+    assert masthead.text == "新北市政府訴願決定書" + TAB + "案號：1141021559  號"
+    stops = list(masthead.paragraph_format.tab_stops)
+    assert len(stops) == 1
+    assert stops[0].alignment == WD_TAB_ALIGNMENT.RIGHT
+
+
+def test_numbered_items_carry_a_hanging_indent_so_word_wraps_under_the_text():
+    case = _case("c-docx011", draft_plain_text="理　由" + NEWLINE + "一、按訴願法第 79 條規定…")
+    paragraphs = _paragraphs(render_draft_docx(case))
+
+    item = next(p for p in paragraphs if p.text.startswith("一、"))
+    assert item.paragraph_format.left_indent is not None
+    assert item.paragraph_format.first_line_indent < 0
+    plain = next(p for p in paragraphs if p.text.startswith("訴願審議委員會主任委員"))
+    assert plain.paragraph_format.left_indent is None
+
+
+def test_no_paragraph_leaks_a_raw_tab_apart_from_the_masthead():
+    paragraphs = _paragraphs(render_draft_docx(_case("c-docx012")))
+
+    leaked = [p.text for p in paragraphs if TAB in p.text and not p.text.startswith("新北市政府")]
+    assert leaked == []
+
+
+def test_every_run_asks_word_for_the_ming_typeface_including_chinese():
+    """只設 font.name 的話 Word 只換英數字,中文仍走版面預設字型;eastAsia 那一欄才管中文。"""
+    from docx.oxml.ns import qn
+
+    paragraphs = _paragraphs(render_draft_docx(_case("c-docx013")))
+    runs = [run for p in paragraphs for run in p.runs]
+
+    assert runs
+    for run in runs:
+        assert run.font.name == "新細明體"
+        assert run._element.rPr.rFonts.get(qn("w:eastAsia")) == "新細明體"

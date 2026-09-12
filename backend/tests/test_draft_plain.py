@@ -73,6 +73,7 @@ def _header(**overrides):
         related_laws="訴願法 第 81 條",
         appellant="劉○鑫",
         agency="新北市政府工務局",
+        preamble="上列訴願人因違反建築法事件…本府依法決定如下：",
         chairman="蔡庭榕",
         committee="陳明燦",
         decided_date="114年12月17日",
@@ -90,27 +91,27 @@ def test_decision_full_text_follows_the_official_gazette_field_order_for_an_admi
     text = decision_full_text(case)
 
     order = [
-        "案　　號：1143051259",
-        "要　　旨：因違反建築法事件提起訴願",
-        "發文日期：114年12月17日",
-        "發文字號：新北府訴決字第1141934721號",
-        "相關法條：訴願法 第 81 條",
+        "案　　號：　1143051259",
+        "要　　旨：　因違反建築法事件提起訴願",
+        "發文日期：　民國114年12月17日",
+        "發文字號：　新北府訴決字第1141934721號",
+        "相關法條：　訴願法 第 81 條",
         "新北市政府訴願決定書",
         "劉○鑫",
         "新北市政府工務局",
         "本府依法決定如下：",
-        "主　文",
+        "主    文",
         "原處分撤銷。",
-        "事　實",
+        "事    實",
         "緣訴願人…",
-        "理　由",
+        "理    由",
         "一、按建築法…",
-        "訴願審議委員會主任委員　蔡庭榕",
-        "委員　陳明燦",
+        "訴願審議委員會主任委員  蔡庭榕",
+        "委員  陳明燦",
     ]
     positions = [text.index(marker) for marker in order]
     assert positions == sorted(positions)
-    assert text.startswith("案　　號：")
+    assert text.startswith("案　　號：　")
     assert "如不服本決定" not in text  # 原處分撤銷訴願有理由,無救濟對象
 
 
@@ -123,20 +124,20 @@ def test_decision_full_text_follows_the_official_gazette_field_order_for_an_inad
     text = decision_full_text(case)
 
     order = [
-        "案　　號：1143051259",
-        "要　　旨：因違反建築法事件提起訴願",
-        "發文日期：114年12月17日",
-        "發文字號：新北府訴決字第　　　　號",
-        "相關法條：",
+        "案　　號：　1143051259",
+        "要　　旨：　因違反建築法事件提起訴願",
+        "發文日期：　民國114年12月17日",
+        "發文字號：　",
+        "相關法條：　",
         "新北市政府訴願決定書",
         "劉○鑫",
         "新北市政府工務局",
         "本府依法決定如下：",
-        "主　文",
+        "主    文",
         "訴願不受理。",
-        "理　由",
+        "理    由",
         "逾期提起。",
-        "訴願審議委員會主任委員　蔡庭榕",
+        "訴願審議委員會主任委員  蔡庭榕",
         "如不服本決定，得於決定書送達之次日起 2 個月內向臺北高等行政法院",
     ]
     positions = [text.index(marker) for marker in order]

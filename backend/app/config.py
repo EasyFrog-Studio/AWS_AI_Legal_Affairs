@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     LOCAL_LLM_TIMEOUT: float = 300
     POSTGRES_URL: str = ""  # 空字串=未設定,連線前由呼叫端(store.py/providers/local.py)拒絕
     # 決定書 PDF 的內嵌字型;檔案不存在時 pdf_render 退回 fitz 內建 china-t
-    DECISION_FONT_FILE: str = "/usr/share/fonts/truetype/ukai-tw.ttf"
+    DECISION_FONT_FILE: str = "/usr/share/fonts/truetype/uming-tw.ttf"
 
     @property
     def case_store_kind(self) -> str:

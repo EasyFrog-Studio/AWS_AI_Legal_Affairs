@@ -124,6 +124,7 @@ export const doneAdmissible = {
     agent_role: '',
     agent_name: '',
     agency: '',
+    preamble: '',
     chairman: '',
     committee: '',
     decided_date: '',
