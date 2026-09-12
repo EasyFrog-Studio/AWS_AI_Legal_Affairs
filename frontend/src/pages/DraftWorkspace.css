@@ -33,12 +33,15 @@
   margin-bottom: var(--space-md);
 }
 
-/* 決定結果選擇器:寬度收在一眼看得完的範圍,不撐成整列 */
+/* 決定結果選擇器:排在全文之後,以髮絲線與稿紙正文隔開;寬度收在一眼看得完的範圍,不撐成整列 */
 .draft-result {
   display: flex;
   align-items: center;
   gap: var(--space-md);
-  margin-bottom: var(--space-lg);
+  margin-top: var(--space-xl);
+  padding-top: var(--space-md);
+  border-top: var(--rule-hairline);
+  margin-bottom: var(--space-xs);
 }
 
 .draft-result select {

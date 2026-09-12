@@ -697,7 +697,7 @@ describe('決定書草稿分段', () => {
     expect(screen.getByLabelText('主文')).toHaveValue(sections.find((s) => s.key === 'main').body)
     expect(screen.getByLabelText('事實')).toHaveValue(sections.find((s) => s.key === 'fact').body)
     expect(screen.getByLabelText('理由')).toHaveValue(sections.find((s) => s.key === 'reason').body)
-    expect(screen.getByLabelText('決定書表頭')).toBeInTheDocument()
+    expect(screen.getByLabelText('主旨')).toBeInTheDocument()
     expect(screen.getByLabelText('決定書結尾')).toBeInTheDocument()
     expect(screen.queryByLabelText('決定書全文')).toBeNull()
   })
@@ -708,7 +708,7 @@ describe('決定書草稿分段', () => {
 
     await screen.findByLabelText('主文')
     expect(screen.queryByLabelText('事實')).toBeNull()
-    expect(screen.getByLabelText('決定書表頭')).toBeInTheDocument()
+    expect(screen.getByLabelText('主旨')).toBeInTheDocument()
     expect(screen.getByLabelText('理由')).toBeInTheDocument()
     expect(screen.getByLabelText('決定書結尾')).toBeInTheDocument()
   })

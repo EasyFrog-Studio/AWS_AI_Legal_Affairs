@@ -12,7 +12,10 @@ import { useNavGuard } from '../navGuard.js'
 import { splitDraft, joinDraft } from './draftSections.js'
 import './DraftWorkspace.css'
 
-const SECTION_ARIA = { head: '決定書表頭', main: '主文', fact: '事實', reason: '理由', tail: '決定書結尾' }
+const SECTION_ARIA = { head: '主旨', main: '主文', fact: '事實', reason: '理由', tail: '決定書結尾' }
+
+// 表頭在畫面上標成「主旨」,但不寫進 section.title:標題進了 joinDraft 就成了決定書的一行
+const HEAD_HEADING = '主　旨'
 
 // 值域與順序同 models.DraftType,五值全開:改結果是承辦人的權限,不受目前 track 收斂
 const DRAFT_RESULT_OPTIONS = ['不受理', '駁回', '撤銷另處', '原處分撤銷', '部分不受理部分駁回']
@@ -235,9 +238,40 @@ export default function DraftWorkspace({
   return (
     <div className="draft-workspace" hidden={hidden}>
       <div className="draft-paper" role="group" aria-label="決定書稿紙">
-        <p className="doc-intro">
-          這一份就是決定書本身：系統依案件資訊與檢索結果先擬好，承辦人直接在這裡改，下載的 PDF 與 Word 印的都是它。
-        </p>
+        {isWhole ? (
+          <AutoTextarea
+            id="draft-plain"
+            aria-label="決定書全文"
+            className="textarea--document"
+            value={plain}
+            onChange={setPlain}
+            hidden={hidden}
+          />
+        ) : (
+          sections.map((s) => (
+            <div className={`draft-section draft-section--${s.key}`} key={s.key}>
+              {(s.key === 'head' ? HEAD_HEADING : s.title) && (
+                <label htmlFor={`draft-${s.key}`} className="decision__heading">
+                  {s.key === 'head' ? HEAD_HEADING : s.title}
+                </label>
+              )}
+              <AutoTextarea
+                id={`draft-${s.key}`}
+                aria-label={SECTION_ARIA[s.key]}
+                className="textarea--document draft-section__text"
+                value={s.body}
+                onChange={(v) => updateSection(s.key, v)}
+                hidden={hidden}
+              />
+            </div>
+          ))
+        )}
+        {draft.cited_laws?.length > 0 && (
+          <div className="draft-field">
+            <span className="draft-paper__section-title">引用法條</span>
+            <p className="mono">{draft.cited_laws.join('、')}</p>
+          </div>
+        )}
         <div className="draft-result">
           <label htmlFor="draft-result">決定結果</label>
           <select
@@ -267,42 +301,8 @@ export default function DraftWorkspace({
           )}
         </div>
         <p className="doc-intro draft-result__hint">
-          改結果不會改動全文，主文與理由請在下方自行修改。
+          改結果不會改動全文，主文與理由請在上方自行修改。
         </p>
-        {isWhole ? (
-          <AutoTextarea
-            id="draft-plain"
-            aria-label="決定書全文"
-            className="textarea--document"
-            value={plain}
-            onChange={setPlain}
-            hidden={hidden}
-          />
-        ) : (
-          sections.map((s) => (
-            <div className={`draft-section draft-section--${s.key}`} key={s.key}>
-              {s.title && (
-                <label htmlFor={`draft-${s.key}`} className="decision__heading">
-                  {s.title}
-                </label>
-              )}
-              <AutoTextarea
-                id={`draft-${s.key}`}
-                aria-label={SECTION_ARIA[s.key]}
-                className="textarea--document draft-section__text"
-                value={s.body}
-                onChange={(v) => updateSection(s.key, v)}
-                hidden={hidden}
-              />
-            </div>
-          ))
-        )}
-        {draft.cited_laws?.length > 0 && (
-          <div className="draft-field">
-            <span className="draft-paper__section-title">引用法條</span>
-            <p className="mono">{draft.cited_laws.join('、')}</p>
-          </div>
-        )}
         <div className="action-row draft-actions">
           <span className="draft-actions__meta">
             已存 {versionCount} 版{versionsTruncated ? '（最舊版本已捨棄）' : ''}
