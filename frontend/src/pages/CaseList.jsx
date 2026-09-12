@@ -6,8 +6,8 @@ import Icon from '../components/Icon.jsx'
 import Seal, { resolveProgressSeal, resolveResultSeal } from '../components/Seal.jsx'
 import './CaseList.css'
 
-const STATUS_OPTIONS = ['全部', '待確認', '審理中', '處理失敗', '已審結']
-const RESULT_OPTIONS = ['全部', '不受理', '駁回', '撤銷另處', '原處分撤銷', '部分不受理部分駁回', '待人工確認']
+const STATUS_OPTIONS = ['全部', '待確認', '審理中', '待人工確認', '處理失敗', '已審結']
+const RESULT_OPTIONS = ['全部', '不受理', '駁回', '撤銷另處', '原處分撤銷', '部分不受理部分駁回']
 const ALL = '全部'
 
 const PERIOD_OPTIONS = [
@@ -99,13 +99,7 @@ export default function CaseList() {
         if (!inId && !inTitle) return false
       }
       if (status !== ALL && resolveProgressSeal(c).text !== status) return false
-      if (result !== ALL) {
-        if (result === '待人工確認') {
-          if (c.needs_review !== true) return false
-        } else if (resolveResultSeal(c)?.text !== result) {
-          return false
-        }
-      }
+      if (result !== ALL && resolveResultSeal(c)?.text !== result) return false
       if (caseType !== ALL && c.case_type !== caseType) return false
       if (since !== null) {
         const at = Date.parse(c.created_at)
@@ -269,10 +263,9 @@ export default function CaseList() {
             <thead>
               <tr>
                 <th>案號</th>
-                <th>訴願書檔名</th>
                 <th>案件類別</th>
-                <th>進度</th>
                 <th>狀況</th>
+                <th>進度</th>
                 <th>建立時間</th>
               </tr>
             </thead>
@@ -294,13 +287,7 @@ export default function CaseList() {
                     }}
                   >
                     <td className="mono">{c.case_id}</td>
-                    <td>{c.title || '（未命名案件）'}</td>
                     <td>{c.case_type || '—'}</td>
-                    <td>
-                      <Seal kind={progressSeal.kind} size="sm">
-                        {progressSeal.text}
-                      </Seal>
-                    </td>
                     <td>
                       {resultSeal ? (
                         <Seal kind={resultSeal.kind} size="sm">
@@ -309,7 +296,11 @@ export default function CaseList() {
                       ) : (
                         '—'
                       )}
-                      {c.needs_review && <span className="case-list-result__note">待人工確認</span>}
+                    </td>
+                    <td>
+                      <span className={`case-list-progress case-list-progress--${progressSeal.kind}`}>
+                        {progressSeal.text}
+                      </span>
                     </td>
                     <td className="mono">{formatDate(c.created_at)}</td>
                   </tr>

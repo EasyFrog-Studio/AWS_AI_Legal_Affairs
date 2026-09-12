@@ -60,6 +60,13 @@ describe('resolveProgressSeal:清單頁「進度」欄,僅四值', () => {
     expect(resolveProgressSeal({ status: 'done' })).toEqual({ kind: 'accent', text: '已審結' })
   })
 
+  it('done 且 needs_review → 待人工確認(併入進度欄,狀況欄只留決定結果)', () => {
+    expect(resolveProgressSeal({ status: 'done', needs_review: true })).toEqual({
+      kind: 'review',
+      text: '待人工確認',
+    })
+  })
+
   it('邊界:未知 status 落回審理中,不拋錯', () => {
     expect(resolveProgressSeal({ status: '未知狀態' })).toEqual({ kind: 'accent', text: '審理中' })
   })

@@ -47,7 +47,7 @@ describe('案件清單', () => {
 
     await user.type(screen.getByRole('textbox', { name: '搜尋' }), 'c-0002')
     expect(dataRows()).toHaveLength(1)
-    expect(dataRows()[0]).toHaveTextContent('交通罰單駁回')
+    expect(dataRows()[0]).toHaveTextContent('c-0002')
     await user.clear(screen.getByRole('textbox', { name: '搜尋' }))
 
     await user.type(screen.getByRole('textbox', { name: '搜尋' }), '建管')
@@ -82,12 +82,14 @@ describe('案件清單', () => {
     expect(screen.getByRole('button', { name: '新增案件' })).toBeInTheDocument()
   })
 
-  it('needs_review 的案件在狀況欄印「待人工確認」提示,並可據此篩選', async () => {
+  it('needs_review 的案件在進度欄印「待人工確認」,狀況欄不重複,並可據此篩選', async () => {
     const user = userEvent.setup()
     await renderList([{ ...listRows[0], needs_review: true }, listRows[1]])
 
-    expect(dataRows()[0]).toHaveTextContent('待人工確認')
-    await user.selectOptions(screen.getByRole('combobox', { name: '狀況' }), '待人工確認')
+    const cells = within(dataRows()[0]).getAllByRole('cell')
+    expect(cells[3]).toHaveTextContent('待人工確認')
+    expect(cells[2]).not.toHaveTextContent('待人工確認')
+    await user.selectOptions(screen.getByRole('combobox', { name: '進度' }), '待人工確認')
     expect(dataRows()).toHaveLength(1)
     expect(dataRows()[0]).toHaveTextContent('c-0001')
   })
@@ -95,7 +97,16 @@ describe('案件清單', () => {
   it('建立時間只到分,不顯示秒', async () => {
     await renderList([{ ...listRows[0], created_at: '2026-08-27T01:02:03+00:00' }])
     const cells = within(dataRows()[0]).getAllByRole('cell')
-    expect(cells[5]).toHaveTextContent(/^\d{4}\/\d{1,2}\/\d{1,2} \d{1,2}:\d{2}$/)
+    expect(cells[4]).toHaveTextContent(/^\d{4}\/\d{1,2}\/\d{1,2} \d{1,2}:\d{2}$/)
+  })
+
+  it('清單不顯示訴願書檔名欄', async () => {
+    await renderList(listRows)
+    const headers = within(screen.getByRole('table'))
+      .getAllByRole('columnheader')
+      .map((h) => h.textContent)
+    expect(headers).toEqual(['案號', '案件類別', '狀況', '進度', '建立時間'])
+    expect(screen.queryByText('環保裁罰逾期')).toBeNull()
   })
 
   it('一頁 20 筆,上下頁切換,首末頁按鈕停用', async () => {
@@ -168,8 +179,8 @@ describe('案件清單', () => {
     rows[0].created_at = null
     rows[1].created_at = '不是日期'
     await renderList([...rows, ...rowsAgo(1).map((r) => ({ ...r, case_id: 'c-9999' }))])
-    expect(within(dataRows()[0]).getAllByRole('cell')[5]).toHaveTextContent('')
-    expect(within(dataRows()[1]).getAllByRole('cell')[5]).toHaveTextContent('不是日期')
+    expect(within(dataRows()[0]).getAllByRole('cell')[4]).toHaveTextContent('')
+    expect(within(dataRows()[1]).getAllByRole('cell')[4]).toHaveTextContent('不是日期')
 
     await user.selectOptions(screen.getByRole('combobox', { name: '時間' }), '7 天')
     expect(dataRows()).toHaveLength(1)
@@ -208,15 +219,15 @@ describe('案件清單', () => {
     expect(dataRows()).toHaveLength(3)
   })
 
-  it('進度篩選只有四種進度值(待確認/審理中/處理失敗/已審結)', async () => {
+  it('進度篩選涵蓋五種進度值(待確認/審理中/待人工確認/處理失敗/已審結)', async () => {
     await renderList(listRows)
     const options = within(screen.getByRole('combobox', { name: '進度' }))
       .getAllByRole('option')
       .map((o) => o.textContent)
-    expect(options).toEqual(['全部', '待確認', '審理中', '處理失敗', '已審結'])
+    expect(options).toEqual(['全部', '待確認', '審理中', '待人工確認', '處理失敗', '已審結'])
   })
 
-  it('狀況篩選含五種決定類型與待人工確認', async () => {
+  it('狀況篩選只有五種決定類型,不含待人工確認', async () => {
     await renderList(listRows)
     const options = within(screen.getByRole('combobox', { name: '狀況' }))
       .getAllByRole('option')
@@ -228,7 +239,6 @@ describe('案件清單', () => {
       '撤銷另處',
       '原處分撤銷',
       '部分不受理部分駁回',
-      '待人工確認',
     ])
   })
 
@@ -286,14 +296,14 @@ describe('案件清單', () => {
     await renderList(rows)
     const row0 = within(dataRows()[0]).getAllByRole('cell')
     expect(row0[3]).toHaveTextContent('已審結')
-    expect(row0[4]).toHaveTextContent('撤銷另處')
+    expect(row0[2]).toHaveTextContent('撤銷另處')
 
     const row1 = within(dataRows()[1]).getAllByRole('cell')
     expect(row1[3]).toHaveTextContent('已審結')
-    expect(row1[4]).toHaveTextContent('—')
+    expect(row1[2]).toHaveTextContent('—')
   })
 
-  it('狀況篩選:選駁回只留 result=駁回,選待人工確認只留 needs_review', async () => {
+  it('狀況篩選:選駁回只留 result=駁回;待人工確認改由進度篩選', async () => {
     const rows = [
       {
         case_id: 'c-0301',
@@ -335,7 +345,7 @@ describe('案件清單', () => {
     expect(dataRows()[0]).toHaveTextContent('c-0301')
     await user.selectOptions(screen.getByRole('combobox', { name: '狀況' }), '全部')
 
-    await user.selectOptions(screen.getByRole('combobox', { name: '狀況' }), '待人工確認')
+    await user.selectOptions(screen.getByRole('combobox', { name: '進度' }), '待人工確認')
     expect(dataRows()).toHaveLength(1)
     expect(dataRows()[0]).toHaveTextContent('c-0302')
   })
