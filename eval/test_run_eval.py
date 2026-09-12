@@ -74,3 +74,35 @@ def test_screening_scores_against_the_clause_the_pipeline_settled_on():
     rows = _score_case(case, {"screening": {"passed": False, "clause": "77(2)"}})
 
     assert [r["result"] for r in rows] == [CORRECT]
+
+
+def test_date_fields_are_recognized_by_CASE_INFO_DATE_FIELDS_not_by_a_name_suffix():
+    """disposition_payment_deadline 是日期欄卻不以 _date 結尾;判斷欄位是否比日期值必須查
+    CASE_INFO_DATE_FIELDS,只看字尾會把它誤判成一般字串欄位,連「112.2.15」和「民國112年2月15日」
+    這種同一天的不同寫法都會判錯。"""
+    info = _info(disposition_date="民國112年1月10日", disposition_payment_deadline="112.2.15")
+    expected = {"disposition_date": "112年1月10日", "disposition_payment_deadline": "民國112年2月15日"}
+
+    rows = _score_fields(info, expected, LAYER_F1)
+
+    assert [(r["field"], r["result"]) for r in rows] == [
+        ("disposition_date", CORRECT),
+        ("disposition_payment_deadline", CORRECT),
+    ]
+
+
+def test_a_date_field_on_a_different_day_is_wrong_and_a_null_answer_is_skipped():
+    info = _info(disposition_date="民國112年1月11日", disposition_payment_deadline="未載明")
+    expected = {"disposition_date": "112年1月10日", "disposition_payment_deadline": None}
+
+    rows = _score_fields(info, expected, LAYER_F1)
+
+    assert [(r["field"], r["result"]) for r in rows] == [("disposition_date", WRONG)]
+
+
+def test_a_date_field_the_system_honestly_could_not_read_scores_unsure_not_wrong():
+    info = _info(disposition_date="未載明")
+
+    rows = _score_fields(info, {"disposition_date": "民國112年1月10日"}, LAYER_F1)
+
+    assert [r["result"] for r in rows] == [UNSURE]

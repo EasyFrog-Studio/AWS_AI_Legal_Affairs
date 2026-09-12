@@ -3,6 +3,7 @@
   "_excluded": {
     "example1b": "ground truth 是我方依法規推導的 05_預期決定結果.md,非官方文書,依權威規則不列入評測"
   },
+  "_omitted_fields": "appellant(訴願人):8 份決定書均以「姓氏+○」遮罩(如「洪○」「黃○騰」),與測試卷證合成的完整姓名結構性不可比對,不是抽錯——比對只會製造假的 wrong,故不列入答案鍵,沿用 _authority 對○遮罩欄位的既有排除規則。service_deposit_office(寄存機關):8 份決定書皆未載明以寄存方式送達,無任何一份可供逐字抄錄,故未新增此欄。",
   "cases": {
     "example1": {
       "source_decision": "04.114年-違反廢棄物清理法事件-77(2)-訴願逾期-不受理.txt",
@@ -13,15 +14,17 @@
       },
       "f1": {
         "agency": "新北市政府環境保護局",
-        "disposition_date": "112年1月10日",
+        "disposition_date": "民國112年1月10日",
         "disposition_no": "新北環稽字第41-112-010273",
-        "case_type": "廢棄物清理法"
+        "case_type": "廢棄物清理法",
+        "service_method": "同居人"
       },
       "deadline": {
-        "service_date": "112年2月7日",
-        "due_date": "112年3月9日",
-        "filed_date": "114年9月25日"
-      }
+        "service_date": "民國112年2月7日",
+        "due_date": "民國112年3月9日",
+        "filed_date": "民國114年9月25日"
+      },
+      "_note": "決定書載明系爭裁處書因訴願人本人未獲會晤,由郵務人員付予同居人許○于收受,service_method 取「同居人」"
     },
     "example2": {
       "source_decision": "05.114年-違反空氣汙染防制法事件-77(3)-當事人不適格-不受理.txt",
@@ -32,9 +35,10 @@
       },
       "f1": {
         "agency": "新北市政府環境保護局",
-        "disposition_date": "114年5月9日",
+        "disposition_date": "民國114年5月9日",
         "disposition_no": "新北環稽字第21-114-050123號",
-        "case_type": "空氣污染防制法"
+        "case_type": "空氣污染防制法",
+        "service_method": null
       },
       "deadline": {
         "service_date": null,
@@ -52,9 +56,10 @@
       },
       "f1": {
         "agency": null,
-        "disposition_date": "114年4月23日",
+        "disposition_date": "民國114年4月23日",
         "disposition_no": "新北拆認一字第1143254864號",
-        "case_type": "陳情"
+        "case_type": "陳情",
+        "service_method": null
       },
       "deadline": {
         "service_date": null,
@@ -72,14 +77,15 @@
       },
       "f1": {
         "agency": "新北市政府環境保護局",
-        "disposition_date": "114年9月16日",
+        "disposition_date": "民國114年9月16日",
         "disposition_no": "新北環稽字第41-114-090351號",
-        "case_type": "廢棄物清理法"
+        "case_type": "廢棄物清理法",
+        "service_method": null
       },
       "deadline": {
         "service_date": null,
         "due_date": null,
-        "filed_date": "114年9月22日"
+        "filed_date": "民國114年9月22日"
       }
     },
     "example5": {
@@ -91,9 +97,10 @@
       },
       "f1": {
         "agency": "新北市政府環境保護局",
-        "disposition_date": "114年8月15日",
+        "disposition_date": "民國114年8月15日",
         "disposition_no": null,
-        "case_type": "空氣污染防制法"
+        "case_type": "空氣污染防制法",
+        "service_method": null
       },
       "deadline": {
         "service_date": null,
@@ -111,12 +118,13 @@
       },
       "f1": {
         "agency": "新北市政府工務局",
-        "disposition_date": "114年7月4日",
+        "disposition_date": "民國114年7月4日",
         "disposition_no": "新北工使字第1141305688號",
-        "case_type": "建築法"
+        "case_type": "建築法",
+        "service_method": null
       },
       "deadline": {
-        "service_date": "114年7月9日",
+        "service_date": "民國114年7月9日",
         "due_date": null,
         "filed_date": null
       }
@@ -127,9 +135,10 @@
       "screening": null,
       "f1": {
         "agency": "新北市政府工務局",
-        "disposition_date": "114年4月25日",
+        "disposition_date": "民國114年4月25日",
         "disposition_no": "新北工使字第1140751419號",
-        "case_type": "建築法"
+        "case_type": "建築法",
+        "service_method": null
       },
       "deadline": {
         "service_date": null,
@@ -147,9 +156,10 @@
       },
       "f1": {
         "agency": "新北市政府警察局汐止分局",
-        "disposition_date": "114年9月7日",
+        "disposition_date": "民國114年9月7日",
         "disposition_no": "新北警汐刑字1144250329號",
-        "case_type": "洗錢防制法"
+        "case_type": "洗錢防制法",
+        "service_method": null
       },
       "deadline": {
         "service_date": null,
@@ -159,135 +169,203 @@
     }
   },
   "decisions": {
-    "_note": "21 份真實 114 年決定書全文。只量 F1 對真實文本的擷取與案類分類;不量分流——理由欄逐字寫著第幾款,抄回來不代表會判。case_type 的答案取自檔名標註,但已人工校正:檔名寫「空氣汙染防制法」,法規正名與決定書內文皆為「空氣污染防制法」。",
+    "_note": "21 份真實 114 年決定書全文。只量 F1 對真實文本的擷取與案類分類;不量分流——理由欄逐字寫著第幾款,抄回來不代表會判。case_type 的答案取自檔名標註,但已人工校正:檔名寫「空氣汙染防制法」,法規正名與決定書內文皆為「空氣污染防制法」。appellant 逐字抄自「訴願人」欄(含去識別化的「○」,此處無合成卷證可比對,不受 _omitted_fields 的排除規則所限);service_method/service_deposit_office 僅在決定書明確載明原處分書(系爭裁處書/系爭處分/系爭告誡書)本身送達方式時填,通知性文件(如補正通知函)的送達不算同一件事,無記載或僅記載其他文件之送達者填 null。",
     "01": {
       "case_type": "噪音管制法",
       "agency": "新北市政府環境保護局",
-      "disposition_date": "113年12月20日",
-      "disposition_no": "新北環稽字第22-113-120286號"
+      "disposition_date": "民國113年12月20日",
+      "disposition_no": "新北環稽字第22-113-120286號",
+      "appellant": "尤○杏",
+      "service_method": null,
+      "service_deposit_office": null,
+      "_note": "決定書僅載明系爭補正通知函以寄存方式送達(寄存於土○清○郵局○支局),那是通知性文件而非原處分書(系爭裁處書)本身的送達,不算同一件事,service_method/service_deposit_office 不計分"
     },
     "02": {
       "case_type": "廢棄物清理法",
       "agency": "新北市政府環境保護局",
-      "disposition_date": "114年8月20日",
-      "disposition_no": "新北環稽字第41-114-080375號"
+      "disposition_date": "民國114年8月20日",
+      "disposition_no": "新北環稽字第41-114-080375號",
+      "appellant": "陳○英",
+      "service_method": null,
+      "service_deposit_office": null,
+      "_note": "決定書僅載明系爭補正通知函以寄存方式送達(寄存於○○○○路郵局○○2支局),非原處分書(系爭裁處書)本身的送達,不計分"
     },
     "03": {
       "case_type": "洗錢防制法",
       "agency": "新北市政府警察局蘆洲分局",
-      "disposition_date": "112年11月12日",
-      "disposition_no": null
+      "disposition_date": "民國112年11月12日",
+      "disposition_no": null,
+      "appellant": "林○如",
+      "service_method": "本人",
+      "service_deposit_office": null
     },
     "04": {
       "case_type": "廢棄物清理法",
       "agency": "新北市政府環境保護局",
-      "disposition_date": "112年1月10日",
+      "disposition_date": "民國112年1月10日",
       "disposition_no": "新北環稽字第41-112-010273",
+      "appellant": "洪○",
+      "service_method": "同居人",
+      "service_deposit_office": null,
       "_note": "本份決定書自相矛盾:要旨欄寫「因違反噪音管制法事件」,理由欄與原處分皆為廢棄物清理法。case_type 取理由欄"
     },
     "05": {
       "case_type": "空氣污染防制法",
       "agency": "新北市政府環境保護局",
-      "disposition_date": "114年5月9日",
-      "disposition_no": "新北環稽字第21-114-050123號"
+      "disposition_date": "民國114年5月9日",
+      "disposition_no": "新北環稽字第21-114-050123號",
+      "appellant": "黃○騰",
+      "service_method": null,
+      "service_deposit_office": null
     },
     "06": {
       "case_type": "請求撤銷建造執照",
       "agency": "新北市政府工務局",
       "disposition_date": null,
       "disposition_no": null,
+      "appellant": "劉○濟",
+      "service_method": null,
+      "service_deposit_office": null,
       "_note": "決定書的事件名是「請求撤銷建造執照」而非法規名稱。本案原處分是核發給他人的建造執照、不是對訴願人的處罰,依 f1_extract.txt 的案類判準本來就該填事件名,系統填「建築法」是抽錯而非定義落差"
     },
     "07": {
       "case_type": "噪音管制法",
       "agency": "新北市政府環境保護局",
-      "disposition_date": "113年9月30日",
-      "disposition_no": "新北環稽字第22-113-090678號"
+      "disposition_date": "民國113年9月30日",
+      "disposition_no": "新北環稽字第22-113-090678號",
+      "appellant": "吳○靜",
+      "service_method": null,
+      "service_deposit_office": null,
+      "_note": "決定書僅載明系爭補正通知函由大樓管理人員(接收郵件人員)簽章收受,那是通知性文件而非原處分書(系爭裁處書)本身的送達,不計分"
     },
     "08": {
       "case_type": "建築法",
       "agency": "新北市政府工務局",
-      "disposition_date": "114年6月12日",
-      "disposition_no": "新北工使字第1141143748號"
+      "disposition_date": "民國114年6月12日",
+      "disposition_no": "新北工使字第1141143748號",
+      "appellant": "廖○吟",
+      "service_method": null,
+      "service_deposit_office": null
     },
     "09": {
       "case_type": "洗錢防制法",
       "agency": "新北市政府警察局汐止分局",
-      "disposition_date": "114年1月2日",
-      "disposition_no": null
+      "disposition_date": "民國114年1月2日",
+      "disposition_no": null,
+      "appellant": "吳○源",
+      "service_method": null,
+      "service_deposit_office": null
     },
     "10": {
       "case_type": "廢棄物清理法",
       "agency": "新北市政府環境保護局",
-      "disposition_date": "114年11月12日",
-      "disposition_no": "新北環稽字第41-114-110419號"
+      "disposition_date": "民國114年11月12日",
+      "disposition_no": "新北環稽字第41-114-110419號",
+      "appellant": "洪○謙",
+      "service_method": null,
+      "service_deposit_office": null
     },
     "11": {
       "case_type": "洗錢防制法",
       "agency": "新北市政府警察局三峽分局",
       "disposition_date": null,
-      "disposition_no": null
+      "disposition_no": null,
+      "appellant": "陳○婍",
+      "service_method": "本人",
+      "service_deposit_office": null,
+      "_note": "決定書載明「訴願人簽收日期:民國112年10月2日」,即由訴願人本人簽收,取「本人」"
     },
     "12": {
       "case_type": "申請提供政府資訊",
       "agency": "新北市政府警察局土城分局",
       "disposition_date": null,
-      "disposition_no": null
+      "disposition_no": null,
+      "appellant": "王○峰",
+      "service_method": null,
+      "service_deposit_office": null
     },
     "13": {
       "case_type": "陳情",
       "agency": null,
-      "disposition_date": "114年4月23日",
-      "disposition_no": "新北拆認一字第1143254864號"
+      "disposition_date": "民國114年4月23日",
+      "disposition_no": "新北拆認一字第1143254864號",
+      "appellant": "何○亮",
+      "service_method": null,
+      "service_deposit_office": null
     },
     "14": {
       "case_type": "道路交通管理處罰條例",
       "agency": null,
       "disposition_date": null,
-      "disposition_no": null
+      "disposition_no": null,
+      "appellant": "林○梅",
+      "service_method": null,
+      "service_deposit_office": null
     },
     "15": {
       "case_type": "洗錢防制法",
       "agency": "新北市政府警察局汐止分局",
-      "disposition_date": "114年9月7日",
-      "disposition_no": "新北警汐刑字1144250329號"
+      "disposition_date": "民國114年9月7日",
+      "disposition_no": "新北警汐刑字1144250329號",
+      "appellant": "林○儒",
+      "service_method": null,
+      "service_deposit_office": null
     },
     "16": {
       "case_type": "空氣污染防制法",
       "agency": "新北市政府環境保護局",
-      "disposition_date": "114年8月15日",
-      "disposition_no": null
+      "disposition_date": "民國114年8月15日",
+      "disposition_no": null,
+      "appellant": "黃○裕",
+      "service_method": null,
+      "service_deposit_office": null
     },
     "17": {
       "case_type": "廢棄物清理法",
       "agency": "新北市政府環境保護局",
-      "disposition_date": "114年9月16日",
-      "disposition_no": "新北環稽字第41-114-090351號"
+      "disposition_date": "民國114年9月16日",
+      "disposition_no": "新北環稽字第41-114-090351號",
+      "appellant": "鄭○芳",
+      "service_method": null,
+      "service_deposit_office": null
     },
     "18": {
       "case_type": "洗錢防制法",
       "agency": "新北市政府警察局中和分局",
-      "disposition_date": "114年7月26日",
-      "disposition_no": null
+      "disposition_date": "民國114年7月26日",
+      "disposition_no": null,
+      "appellant": "莊○婷",
+      "service_method": null,
+      "service_deposit_office": null
     },
     "19": {
       "case_type": "建築法",
       "agency": "新北市政府工務局",
-      "disposition_date": "114年7月4日",
-      "disposition_no": "新北工使字第1141305688號"
+      "disposition_date": "民國114年7月4日",
+      "disposition_no": "新北工使字第1141305688號",
+      "appellant": "劉○鑫即劉○鑫建築師事務所",
+      "service_method": null,
+      "service_deposit_office": null,
+      "_note": "決定書僅載明系爭處分書於114年7月9日合法送達,未載明送達方式,service_method 不計分"
     },
     "20": {
       "case_type": null,
       "agency": "新北市政府警察局三重分局",
-      "disposition_date": "114年2月5日",
+      "disposition_date": "民國114年2月5日",
       "disposition_no": "新北警重督字第1143736300號",
+      "appellant": "高○笙",
+      "service_method": null,
+      "service_deposit_office": null,
       "_note": "事件名為「申請政府資訊」而非法規名稱(同 06);但 12 對同一類事件寫「申請提供政府資訊」,官方文書自己就有兩種寫法,無唯一正解,故 case_type 不計分"
     },
     "21": {
       "case_type": "建築法",
       "agency": "新北市政府工務局",
-      "disposition_date": "114年4月25日",
-      "disposition_no": "新北工使字第1140751419號"
+      "disposition_date": "民國114年4月25日",
+      "disposition_no": "新北工使字第1140751419號",
+      "appellant": "施○迅即芯○海養生館",
+      "service_method": null,
+      "service_deposit_office": null
     }
   }
 }

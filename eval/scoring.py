@@ -4,7 +4,17 @@
 自己不知道,與亂猜是兩回事,故獨立成格,不併入對錯。
 """
 import re
+import sys
 import unicodedata
+from pathlib import Path
+
+# 日期正規化刻意共用 backend 的 app.dates.normalize_roc(而非像 clause_key 那樣自帶一份解析器):
+# 答案鍵與系統輸出都得先換算成同一種民國日期寫法才能比對「同一天」,兩邊各自猜寫法反而更容易兜不攏。
+_BACKEND_DIR = Path(__file__).resolve().parent.parent / "backend"
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
+
+from app.dates import normalize_roc  # noqa: E402
 
 CORRECT = "correct"
 WRONG = "wrong"
@@ -12,8 +22,6 @@ UNSURE = "unsure"
 
 # F1 prompt 要求「找不到明確依據就填未載明」;那是誠實回報,不是抽錯
 _HONEST_MISS = {"未載明", "未收錄", ""}
-
-_ROC_DATE_RE = re.compile(r"(?:民國)?\s*(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日")
 
 
 def normalize(text: str) -> str:
@@ -28,12 +36,10 @@ def normalize(text: str) -> str:
 
 
 def normalize_roc_date(text: str) -> str:
-    """民國日期一律轉成 "113/2/5" 形式;轉不出來回正規化後的原字串,不猜。"""
-    m = _ROC_DATE_RE.search(str(text or ""))
-    if not m:
-        return normalize(text)
-    year, month, day = (int(g) for g in m.groups())
-    return f"{year}/{month}/{day}"
+    """民國日期經 normalize_roc 轉成標準寫法「民國114年7月4日」再比對,寫法不同、同一天即相等;
+    解析不出來就退回 normalize() 後的原字串比對,不猜。"""
+    normalized = normalize_roc(str(text or ""))
+    return normalized if normalized is not None else normalize(text)
 
 
 def score_field(actual: str, expected: str, *, is_date: bool = False) -> str:

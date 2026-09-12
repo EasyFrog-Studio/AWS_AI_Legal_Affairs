@@ -30,7 +30,7 @@ if os.environ.get("POSTGRES_URL_HOST"):
     os.environ["POSTGRES_URL"] = os.environ["POSTGRES_URL_HOST"]
 
 from app.config import settings  # noqa: E402
-from app.models import Case, CaseDocument, CaseInfo, build_input_text  # noqa: E402
+from app.models import CASE_INFO_DATE_FIELDS, Case, CaseDocument, CaseInfo, build_input_text  # noqa: E402
 from app.pdf_extract import extract_text  # noqa: E402
 from app.pipeline import run_case  # noqa: E402
 from app.providers.aws import AWSProvider  # noqa: E402
@@ -178,7 +178,7 @@ def _score_fields(info: CaseInfo | None, expected: dict, layer: str) -> list[dic
         result = (
             score_case_type(actual, want_value)
             if field == "case_type"
-            else score_field(actual, want_value, is_date=field.endswith("_date"))
+            else score_field(actual, want_value, is_date=field in CASE_INFO_DATE_FIELDS)
         )
         rows.append(_row(layer, field, actual, want_value, result))
     return rows
