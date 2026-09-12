@@ -19,6 +19,8 @@ _JSON_FIELDS = (
     "f1_system",
     "screening",
     "screening_system",
+    "screening_input_f1",
+    "retrieval_input_screening",
     "deadline",
     "f2",
     "f2_refs",

@@ -189,3 +189,45 @@ def test_find_references_raises_when_sample_lacks_the_key(tmp_path):
     except KeyError:
         return
     raise AssertionError("樣本缺 f2_refs 應該拋錯,而不是回空清單")
+
+
+# ---------- 全欄位擴充:mock 樣本涵蓋 CaseInfo 全部欄位、日期已是標準寫法、F4 有 gist ----------
+
+import json as _json
+
+from app.models import CASE_INFO_DATE_FIELDS
+from app.dates import normalize_roc
+
+_SHIPPED_DIR = Path(__file__).resolve().parents[2] / "data_show" / "sample_appeals"
+
+
+def _all_sample_files() -> list[Path]:
+    return sorted(FIXTURES_DIR.glob("*.json")) + sorted(_SHIPPED_DIR.glob("*.json"))
+
+
+def test_every_sample_f1_has_all_case_info_fields():
+    for path in _all_sample_files():
+        sample = _json.loads(path.read_text(encoding="utf-8"))
+        f1 = sample["expected"]["f1"]
+        missing = set(CaseInfo.model_fields.keys()) - set(f1.keys())
+        assert not missing, f"{path.name} 缺欄位: {missing}"
+
+
+def test_every_sample_date_field_already_uses_the_standard_roc_writing():
+    for path in _all_sample_files():
+        sample = _json.loads(path.read_text(encoding="utf-8"))
+        f1 = sample["expected"]["f1"]
+        for field in CASE_INFO_DATE_FIELDS:
+            value = f1.get(field, "")
+            if not value:
+                continue
+            assert normalize_roc(value) == value, f"{path.name}.{field} = {value!r} 不是標準寫法"
+
+
+def test_every_sample_f4_has_a_non_empty_gist():
+    for path in _all_sample_files():
+        sample = _json.loads(path.read_text(encoding="utf-8"))
+        f4 = sample["expected"].get("f4")
+        if f4 is None:
+            continue
+        assert f4.get("gist"), f"{path.name} 的 f4 缺 gist"

@@ -1,8 +1,10 @@
-"""決定書草稿的 Word 輸出:逐行印 draft_plain_text,與 PDF 印的是同一份全文。"""
+"""決定書草稿的 Word 輸出:逐行印 decision_full_text,與 PDF 印的是同一份攤平函式。"""
 import io
 
 from docx import Document
 from docx.shared import Pt
+
+from app.pdf_render import decision_full_text
 
 _FONT = "標楷體"  # 公文書體例;字型不在閱讀端時由 Word 自行回退
 _BODY_SIZE = Pt(11)
@@ -17,10 +19,10 @@ def _write(doc: Document, text: str, size: Pt):
 
 
 def render_draft_docx(case) -> bytes:
-    """依 case.draft_plain_text 產出 .docx bytes。與 render_draft_pdf 讀同一個欄位——
+    """依 decision_full_text(case) 產出 .docx bytes。與 render_draft_pdf 讀同一份攤平——
     兩邊各自決定內容的下場是同一件案子下載到兩份不一樣的決定書。"""
     doc = Document()
-    for line in (case.draft_plain_text or "").splitlines() or [""]:
+    for line in (decision_full_text(case) or "").splitlines() or [""]:
         _write(doc, line, _BODY_SIZE)
     buffer = io.BytesIO()
     doc.save(buffer)

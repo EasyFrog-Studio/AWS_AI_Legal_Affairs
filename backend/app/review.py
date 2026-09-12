@@ -1,6 +1,6 @@
 """needs_review 的單一判準:哪幾件不能直接送。
 
-九種來源取聯集。集中在這裡是因為清單頁與詳情頁必須用同一套判斷——
+十種來源取聯集。集中在這裡是因為清單頁與詳情頁必須用同一套判斷——
 兩邊各寫一份的下場是清單說可以送、頁首說要複核。
 """
 import re
@@ -58,4 +58,7 @@ def needs_review(case: Case) -> bool:
             return True
         if check_standing(case.f1).consistent is False:
             return True
+    # 案件資訊或程序審查結論改過而下游尚未依它重跑:待複核,不是「已審結」
+    if case.f1_stale or case.screening_stale:
+        return True
     return False

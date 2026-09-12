@@ -5,7 +5,7 @@ import re
 from datetime import date
 from typing import Literal, Optional, get_args
 
-from pydantic import BaseModel, computed_field, model_validator
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 from app.law_urls import interpretation_url, law_article_url
 
@@ -15,30 +15,110 @@ from app.law_urls import interpretation_url, law_article_url
 # 故只留「寄存」不留地點。
 SERVICE_METHODS = ("本人", "同居人", "受雇人", "接收郵件人員", "留置", "寄存", "未載明")
 
+# 訴願書「代理人或送達代收人」區塊的身分;空字串代表該區塊未填
+AGENT_ROLES = ("代理人", "送達代收人", "")
+
 
 class CaseInfo(BaseModel):
+    """F1 擷取結果。欄位以四份卷證表單實際印刷的標籤為準(example6),每欄掛在它抄自的那份文件底下;
+    日期欄(CASE_INFO_DATE_FIELDS)一律存 dates.normalize_roc 的標準寫法「民國114年7月4日」,
+    解析不出才保留原文。除既有必填欄外全部預設空值,舊樣本與舊測資不補仍可通過驗證。"""
+
+    # ── 訴願書 ──
     appellant: str
+    appellant_id_no: str = ""  # 身分證明文件字號
+    appellant_birth_date: str = ""
+    appellant_address: str = ""
+    appellant_phone: str = ""
+    representative_name: str = ""  # 代表人(法人/團體才有)
+    representative_id_no: str = ""
+    representative_birth_date: str = ""
+    agent_role: str = ""  # 值域見 AGENT_ROLES
+    agent_name: str = ""
+    agent_id_no: str = ""
+    agent_birth_date: str = ""
+    agent_address: str = ""
+    agent_phone: str = ""
+    receiving_agency: str = ""  # 受理訴願機關
+    appeal_request: str = ""  # 訴願請求事項
+    appeal_facts: list[str] = []  # 訴願人自述的事實經過(§56 I⑤「訴願之事實及理由」的前半)
+    appeal_reasons: list[str] = []
+    appeal_attachments: list[str] = []  # 附送證件,一行一件「名稱字號 × 數量」
+    receipt_date: str = ""  # 訴願書「收受或知悉行政處分日期」(訴願法§56 I⑥),非送達日期
+    appeal_date: str = ""  # 訴願書署名日期
+    appeal_filed_date: str = ""  # 機關收文戳的收文日期
+    # ── 送達證書 ──
+    service_recipient: str = ""  # 受送達人
+    service_address: str = ""
+    service_doc_no: str = ""  # 文號
+    service_doc_title: str = ""  # 送達文書(含案由)
+    service_place: str = ""  # 送達處所
+    service_date: str = ""  # 送達證書「送達時間」欄,即送達生效日;只存到日
+    service_method: str = ""  # 送達方式,值域見 SERVICE_METHODS(§72-74)
+    service_receiver: str = ""  # 收領人(含身分,如「陳映蓉,事務所助理」)
+    service_deposit_office: str = ""  # 寄存機關,寄存送達才有
+    # ── 原處分書 ──
     agency: str
     disposition_date: str
     disposition_no: str
-    disposition_summary: str
-    appeal_facts: list[str] = []  # 訴願人自述的事實經過(§56 I⑤「訴願之事實及理由」的前半)
-    appeal_reasons: list[str] = []
+    disposition_recipient: str = ""  # 受處分人姓名或名稱;多數與 appellant 同一人,但代理/繼受案可能不同
+    disposition_recipient_gender: str = ""
+    disposition_recipient_birth_date: str = ""
+    disposition_recipient_id_no: str = ""  # 統一編號或護照號碼
+    disposition_recipient_features: str = ""  # 其他足資辨別之特徵
+    disposition_recipient_address: str = ""
+    disposition_premises: str = ""  # 申報場所/違規場所名稱及地址
+    disposition_manager_name: str = ""  # 代表人或管理人
+    disposition_manager_gender: str = ""
+    disposition_manager_birth_date: str = ""
+    disposition_summary: str  # 主旨
+    disposition_facts: str = ""
+    disposition_grounds: str = ""  # 理由及法令依據
+    disposition_fine: str = ""  # 罰鍰金額(原文寫法)
+    disposition_payment_deadline: str = ""  # 繳款期限
+    disposition_payment_place: str = ""
+    disposition_notice_clause: str = ""  # 注意事項內的救濟教示句,有無教示影響救濟期間認定
+    # ── 訴願答辯書 ── 答辯書的內容只能填這一組,不得用來填訴願人那一側的欄位
+    answer_appellant: str = ""  # 答辯書所載訴願人,與訴願書那側分開存,不一致是當事人適格的線索
+    answer_appellant_address: str = ""
+    answer_agency: str = ""
+    answer_date: str = ""  # 答辯書發文日期
+    answer_doc_no: str = ""
+    answer_statement: str = ""  # 答辯聲明原文
+    answer_facts: str = ""
+    answer_arguments: list[str] = []  # 理由,逐條列出
+    answer_self_revoked: str = ""  # 機關是否已自行撤銷或變更原處分(原文寫法,判讀欄)
+    answer_evidence: list[str] = []  # 證物
+    answer_representative: str = ""
+    answer_service_agent: str = ""  # 送達代收人
+    # ── 綜合判讀 ── 不出自單一文件
     case_type: str
     issues: list[str] = []
     cited_articles: list[str] = []  # 如 "廢棄物清理法#46"
-    # 以下六欄取自送達證書/原處分書/訴願書,期間計算(deadline_extract)與程序審查才用得到;
-    # 全部預設空字串,舊樣本/舊測資不補這幾欄仍可通過驗證
-    receipt_date: str = ""  # 訴願書「收受或知悉行政處分日期」(訴願法§56 I⑥),非送達日期
-    service_date: str = ""  # 送達證書「送達時間」欄,即送達生效日(原文寫法,不換算)
-    service_method: str = ""  # 送達方式,值域見 SERVICE_METHODS(§72-74)
-    disposition_fine: str = ""  # 原處分書罰鍰金額(原文寫法)
-    disposition_notice_clause: str = ""  # 原處分書教示條款原文,有無教示影響救濟期間認定
-    disposition_recipient: str = ""  # 原處分相對人;多數與 appellant 同一人,但代理/繼受案可能不同
-    # 以下三欄取自訴願答辯書(第四槽)。答辯書的內容只能填這三欄,不得用來填訴願人那一側的欄位
-    answer_statement: str = ""  # 答辯聲明原文
-    answer_self_revoked: str = ""  # 機關是否已自行撤銷或變更原處分(原文寫法)
-    answer_arguments: list[str] = []  # 機關的答辯主張,逐條列出
+
+
+# 走 dates.normalize_roc 正規化與前端日期選擇器的欄位;新增日期欄必須登記在這裡
+CASE_INFO_DATE_FIELDS = (
+    "appellant_birth_date",
+    "representative_birth_date",
+    "agent_birth_date",
+    "receipt_date",
+    "appeal_date",
+    "appeal_filed_date",
+    "service_date",
+    "disposition_date",
+    "disposition_recipient_birth_date",
+    "disposition_manager_birth_date",
+    "disposition_payment_deadline",
+    "answer_date",
+)
+
+# 承辦人改過某槽的關鍵日期即視為已人工核對,該槽的 OCR 阻擋解除(pipeline._flag_ocr_slots)
+OCR_DATE_FIELD_BY_SLOT = {
+    "service": "service_date",
+    "appeal": "receipt_date",
+    "disposition": "disposition_date",
+}
 
 
 class ScreeningResult(BaseModel):
@@ -158,18 +238,29 @@ class DraftResult(BaseModel):
     reason: str
     main_text: str
     cited_laws: list[str] = []
+    gist: str = ""  # 決定書「要旨」,格式「因違反○○法事件提起訴願」
 
 
 class DecisionHeader(BaseModel):
-    """決定書上系統填不出來的欄位,一律留白。決定書產出時攤平成全文(decision_plain_text),
-    承辦人直接在那份全文裡填——欄位本身沒有寫入端點,改表頭就是改那份文字。"""
+    """決定書表頭與結尾的結構化欄位,PDF 與 Word 由它們與本文(draft_plain_text)組出。
+    F4 落地時由 decision_header.decision_header_defaults 填預設值,之後承辦人經
+    PATCH /decision-header 改的就是這份;日期欄存 dates.normalize_roc 的標準寫法。"""
 
     case_no: str = ""
+    gist: str = ""  # 要旨
+    issued_date: str = ""  # 發文日期,發文時才由案管系統配,留白印空格線
+    issued_no: str = ""  # 發文字號,同上
+    related_laws: str = ""  # 相關法條,一行一條,如「訴願法 第 81 條」
     appellant: str = ""
+    agent_role: str = ""  # 值域見 AGENT_ROLES;agent_name 空則整列不印
+    agent_name: str = ""
     agency: str = ""
     chairman: str = ""
     committee: str = ""  # 一行一位委員;留空則維持 12 行空白
     decided_date: str = ""
+
+
+DECISION_HEADER_DATE_FIELDS = ("issued_date", "decided_date")
 
 
 # 決定書本文三段的標題與 f4 欄位,版面(pdf_render)與舊版本快照攤平共用同一張表
@@ -217,7 +308,21 @@ class DraftResultOverride(BaseModel):
     draft_type: DraftType
 
 
+# 重跑的起跑點由按鈕明確指定,不再由歷史旗標推測:f1 = 整條重跑;screening = 保留 f1 自程序審查起;
+# f2 = 保留 f1 與 screening 自參考依據起
+ReanalyzeFrom = Literal["f1", "screening", "f2"]
+
+
+class ReanalyzeRequest(BaseModel):
+    """POST /api/cases/{id}/reanalyze 的 body。"""
+
+    from_stage: ReanalyzeFrom = Field(alias="from")
+
+    model_config = {"populate_by_name": True}
+
+
 Stage = Literal["f1", "screening", "f2", "f2_refs", "f3", "f4", "done"]
+# collecting 只為讀舊資料保留:建案即起跑後不再寫入
 Status = Literal["collecting", "processing", "done", "error"]
 Track = Literal["admissible", "inadmissible"]
 Source = Literal["pdf", "text"]
@@ -304,7 +409,7 @@ class Case(BaseModel):
     case_id: str
     created_at: str
     title: str
-    status: Status = "collecting"
+    status: Status = "processing"
     current_stage: Stage = "f1"
     track: Optional[Track] = None
     source: Source
@@ -321,6 +426,10 @@ class Case(BaseModel):
     # 第一次被人工推翻時把系統原判搬進來,screening 留現行(人工)結論。事後看得出「系統判什麼、
     # 人改成什麼」,而且「有沒有被推翻過」變成可判斷的事實(非 None 即是),不必另立旗標。
     screening_system: Optional[ScreeningResult] = None
+    # 下游各是根據哪一版輸入生成的:程序審查起跑時抄 f1、參考依據起跑時抄 screening。
+    # 「改過但還沒重跑」由 f1_stale / screening_stale 兩個 computed field 據此算出,不另立旗標
+    screening_input_f1: Optional["CaseInfo"] = None
+    retrieval_input_screening: Optional[ScreeningResult] = None
     deadline: Optional[DeadlineCheck] = None
     f2: Optional[list[LawRef]] = None
     # F2+ 參考見解。與 f2 不同,兩條 track 都會有:不受理決定書的理由欄一樣要論證
@@ -337,14 +446,38 @@ class Case(BaseModel):
     finalized_at: Optional[str] = None  # 定稿只是標記,不鎖;定稿後仍可 PATCH,改了再存一版
     error: Optional[str] = None
 
+    @computed_field
+    @property
+    def f1_stale(self) -> bool:
+        """案件資訊改過而程序審查尚未依它重跑。F1 頁「AI 生成」的啟用條件與 needs_review 的來源。"""
+        if self.f1 is None or self.screening_input_f1 is None:
+            return False
+        return self.f1.model_dump() != self.screening_input_f1.model_dump()
+
+    @computed_field
+    @property
+    def screening_stale(self) -> bool:
+        """程序審查結論改過而參考依據尚未依它重跑;只比三欄,review_note 是註記不是結論。"""
+        if self.screening is None or self.retrieval_input_screening is None:
+            return False
+        return _screening_key(self.screening) != _screening_key(self.retrieval_input_screening)
+
     @model_validator(mode="after")
     def _fill_plain_text_from_f4(self):
+        from app.draft_text import body_from_legacy_text
+
         # store 內仍有只有 f4、沒有全文的案件;讀出時攤平,否則畫面與下載都是空白
         if self.f4 is not None and not self.draft_plain_text:
             from app.pdf_render import decision_plain_text  # pdf_render 載入 fitz,不在模型模組載入時付這個代價
 
             self.draft_plain_text = decision_plain_text(self)
+        # 表頭改結構化之前的全文含表頭與結尾列,讀出時剝成本文;補的值不回寫,下次寫入才落地
+        self.draft_plain_text = body_from_legacy_text(self.draft_plain_text)
         return self
+
+
+def _screening_key(s: ScreeningResult) -> tuple[bool, Optional[str], str]:
+    return (s.passed, s.matched_clause, s.reasoning)
 
 
 

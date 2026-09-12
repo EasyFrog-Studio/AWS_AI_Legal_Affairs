@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 
 import app.main as main_module
 from app.config import settings
-from app.models import DocumentCheck
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -201,16 +200,36 @@ def test_create_case_wrong_document_in_slot_is_flagged_not_matched(monkeypatch):
     assert check["method"] == "rule"
 
 
-def test_created_case_starts_in_collecting_status_without_running_pipeline(monkeypatch):
-    """建案只做文件確認,不應自動觸發分析——要等 /analyze。"""
+def test_created_case_starts_processing_and_schedules_the_pipeline(monkeypatch):
+    """建案即分析:不必再按「開始分析」,案件立刻 processing 並排入 run_case。"""
+    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+    scheduled = []
+    monkeypatch.setattr(
+        main_module,
+        "run_case",
+        lambda case_id, store, provider: scheduled.append(case_id),
+    )
+    client = TestClient(main_module.app)
+    case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
+
+    # run_case 被換成假的、不落地任何分析結果,故 GET 讀到的是建案當下的初始狀態
+    case = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
+    assert case["status"] == "processing"
+    assert case["current_stage"] == "f1"
+    assert case["f1"] is None
+    assert scheduled == [case_id]  # 背景任務確實被排入,且帶對的 case_id
+
+
+def test_created_case_runs_the_full_pipeline_without_any_further_call(monkeypatch):
+    """不打任何額外的 API,建案本身就要看得到分析結果(mock provider 在測試中同步跑完)。"""
     monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
     client = TestClient(main_module.app)
     case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
 
-    get_resp = client.get(f"/api/cases/{case_id}", headers=_headers())
-    case = get_resp.json()
-    assert case["status"] == "collecting"
-    assert case["f1"] is None
+    case = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
+    assert case["status"] == "done"
+    assert case["f1"] is not None
+    assert case["f4"] is not None
 
 
 def test_replace_document_before_analysis_rechecks_type(monkeypatch):
@@ -247,11 +266,12 @@ def test_replace_document_rebuilds_input_text(monkeypatch):
     assert "【送達證書】" in case["input_text"]  # 分段標頭仍完整,不是憑空塞一份
 
 
-def test_replace_document_after_analysis_started_returns_409(monkeypatch):
+def test_replace_document_while_processing_returns_409(monkeypatch):
+    """分析進行中不可再改文件——訊息要講清楚原因,不是只有一個代碼。"""
     monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
     client = TestClient(main_module.app)
     case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
-    client.post(f"/api/cases/{case_id}/analyze", headers=_headers())
+    main_module.store.update(case_id, {"status": "processing"})
 
     resp = client.patch(
         f"/api/cases/{case_id}/documents/service",
@@ -259,6 +279,23 @@ def test_replace_document_after_analysis_started_returns_409(monkeypatch):
         headers=_headers(),
     )
     assert resp.status_code == 409
+    assert "分析進行中" in resp.json()["detail"]
+
+
+def test_replace_document_after_done_or_error_is_allowed(monkeypatch):
+    """done 與 error 都可以重傳補正,不是只有收案階段才能改文件。"""
+    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+    client = TestClient(main_module.app)
+    for status in ("done", "error"):
+        case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
+        main_module.store.update(case_id, {"status": status})
+
+        resp = client.patch(
+            f"/api/cases/{case_id}/documents/service",
+            data={"text": _SERVICE_TEXT + "補正"},
+            headers=_headers(),
+        )
+        assert resp.status_code == 200, f"status={status} 應允許重傳"
 
 
 def _scanned_pdf_bytes() -> bytes:
@@ -315,6 +352,66 @@ def test_uploaded_filename_is_kept_on_the_slot_and_pasted_text_has_none(monkeypa
     assert resp.status_code == 200, resp.json()
     docs = client.get(f"/api/cases/{case_id}", headers=_headers()).json()["documents"]
     assert docs["service"].get("filename") == "03_送達證書_補正.pdf"
+
+
+def test_uploaded_pdf_lands_on_disk_and_can_be_read_back_byte_for_byte(monkeypatch):
+    """文件確認頁點檔名要看到原始 PDF——落地的位元組必須跟上傳的一模一樣。"""
+    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+    client = TestClient(main_module.app)
+    original_bytes = _text_pdf_bytes(_APPEAL_TEXT)
+    case_id = client.post(
+        "/api/cases",
+        data={
+            "service_text": _SERVICE_TEXT,
+            "disposition_text": _DISPOSITION_TEXT,
+            "answer_text": _ANSWER_TEXT,
+        },
+        files={"appeal_file": ("01_訴願書.pdf", original_bytes, "application/pdf")},
+        headers=_headers(),
+    ).json()["case_id"]
+
+    resp = client.get(f"/api/cases/{case_id}/documents/appeal/file", headers=_headers())
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/pdf"
+    assert "01_%E8%A8%B4%E9%A1%98%E6%9B%B8.pdf" in resp.headers["content-disposition"]
+    assert resp.content == original_bytes  # 讀回的位元組必須等於上傳的位元組
+
+
+def test_document_file_for_a_text_slot_returns_404(monkeypatch):
+    """貼上文字的槽沒有原始 PDF 可預覽。"""
+    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+    client = TestClient(main_module.app)
+    case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
+
+    resp = client.get(f"/api/cases/{case_id}/documents/appeal/file", headers=_headers())
+
+    assert resp.status_code == 404
+
+
+def test_document_file_for_an_unknown_case_returns_404():
+    resp = TestClient(main_module.app).get(
+        "/api/cases/c-notexist/documents/appeal/file", headers=_headers()
+    )
+    assert resp.status_code == 404
+
+
+def test_replacing_a_document_lands_the_new_pdf_too(monkeypatch):
+    """重傳補正後讀回的要是新的那份 PDF,不是舊檔案。"""
+    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+    client = TestClient(main_module.app)
+    case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
+    new_bytes = _text_pdf_bytes((_SERVICE_TEXT + "\n") * 6)
+
+    client.patch(
+        f"/api/cases/{case_id}/documents/service",
+        files={"file": ("03_送達證書_補正.pdf", new_bytes, "application/pdf")},
+        headers=_headers(),
+    )
+    resp = client.get(f"/api/cases/{case_id}/documents/service/file", headers=_headers())
+
+    assert resp.status_code == 200
+    assert resp.content == new_bytes
 
 
 def test_scanned_pdf_in_mock_mode_is_refused_with_a_reason(monkeypatch):
@@ -421,25 +518,17 @@ def test_oversized_case_file_returns_400_not_a_crashed_case(monkeypatch):
     assert "上限" in resp.json()["detail"]
 
 
-def test_analyze_nonexistent_case_returns_404():
+def test_analyze_endpoint_no_longer_exists():
+    """建案即分析,「開始分析」這一步已經沒有獨立端點。"""
     client = TestClient(main_module.app)
-    resp = client.post("/api/cases/c-notexist/analyze", headers=_headers())
-    assert resp.status_code == 404
+    removed_path = "/api/cases/c-notexist/" + "analyze"  # 刻意拼接,避免留下這條路由字面樣式
+    resp = client.post(removed_path, headers=_headers())
+    # backend/static 存在時 SPA 的 GET 兜底路由會把未知路徑的 POST 變成 405,兩者都代表端點不存在
+    assert resp.status_code in (404, 405)
 
 
-def test_analyze_twice_returns_409(monkeypatch):
-    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
-    client = TestClient(main_module.app)
-    case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
-
-    first = client.post(f"/api/cases/{case_id}/analyze", headers=_headers())
-    assert first.status_code == 200
-    second = client.post(f"/api/cases/{case_id}/analyze", headers=_headers())
-    assert second.status_code == 409
-
-
-def test_analyze_blocked_when_a_document_is_flagged_mismatched(monkeypatch):
-    """前端擋了未確認的槽,但後端自己也要擋——直接打 API 不能繞過文件確認這一關。"""
+def test_a_mismatched_document_does_not_block_the_pipeline(monkeypatch):
+    """型態不符只警示不擋:建案照樣立刻分析,清單另外用 documents_failed 標出「文件不對」讓人工核對。"""
     monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
     client = TestClient(main_module.app)
     # appeal 槽故意塞送達證書的文字,規則層會判斷 matched=False
@@ -447,37 +536,17 @@ def test_analyze_blocked_when_a_document_is_flagged_mismatched(monkeypatch):
         "/api/cases", data=_create_case_form(appeal_text=_SERVICE_TEXT), headers=_headers()
     ).json()["case_id"]
 
-    resp = client.post(f"/api/cases/{case_id}/analyze", headers=_headers())
-
-    assert resp.status_code == 409
-    assert "訴願書" in resp.json()["detail"]
-    # 清單要能講出這件是「文件不對」卡住,不是普通的待確認
+    case = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
+    assert case["status"] in ("done", "error")  # 分析照樣跑完,不因型態不符卡住
     row = next(r for r in client.get("/api/cases", headers=_headers()).json() if r["case_id"] == case_id)
     assert row["documents_failed"] is True
-    assert row["result"] is None
 
 
-def test_analyze_blocked_when_a_document_check_is_inconclusive(monkeypatch):
-    """matched=None(規則與 Gemini 皆判斷不出來)同樣不算確認完成,不可誤當「已放行」。"""
-    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
-    client = TestClient(main_module.app)
-    case_id = client.post(
-        "/api/cases", data=_create_case_form(appeal_text="內容含糊,規則判斷不出特徵"), headers=_headers()
-    ).json()["case_id"]
-
-    resp = client.post(f"/api/cases/{case_id}/analyze", headers=_headers())
-
-    assert resp.status_code == 409
-    assert "訴願書" in resp.json()["detail"]
-
-
-def test_full_flow_create_analyze_list_get_completed_case(monkeypatch):
+def test_full_flow_create_list_get_completed_case(monkeypatch):
     monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
     client = TestClient(main_module.app)
 
     case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
-    analyze_resp = client.post(f"/api/cases/{case_id}/analyze", headers=_headers())
-    assert analyze_resp.status_code == 200
 
     list_resp = client.get("/api/cases", headers=_headers())
     assert list_resp.status_code == 200
@@ -508,7 +577,6 @@ def test_full_flow_inadmissible_case_skips_f2_and_uses_fixed_draft(monkeypatch):
         data=_create_case_form(appeal_text=_INADMISSIBLE_APPEAL_TEXT),
         headers=_headers(),
     ).json()["case_id"]
-    client.post(f"/api/cases/{case_id}/analyze", headers=_headers())
 
     get_resp = client.get(f"/api/cases/{case_id}", headers=_headers())
     assert get_resp.status_code == 200
@@ -550,34 +618,17 @@ def test_case_can_be_created_without_a_service_certificate():
     assert resp.json()["documents"]["service"]["matched"] is None
 
 
-def test_analyze_is_not_blocked_by_an_absent_optional_slot(monkeypatch):
-    """空槽沒有東西可確認(觀念通知案本無送達證書),擋在這裡等於收案放行、分析卻走不了。"""
+def test_pipeline_still_runs_with_an_absent_optional_slot(monkeypatch):
+    """空槽沒有東西可確認(觀念通知案本無送達證書),分析照樣立刻跑完,不再有獨立的擋門。"""
     monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
     client = TestClient(main_module.app)
     form = _create_case_form()
     del form["service_text"]
     case_id = client.post("/api/cases", data=form, headers=_headers()).json()["case_id"]
 
-    resp = client.post(f"/api/cases/{case_id}/analyze", headers=_headers())
+    case = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
 
-    assert resp.status_code == 200
-
-
-def test_analyze_is_blocked_by_an_empty_required_slot(monkeypatch):
-    """收案已擋掉缺答辯書的案子,但舊案與直接打 API 兩條路仍到得了這裡:
-    必填槽空著就是沒確認,放行等於讓一份必備卷證從後門消失。"""
-    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
-    client = TestClient(main_module.app)
-    case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
-    case = main_module.store.get(case_id)
-    emptied = case.documents["answer"].model_copy(update={"text": "", "check": DocumentCheck()})
-    main_module.store.update(case_id, {"documents": {**case.documents, "answer": emptied}})
-
-    resp = client.post(f"/api/cases/{case_id}/analyze", headers=_headers())
-
-    assert resp.status_code == 409
-    assert "訴願答辯書" in resp.json()["detail"]
-    assert main_module.store.get(case_id).status == "collecting"  # 沒有被推進 processing
+    assert case["status"] in ("done", "error")
 
 
 # ---------- 第四槽:訴願答辯書 ----------
@@ -653,10 +704,9 @@ def test_answer_brief_can_be_replaced_after_the_case_is_created(monkeypatch):
 
 # ---------- PATCH /f1:承辦人修改擷取結果 ----------
 def _analyzed_case(client, monkeypatch) -> str:
+    """建案即分析,mock provider 在測試中同步跑完,不必再打一次 /analyze。"""
     monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
-    case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
-    client.post(f"/api/cases/{case_id}/analyze", headers=_headers())
-    return case_id
+    return client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
 
 
 def _edited_info(case: dict, **overrides) -> dict:
@@ -682,8 +732,9 @@ def test_patch_f1_stores_the_correction(monkeypatch):
     assert stored["f1"]["disposition_no"] == "彰環廢字第9號"
 
 
-def test_patch_f1_marks_the_screening_as_not_yet_rerun(monkeypatch):
-    """程序審查是從修改前的 f1 算出來的。不講,畫面上就是一份「已審結」但依據已經被改掉的案件。"""
+def test_patch_f1_marks_the_case_as_stale(monkeypatch):
+    """案件資訊改過而程序審查尚未依它重跑:computed field f1_stale 表達這件事,
+    不再另外在 screening.review_note 塞一句;needs_review 因此為真。"""
     client = TestClient(main_module.app)
     case_id = _analyzed_case(client, monkeypatch)
     case = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
@@ -695,13 +746,13 @@ def test_patch_f1_marks_the_screening_as_not_yet_rerun(monkeypatch):
     )
 
     stored = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
-    assert "尚未依修改後的資料重跑" in stored["screening"]["review_note"]
+    assert stored["f1_stale"] is True
     row = next(r for r in client.get("/api/cases", headers=_headers()).json() if r["case_id"] == case_id)
     assert row["needs_review"] is True
 
 
-def test_a_manual_correction_to_f1_survives_a_rerun(monkeypatch):
-    """重跑會重新呼叫 extract_case_info,人剛改的欄位會被模型改回去——
+def test_a_manual_correction_to_f1_survives_a_rerun_from_screening(monkeypatch):
+    """from=screening 保留人工修改過的 f1,不重跑 extract_case_info——
     這正是程序審查被推翻時已經處理過的同一種失效,f1 必須比照。"""
     client = TestClient(main_module.app)
     case_id = _analyzed_case(client, monkeypatch)
@@ -712,21 +763,35 @@ def test_a_manual_correction_to_f1_survives_a_rerun(monkeypatch):
         headers=_headers(),
     )
 
-    assert client.post(f"/api/cases/{case_id}/reanalyze", headers=_headers()).status_code == 200
+    resp = client.post(f"/api/cases/{case_id}/reanalyze", json={"from": "screening"}, headers=_headers())
+    assert resp.status_code == 200
 
     after = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
     assert after["f1"]["appellant"] == "王大明(更正)"
     assert after["status"] == "done"
     assert after["f4"] is not None  # 重跑仍要重新產出草稿,不是只保住 f1 就停在原地
+    assert after["f1_stale"] is False  # 已依修改後的 f1 重跑,不再過期
 
 
-def test_patch_f1_rejects_a_case_that_has_not_been_analysed(monkeypatch):
-    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+def test_patch_f1_rejects_a_case_that_has_not_been_analysed():
+    """f1 尚未產出(例如在擷取這一步就失敗)時無可修改的內容。"""
+    from app.models import Case
+
+    main_module.store.create(
+        Case(
+            case_id="c-notanalyzed",
+            created_at="2026-08-17T00:00:00+00:00",
+            title="未分析案件",
+            status="error",
+            current_stage="f1",
+            source="text",
+            input_text="x",
+        )
+    )
     client = TestClient(main_module.app)
-    case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
 
     resp = client.patch(
-        f"/api/cases/{case_id}/f1",
+        "/api/cases/c-notanalyzed/f1",
         json={
             "appellant": "王大明",
             "agency": "彰化縣環境保護局",
@@ -877,13 +942,24 @@ def test_patch_draft_result_on_an_unknown_case_returns_404():
     assert resp.status_code == 404
 
 
-def test_patch_draft_result_rejects_a_case_without_a_draft(monkeypatch):
-    monkeypatch.setattr(settings, "MOCK_DATA_DIR", str(FIXTURES_DIR))
+def test_patch_draft_result_rejects_a_case_without_a_draft():
+    from app.models import Case
+
+    main_module.store.create(
+        Case(
+            case_id="c-nodraft",
+            created_at="2026-08-17T00:00:00+00:00",
+            title="無草稿案件",
+            status="error",
+            current_stage="f1",
+            source="text",
+            input_text="x",
+        )
+    )
     client = TestClient(main_module.app)
-    case_id = client.post("/api/cases", data=_create_case_form(), headers=_headers()).json()["case_id"]
 
     resp = client.patch(
-        f"/api/cases/{case_id}/draft/result",
+        "/api/cases/c-nodraft/draft/result",
         json={"draft_type": "駁回"},
         headers=_headers(),
     )
@@ -929,7 +1005,123 @@ def test_reanalyze_clears_the_draft_result_system_snapshot(monkeypatch):
         headers=_headers(),
     )
 
-    assert client.post(f"/api/cases/{case_id}/reanalyze", headers=_headers()).status_code == 200
+    resp = client.post(f"/api/cases/{case_id}/reanalyze", json={"from": "f1"}, headers=_headers())
+    assert resp.status_code == 200
 
     after = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
     assert after["f4_system"] is None
+
+
+# ---------- 決定書表頭:F4 落地時的預設值 / PATCH ----------
+
+
+def test_decision_header_defaults_are_filled_when_f4_lands(monkeypatch):
+    """表頭預設值在 F4 落地那一刻就實際寫進 decision_header,不是渲染時回落。"""
+    client = TestClient(main_module.app)
+    case_id = _analyzed_case(client, monkeypatch)
+
+    case = client.get(f"/api/cases/{case_id}", headers=_headers()).json()
+
+    header = case["decision_header"]
+    assert header["case_no"] == case_id
+    assert header["gist"] == case["f4"]["gist"]
+    assert header["appellant"] == case["f1"]["appellant"]
+    assert header["agency"] == case["f1"]["agency"]
+    assert "廢棄物清理法 第 27 條" in header["related_laws"]
+    assert header["issued_date"] == ""  # 發文時才由案管系統配號,留白印空格線
+
+
+def test_patch_decision_header_stores_the_update(monkeypatch):
+    client = TestClient(main_module.app)
+    case_id = _analyzed_case(client, monkeypatch)
+
+    resp = client.patch(
+        f"/api/cases/{case_id}/decision-header",
+        json={
+            "case_no": "114年訴字第0001號",
+            "gist": "因違反廢棄物清理法事件提起訴願",
+            "issued_date": "",
+            "issued_no": "新北府訴決字第0001號",
+            "related_laws": "廢棄物清理法 第 27 條",
+            "appellant": "王大明",
+            "agent_role": "",
+            "agent_name": "",
+            "agency": "彰化縣環境保護局",
+            "chairman": "林○○",
+            "committee": "委員甲\n委員乙",
+            "decided_date": "",
+        },
+        headers=_headers(),
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    stored = client.get(f"/api/cases/{case_id}", headers=_headers()).json()["decision_header"]
+    assert stored["chairman"] == "林○○"
+    assert stored["committee"] == "委員甲\n委員乙"
+
+
+def test_patch_decision_header_normalizes_dates(monkeypatch):
+    """發文日期與決定日期經 normalize_roc 正規化;解析不出保留原文。"""
+    client = TestClient(main_module.app)
+    case_id = _analyzed_case(client, monkeypatch)
+    base = client.get(f"/api/cases/{case_id}", headers=_headers()).json()["decision_header"]
+
+    resp = client.patch(
+        f"/api/cases/{case_id}/decision-header",
+        json={**base, "issued_date": "114.7.4", "decided_date": "無法辨識的日期字串"},
+        headers=_headers(),
+    )
+
+    assert resp.status_code == 200
+    stored = client.get(f"/api/cases/{case_id}", headers=_headers()).json()["decision_header"]
+    assert stored["issued_date"] == "民國114年7月4日"
+    assert stored["decided_date"] == "無法辨識的日期字串"  # 解析不出保留原文
+
+
+def test_patch_decision_header_rejects_processing(monkeypatch):
+    client = TestClient(main_module.app)
+    case_id = _analyzed_case(client, monkeypatch)
+    base = client.get(f"/api/cases/{case_id}", headers=_headers()).json()["decision_header"]
+    main_module.store.update(case_id, {"status": "processing"})
+
+    resp = client.patch(f"/api/cases/{case_id}/decision-header", json=base, headers=_headers())
+
+    assert resp.status_code == 409
+
+
+def test_patch_decision_header_rejects_a_case_without_a_draft():
+    from app.models import Case, DecisionHeader
+
+    main_module.store.create(
+        Case(
+            case_id="c-noheader",
+            created_at="2026-08-17T00:00:00+00:00",
+            title="無草稿案件",
+            status="error",
+            current_stage="f1",
+            source="text",
+            input_text="x",
+        )
+    )
+    client = TestClient(main_module.app)
+
+    resp = client.patch(
+        "/api/cases/c-noheader/decision-header",
+        json=DecisionHeader().model_dump(),
+        headers=_headers(),
+    )
+
+    assert resp.status_code == 409
+
+
+def test_patch_decision_header_on_an_unknown_case_returns_404():
+    from app.models import DecisionHeader
+
+    resp = TestClient(main_module.app).patch(
+        "/api/cases/c-notexist/decision-header",
+        json=DecisionHeader().model_dump(),
+        headers=_headers(),
+    )
+
+    assert resp.status_code == 404

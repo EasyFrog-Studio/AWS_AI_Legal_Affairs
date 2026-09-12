@@ -292,3 +292,33 @@ def test_an_empty_slot_carrying_a_review_note_still_needs_review():
         update={"review_note": "本槽文字由 OCR 取得,日期須人工核對原件"}
     )
     assert needs_review(_case(documents=documents)) is True
+
+
+# ---------- 第十個來源:案件資訊或程序審查結論改過,下游尚未依它重跑 ----------
+
+
+def test_f1_stale_needs_review():
+    """f1 改過而程序審查尚未依它重跑:不是「已審結」,是待確認。"""
+    edited = _info(appellant="王大明(更正)")
+    case = _case(f1=edited, screening_input_f1=_info())
+
+    assert case.f1_stale is True
+    assert needs_review(case) is True
+
+
+def test_screening_stale_needs_review():
+    """程序審查結論改過而參考依據尚未依它重跑。"""
+    original = ScreeningResult(passed=True, matched_clause=None, reasoning="無不受理事由")
+    edited = ScreeningResult(passed=True, matched_clause=None, reasoning="人工重新認定,無不受理事由")
+    case = _case(screening=edited, retrieval_input_screening=original)
+
+    assert case.screening_stale is True
+    assert needs_review(case) is True
+
+
+def test_matching_snapshots_do_not_need_review_from_staleness():
+    """f1 與 screening_input_f1 一致(或尚未起跑過下游,快照仍是 None):staleness 不成立。"""
+    case = _case()
+
+    assert case.f1_stale is False
+    assert case.screening_stale is False

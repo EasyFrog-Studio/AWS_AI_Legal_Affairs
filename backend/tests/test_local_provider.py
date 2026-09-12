@@ -879,3 +879,51 @@ def test_extract_case_info_forces_the_answer_fields_to_be_answered():
         "appeal_reasons",  # 拆出事實欄後模型會把內容全倒進事實、理由留空,§77(1) 因此誤報缺漏
     ):
         assert field in required, field
+
+
+def test_f1_schema_required_matches_every_case_info_field():
+    """schema 的欄位清單推導自 CaseInfo 本身,新增欄位不必記得同步兩份手寫清單。"""
+    from app.models import CaseInfo as _CaseInfo
+
+    http = FakeHTTP(chat_payloads=[{
+        "appellant": "王大明", "agency": "機關", "disposition_date": "112年1月1日",
+        "disposition_no": "字第1號", "disposition_summary": "罰鍰", "case_type": "廢棄物清理法",
+    }])
+    provider = _provider(http_client=http)
+    provider.extract_case_info("卷證全文")
+
+    required = http.calls[0][1]["format"]["required"]
+    assert set(required) == set(_CaseInfo.model_fields.keys())
+
+
+def test_f1_schema_constrains_agent_role_to_statutory_options():
+    from app.models import AGENT_ROLES
+    from app.providers.schemas import case_info_json_schema
+
+    schema = case_info_json_schema()
+    assert schema["properties"]["agent_role"]["enum"] == list(AGENT_ROLES)
+    assert schema["properties"]["service_method"]["enum"] == list(SERVICE_METHODS)
+
+
+def test_generate_draft_schema_requires_gist():
+    http = FakeHTTP(
+        chat_payloads=[
+            {
+                "draft_type": "駁回",
+                "fact": "事實",
+                "reason": "理由",
+                "main_text": "訴願駁回。",
+                "cited_laws": [],
+                "gist": "因違反廢棄物清理法事件提起訴願",
+            }
+        ]
+    )
+    provider = _provider(http_client=http)
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
+
+    draft = provider.generate_draft(_info(), screening, [], [])
+
+    assert draft.gist == "因違反廢棄物清理法事件提起訴願"
+    _, body = http.calls[0]
+    assert "gist" in body["format"]["properties"]
+    assert "gist" in body["format"]["required"]

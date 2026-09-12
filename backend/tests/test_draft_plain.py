@@ -1,10 +1,11 @@
-"""決定書全文:承辦人編輯與下載的唯一對象。
+"""決定書本文與全文的分工。
 
-f4 三欄是模型產出的素材,產出時攤平成這份全文(pipeline);之後改的、印的、下載的都是它。
+draft_plain_text 只含本文(主文/事實/理由),承辦人編輯的就是它;表頭與結尾是 DecisionHeader
+的結構化欄位,兩者攤平合成 decision_full_text 才是 PDF/Word 實際印出的那一份決定書。
 """
 import app.main as main_module
 from app.models import Case, DecisionHeader, DraftResult
-from app.pdf_render import decision_plain_text
+from app.pdf_render import decision_full_text, decision_plain_text
 
 
 def _headers():
@@ -34,16 +35,16 @@ def _case(case_id: str, **overrides) -> Case:
     return main_module.store.get(case_id)
 
 
-# ---------- 純文字是從真正的版面攤平出來的,不是空白框 ----------
+# ---------- draft_plain_text 只含本文 ----------
 
 
-def test_plain_text_carries_the_real_document():
-    """切過去要看到的是這份決定書本身,不是一張白紙——否則承辦人得整份重打。"""
+def test_plain_text_is_just_the_three_sections():
+    """表頭與結尾不重印在 draft_plain_text 裡——那是承辦人實際編輯的範圍,只有本文。"""
     case = _case("c-plain001")
     text = decision_plain_text(case)
 
-    assert "新北市政府訴願決定書" in text
-    assert "案　　號：1141021559" in text
+    assert "新北市政府訴願決定書" not in text
+    assert "訴願審議委員會主任委員" not in text
     assert "主　文" in text and "訴願駁回。" in text
     assert "理　由" in text and "理由欄內容。" in text
 
@@ -60,7 +61,90 @@ def test_plain_text_keeps_the_inadmissible_form():
     assert "主　文" in text
 
 
-# ---------- 全文即決定書 ----------
+# ---------- decision_full_text:結構化表頭 + 本文 + 結構化結尾,欄位序對齊正式決定書 ----------
+
+
+def _header(**overrides):
+    base = dict(
+        case_no="1143051259",
+        gist="因違反建築法事件提起訴願",
+        issued_date="民國114年12月17日",
+        issued_no="新北府訴決字第1141934721號",
+        related_laws="訴願法 第 81 條",
+        appellant="劉○鑫",
+        agency="新北市政府工務局",
+        chairman="蔡庭榕",
+        committee="陳明燦",
+        decided_date="114年12月17日",
+    )
+    base.update(overrides)
+    return DecisionHeader(**base)
+
+
+def test_decision_full_text_follows_the_official_gazette_field_order_for_an_admissible_case():
+    case = _case(
+        "c-full001",
+        f4=DraftResult(draft_type="原處分撤銷", fact="緣訴願人…", reason="一、按建築法…", main_text="原處分撤銷。"),
+        decision_header=_header(),
+    )
+    text = decision_full_text(case)
+
+    order = [
+        "案　　號：1143051259",
+        "要　　旨：因違反建築法事件提起訴願",
+        "發文日期：114年12月17日",
+        "發文字號：新北府訴決字第1141934721號",
+        "相關法條：訴願法 第 81 條",
+        "新北市政府訴願決定書",
+        "劉○鑫",
+        "新北市政府工務局",
+        "本府依法決定如下：",
+        "主　文",
+        "原處分撤銷。",
+        "事　實",
+        "緣訴願人…",
+        "理　由",
+        "一、按建築法…",
+        "訴願審議委員會主任委員　蔡庭榕",
+        "委員　陳明燦",
+    ]
+    positions = [text.index(marker) for marker in order]
+    assert positions == sorted(positions)
+    assert text.startswith("案　　號：")
+    assert "如不服本決定" not in text  # 原處分撤銷訴願有理由,無救濟對象
+
+
+def test_decision_full_text_follows_the_official_gazette_field_order_for_an_inadmissible_case():
+    case = _case(
+        "c-full002",
+        f4=DraftResult(draft_type="不受理", fact="", reason="逾期提起。", main_text="訴願不受理。"),
+        decision_header=_header(issued_no="", related_laws=""),
+    )
+    text = decision_full_text(case)
+
+    order = [
+        "案　　號：1143051259",
+        "要　　旨：因違反建築法事件提起訴願",
+        "發文日期：114年12月17日",
+        "發文字號：新北府訴決字第　　　　號",
+        "相關法條：",
+        "新北市政府訴願決定書",
+        "劉○鑫",
+        "新北市政府工務局",
+        "本府依法決定如下：",
+        "主　文",
+        "訴願不受理。",
+        "理　由",
+        "逾期提起。",
+        "訴願審議委員會主任委員　蔡庭榕",
+        "如不服本決定，得於決定書送達之次日起 2 個月內向臺北高等行政法院",
+    ]
+    positions = [text.index(marker) for marker in order]
+    assert positions == sorted(positions)
+    assert "事　實" not in text
+
+
+# ---------- 全文的編輯與下載 ----------
 
 
 def test_editing_the_text_is_stored_verbatim():
@@ -99,10 +183,10 @@ def test_an_unknown_case_is_404():
     assert resp.status_code == 404
 
 
-# ---------- PDF 印的就是那一份全文 ----------
+# ---------- PDF 印的是攤平後的整份決定書 ----------
 
 
-def test_the_pdf_renders_the_stored_text():
+def test_the_pdf_renders_the_stored_body_text():
     import fitz
 
     from app.pdf_render import render_draft_pdf
@@ -115,6 +199,7 @@ def test_the_pdf_renders_the_stored_text():
 
     assert "承辦人自己排的版" in text
     assert "第二行" in text
+    assert "新北市政府訴願決定書" in text  # 表頭與結尾不隨本文被整段換掉而消失
 
 
 def test_an_empty_text_still_renders_a_pdf():

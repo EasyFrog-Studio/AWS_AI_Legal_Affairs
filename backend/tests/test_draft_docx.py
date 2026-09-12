@@ -1,4 +1,4 @@
-"""決定書草稿的 Word 下載:印的是 draft_plain_text,與 PDF 同一份全文。"""
+"""決定書草稿的 Word 下載:印的是 decision_full_text(結構化表頭+本文+結構化結尾),與 PDF 同一份全文。"""
 import io
 
 import app.main as main_module
@@ -50,13 +50,14 @@ def test_the_docx_carries_the_whole_document():
     assert "訴願審議委員會主任委員　王主委" in text
 
 
-def test_the_docx_prints_exactly_what_is_stored():
-    """承辦人改過的全文就是要下載的東西;docx 另外拼一份等於同一件案子下載到兩份不同的決定書。"""
+def test_the_docx_prints_the_edited_body_inside_the_structured_header_and_footer():
+    """承辦人改的是本文;結構化表頭與結尾(案號、主任委員)不因本文被整段換掉而消失。"""
     case = _case("c-docx002", draft_plain_text="承辦人自己排的版 第二行")
     text = _docx_text(render_draft_docx(case))
 
     assert "承辦人自己排的版 第二行" in text
-    assert "訴願審議委員會主任委員" not in text
+    assert "案　　號：1141021559" in text
+    assert "訴願審議委員會主任委員　王主委" in text
 
 
 def test_the_docx_keeps_the_inadmissible_form():

@@ -22,15 +22,19 @@ from app.procedural_checks import (
 from app.transit import resolve_transit_days
 from app.models import (
     DOCUMENT_SLOT_LABELS,
+    OCR_DATE_FIELD_BY_SLOT,
     Case,
     CaseInfo,
     DeadlineCheck,
     DraftResult,
+    ReanalyzeFrom,
     ScreeningResult,
     join_review_notes,
     parse_clause,
 )
 from app.appeal_sections import split_appeal_sections
+from app.dates import normalize_case_info_dates
+from app.decision_header import decision_header_defaults
 from app.pdf_render import decision_plain_text
 from app.providers.base import AIProvider
 from app.store import CaseStore
@@ -312,16 +316,33 @@ def check_deadline_from_case(case: Case, info: CaseInfo | None = None) -> Deadli
 
 
 def _flag_ocr_slots(case: Case, check: DeadlineCheck) -> DeadlineCheck:
-    """經 OCR 取得文字的槽,其日期一律不得據以覆寫程序審查:模型抽字會編字,而這套系統的
-    正確性建立在日期上。標了 review_note,reconcile_deadline 就不會拿算式去覆寫。"""
-    ocr_slots = [DOCUMENT_SLOT_LABELS[slot] for slot, doc in case.documents.items() if doc.ocr]
+    """經 OCR 取得文字的槽,其日期預設不得據以覆寫程序審查:模型抽字會編字,而這套系統的
+    正確性建立在日期上。承辦人若已核對過該槽的關鍵日期(f1 與 f1_system 對應欄位不同,
+    見 models.OCR_DATE_FIELD_BY_SLOT),解除該槽的阻擋;沒改過的槽維持阻擋。"""
+    ocr_slots = [slot for slot, doc in case.documents.items() if doc.ocr]
     if not ocr_slots:
         return check
-    note = f"{'、'.join(ocr_slots)}文字由 OCR 取得，日期須人工核對原件"
+
+    blocked_labels, confirmed_labels = [], []
+    for slot in ocr_slots:
+        field = OCR_DATE_FIELD_BY_SLOT.get(slot)
+        confirmed = (
+            field is not None
+            and case.f1 is not None
+            and case.f1_system is not None
+            and getattr(case.f1, field) != getattr(case.f1_system, field)
+        )
+        (confirmed_labels if confirmed else blocked_labels).append(DOCUMENT_SLOT_LABELS[slot])
+
+    notes = []
+    if blocked_labels:
+        notes.append(f"{'、'.join(blocked_labels)}文字由 OCR 取得，日期須人工核對原件")
+    notes.extend(f"{label}日期已由承辦人核對" for label in confirmed_labels)
+
     return check.model_copy(
         update={
-            "review_note": ";".join(n for n in (check.review_note, note) if n),
-            "override_blocked": True,
+            "review_note": ";".join(n for n in (check.review_note, *notes) if n),
+            "override_blocked": check.override_blocked or bool(blocked_labels),
         }
     )
 
@@ -384,6 +405,7 @@ def _retrieval_and_draft(
     """F2/F3/F4:程序審查結論定了之後的檢索與草稿。單獨抽出來是為了讓重跑能從這裡起跑——
     曾被人工推翻的案件重跑時若又呼叫 screen_admissibility,人剛改的判斷會被模型改回去。
     例外不在此處理,由呼叫端統一落 status=error。"""
+    store.update(case_id, {"retrieval_input_screening": screening})
     if screening.passed:
         store.update(case_id, {"track": "admissible", "current_stage": "f2"})
         laws = provider.recommend_laws(info)
@@ -403,31 +425,28 @@ def _retrieval_and_draft(
         provider.generate_draft(info, screening, laws, similar_cases), screening
     )
     store.update(case_id, {"f4": draft})
+    # 表頭預設值在落地那一刻實際寫進 decision_header,不是渲染時回落——之後承辦人改的就是這份
+    store.update(case_id, {"decision_header": decision_header_defaults(store.get(case_id))})
     # 承辦人編輯與下載的是攤平後的全文,產出時就寫好;重跑會重新攤平,故先前的編輯要另存一版
     # (見 main.reanalyze_case),不是在這裡保留。
     plain = decision_plain_text(store.get(case_id))
     store.update(case_id, {"draft_plain_text": plain, "current_stage": "done", "status": "done"})
 
 
-def rerun_case(case_id: str, store: CaseStore, provider: AIProvider) -> None:
-    """重跑。曾被人工推翻(screening_system 非 None)就保留 f1 與 screening,自 F2/F3 起跑;
-    否則整條自 F1 重跑。"""
+def rerun_case(case_id: str, store: CaseStore, provider: AIProvider, start: ReanalyzeFrom) -> None:
+    """重跑,起跑點由呼叫端明確指定(main.reanalyze_case 已依 from 清好對應欄位並設好
+    status/current_stage)——不再由歷史旗標推測。"""
     case = store.get(case_id)
     if case is None:
         raise ValueError(f"case not found: {case_id}")
 
-    overridden = case.screening_system is not None and case.f1 is not None and case.screening is not None
-    if not overridden and not (case.f1_edited and case.f1 is not None):
-        run_case(case_id, store, provider)
-        return
-
     try:
-        if not overridden:
-            # f1 被人工改過但程序審查沒被推翻:保留人改的 f1,程序審查以下全部重算
-            store.update(case_id, {"current_stage": "screening"})
+        if start == "f1":
+            run_case(case_id, store, provider)
+            return
+        if start == "screening":
             _screen_and_draft(case_id, store, provider, case, case.f1)
             return
-        store.update(case_id, {"current_stage": "f2" if case.screening.passed else "f2_refs"})
         _retrieval_and_draft(case_id, store, provider, case.f1, case.screening, case.input_text)
     except Exception as exc:  # noqa: BLE001 - 背景任務不得中斷,錯誤要落庫讓畫面看得到
         store.update(case_id, {"status": "error", "error": str(exc)})
@@ -439,6 +458,8 @@ def _screen_and_draft(
     """程序審查 → F2/F3/F4。抽出來是為了讓「f1 已被人工修改」的案件能從這裡起跑:
     那種案件重跑時不得再呼叫 extract_case_info,否則人剛改的欄位會被模型改回去。
     例外不在此處理,由呼叫端統一落 status=error。"""
+    # f1_stale 的判準依據;順便重新讀一次 case,呼叫端手上的快照可能是重跑前尚未清好欄位的舊版本
+    case = store.update(case_id, {"screening_input_f1": info})
     screening = provider.screen_admissibility(info, case.input_text)
     screening = guard_contradictory_screening(screening)
     # §77(1) 必要記載檢核在期間計算之前:期間逾期是最能客觀算出的事實,若兩者都成立,
@@ -470,7 +491,7 @@ def run_case(case_id: str, store: CaseStore, provider: AIProvider) -> None:
         raise ValueError(f"case not found: {case_id}")
 
     try:
-        info = apply_appeal_sections(provider.extract_case_info(case.input_text), case)
+        info = normalize_case_info_dates(apply_appeal_sections(provider.extract_case_info(case.input_text), case))
         store.update(case_id, {"f1": info, "current_stage": "screening"})
         _screen_and_draft(case_id, store, provider, case, info)
     except Exception as exc:  # noqa: BLE001 - pipeline 需捕捉任何例外落庫,不中斷背景任務

@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # 以 backend/ 為基準而非 _REPO_ROOT:容器只把 backend/app COPY 進 /app/app,
     # _REPO_ROOT 在容器內會算成 "/",落成 /finalized 而 appuser 無權建立(回 500)。
     FINALIZED_DIR: str = str(_BACKEND_DIR / "finalized")
+    # 上傳 PDF 的落地位置(mock/local 模式;aws 模式落 S3 cases/ 前綴)。與 FINALIZED_DIR 不同,
+    # 這份要跨重啟保留供承辦人預覽,compose 掛 volume,故預設值走容器慣用的 /data 前綴而非 backend/ 內
+    CASE_FILES_DIR: str = "/data/case_files"
     CASE_STORE: str = ""  # memory|dynamodb|postgres; 空字串代表依 AI_PROVIDER 決定預設值
 
     # 文件型態確認:規則判斷不出來時的備援(document_check.py)。空字串代表不啟用,

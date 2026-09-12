@@ -82,7 +82,7 @@ def test_the_first_edit_keeps_the_model_output_as_f1_system():
 
     assert resp.status_code == 200
     stored = main_module.store.get("c-f1e0001")
-    assert stored.f1.service_date == "114年6月1日"
+    assert stored.f1.service_date == "民國114年6月1日"  # PATCH /f1 經 normalize_case_info_dates 正規化
     # 模型原本抽的留著,前端才畫得出「這一欄被改過」
     assert stored.f1_system is not None
     assert stored.f1_system.service_date == "114年5月28日"
@@ -125,6 +125,6 @@ def test_rerunning_clears_the_snapshot_so_the_new_output_is_not_marked_as_edited
     )
     assert main_module.store.get("c-f1e0004").f1_system is not None
 
-    client.post("/api/cases/c-f1e0004/reanalyze", headers=_headers())
+    client.post("/api/cases/c-f1e0004/reanalyze", json={"from": "f1"}, headers=_headers())
 
     assert main_module.store.get("c-f1e0004").f1_system is None

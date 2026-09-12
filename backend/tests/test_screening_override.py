@@ -125,7 +125,7 @@ def test_reanalyze_is_allowed_on_a_finished_case():
     _seed("c-ovr0010", status="done")
     client = _client()
 
-    resp = client.post("/api/cases/c-ovr0010/reanalyze", headers=_headers())
+    resp = client.post("/api/cases/c-ovr0010/reanalyze", json={"from": "f1"}, headers=_headers())
 
     assert resp.status_code == 200
 
@@ -133,7 +133,7 @@ def test_reanalyze_is_allowed_on_a_finished_case():
 def test_reanalyze_is_allowed_on_a_broken_case():
     _seed("c-ovr0011", status="error")
 
-    resp = _client().post("/api/cases/c-ovr0011/reanalyze", headers=_headers())
+    resp = _client().post("/api/cases/c-ovr0011/reanalyze", json={"from": "f1"}, headers=_headers())
 
     assert resp.status_code == 200
 
@@ -141,23 +141,13 @@ def test_reanalyze_is_allowed_on_a_broken_case():
 def test_reanalyze_while_processing_returns_409():
     _seed("c-ovr0012", status="processing")
 
-    resp = _client().post("/api/cases/c-ovr0012/reanalyze", headers=_headers())
+    resp = _client().post("/api/cases/c-ovr0012/reanalyze", json={"from": "f1"}, headers=_headers())
 
     assert resp.status_code == 409
-
-
-def test_reanalyze_while_still_collecting_returns_409():
-    """收案中的案件該走 /analyze,不是 /reanalyze。"""
-    _seed("c-ovr0013", status="collecting")
-
-    resp = _client().post("/api/cases/c-ovr0013/reanalyze", headers=_headers())
-
-    assert resp.status_code == 409
-    assert "analyze" in resp.json()["detail"]
 
 
 def test_reanalyze_nonexistent_case_returns_404():
-    resp = _client().post("/api/cases/c-notexist/reanalyze", headers=_headers())
+    resp = _client().post("/api/cases/c-notexist/reanalyze", json={"from": "f1"}, headers=_headers())
     assert resp.status_code == 404
 
 
@@ -166,25 +156,25 @@ def test_reanalyze_saves_the_existing_draft_as_a_version_first():
     _seed("c-ovr0014", status="done")
     client = _client()
 
-    client.post("/api/cases/c-ovr0014/reanalyze", headers=_headers())
+    client.post("/api/cases/c-ovr0014/reanalyze", json={"from": "f1"}, headers=_headers())
 
     case = client.get("/api/cases/c-ovr0014", headers=_headers()).json()
     assert len(case["draft_versions"]) >= 1
     assert "訴願不受理。" in case["draft_versions"][0]["text"]
 
 
-def test_reanalyze_after_an_override_keeps_the_human_verdict(monkeypatch):
-    """曾被推翻的案件重跑時不得再呼叫 screen_admissibility——人剛剛改的判斷會被模型改回去,
-    那等於推翻入口不存在。保留 f1 與 screening,自 F2/F3 起跑。"""
+def test_reanalyze_from_f2_after_an_override_keeps_the_human_verdict(monkeypatch):
+    """曾被推翻的案件從 f2 重跑時不得再呼叫 screen_admissibility——人剛剛改的判斷會被模型改回去,
+    那等於推翻入口不存在。保留 f1 與 screening,自參考依據起跑。"""
     from tests.test_pipeline import StubAdmissibleProvider
     from app.models import CaseInfo
 
     class _NoScreeningProvider(StubAdmissibleProvider):
         def extract_case_info(self, text):
-            raise AssertionError("曾被推翻的案件不得重跑 F1")
+            raise AssertionError("from=f2 不得重跑 F1")
 
         def screen_admissibility(self, info, text):
-            raise AssertionError("曾被推翻的案件不得重跑程序審查")
+            raise AssertionError("from=f2 不得重跑程序審查")
 
     _seed("c-ovr0015", status="done")
     main_module.store.update(
@@ -208,7 +198,7 @@ def test_reanalyze_after_an_override_keeps_the_human_verdict(monkeypatch):
     )
     monkeypatch.setattr(main_module, "get_provider", lambda: _NoScreeningProvider())
 
-    resp = client.post("/api/cases/c-ovr0015/reanalyze", headers=_headers())
+    resp = client.post("/api/cases/c-ovr0015/reanalyze", json={"from": "f2"}, headers=_headers())
 
     assert resp.status_code == 200
     case = client.get("/api/cases/c-ovr0015", headers=_headers()).json()
@@ -217,15 +207,15 @@ def test_reanalyze_after_an_override_keeps_the_human_verdict(monkeypatch):
     assert case["f2"] is not None  # 檢索確實重跑了
 
 
-def test_reanalyze_from_scratch_when_never_overridden(monkeypatch):
-    """沒被推翻過的案件整條自 F1 重跑。"""
+def test_reanalyze_from_f1_from_scratch(monkeypatch):
+    """from=f1 整條自 F1 重跑,不看曾否被推翻過。"""
     from tests.test_pipeline import StubAdmissibleProvider
 
     _seed("c-ovr0016", status="error")
     monkeypatch.setattr(main_module, "get_provider", lambda: StubAdmissibleProvider())
     client = _client()
 
-    client.post("/api/cases/c-ovr0016/reanalyze", headers=_headers())
+    client.post("/api/cases/c-ovr0016/reanalyze", json={"from": "f1"}, headers=_headers())
 
     case = client.get("/api/cases/c-ovr0016", headers=_headers()).json()
     assert case["status"] == "done"
@@ -240,7 +230,7 @@ def test_reanalyze_a_finalized_case_still_works_and_keeps_the_mark(tmp_path, mon
     client = _client()
     client.post("/api/cases/c-ovr0017/finalize", headers=_headers())
 
-    resp = client.post("/api/cases/c-ovr0017/reanalyze", headers=_headers())
+    resp = client.post("/api/cases/c-ovr0017/reanalyze", json={"from": "f1"}, headers=_headers())
 
     assert resp.status_code == 200
     case = client.get("/api/cases/c-ovr0017", headers=_headers()).json()

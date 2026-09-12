@@ -34,6 +34,7 @@ _LINE_GAP = 1.6
 
 _AUTHORITY_TITLE = "新北市政府訴願決定書"
 _BLANK = "　　　　　　"  # 全形空白,列印後承辦人可直接手寫
+_ISSUED_NO_PLACEHOLDER = "新北府訴決字第　　　　號"  # 發文字號發文時才由案管系統配,套語留空號
 _COMMITTEE_LINES = 12  # 語料每案 10~14 位委員,取中位數留行數,名單與人數都不由系統決定
 _LITIGATION_NOTICE = (
     "如不服本決定，得於決定書送達之次日起 2 個月內向臺北高等行政法院"
@@ -106,32 +107,62 @@ class _Writer:
         self.y += amount
 
 
-def build_decision_blocks(case) -> list[tuple[str, str]]:
-    """決定書草稿的版面區塊 [(kind, text)];kind ∈ title/heading/body/blank。
-    體例照語料 21 份真實決定書,系統填不出來的欄位留空給承辦人。
-    唯一的消費者是 decision_plain_text 與 docx_render:版面只有這一份定義。"""
-    f1 = case.f1
-    header = case.decision_header
-    blocks: list[tuple[str, str]] = [
-        ("title", _AUTHORITY_TITLE),
-        ("blank", ""),
-        ("body", f"案　　號：{_value(header.case_no)}"),
-        ("body", f"　訴願人　{_value(header.appellant or (f1 and f1.appellant))}"),
-        ("body", f"　原處分機關　{_value(header.agency or (f1 and f1.agency))}"),
-        ("blank", ""),
-        ("body", _opening_paragraph(f1)),
-        ("blank", ""),
-    ]
-
+def decision_body_text(case) -> str:
+    """決定書本文:只有主文/事實/理由三段,這就是 draft_plain_text 的內容。
+    唯一的消費者是 pipeline(F4 落地時寫入 draft_plain_text)與 models 的舊全文補值。"""
     f4 = case.f4
+    parts = []
     for heading, field in DRAFT_SECTIONS:
-        body = getattr(f4, field)
+        content = getattr(f4, field) or ""
         # 不受理決定得不記載事實(訴願法§89 I(3)),語料 90 件事實欄全空,不留空標題
-        if field == "fact" and f4.draft_type == "不受理" and not (f4.fact or "").strip():
+        if field == "fact" and f4.draft_type == "不受理" and not content.strip():
             continue
-        blocks.append(("heading", heading))
-        blocks.append(("body", body or ""))
-        blocks.append(("blank", ""))
+        parts.append(f"{heading}\n{content}")
+    return "\n\n".join(parts)
+
+
+# 舊名保留:pipeline 與 models.py 的舊全文補值都呼叫這個名字
+decision_plain_text = decision_body_text
+
+
+def build_decision_blocks(case) -> list[tuple[str, str]]:
+    """決定書草稿的完整版面區塊 [(kind, text)];kind ∈ title/heading/body/blank。
+    欄位序:結構化表頭五欄(案號/要旨/發文日期/發文字號/相關法條)→標題+案號→訴願人→
+    代理人(有才印)→原處分機關→敘明句→本文(case.draft_plain_text 原樣)→主任委員→
+    委員→教示條款→日期。體例照語料 21 份真實決定書,系統填不出來的欄位留空給承辦人。
+    唯一的消費者是 decision_full_text 與 docx_render:版面只有這一份定義。"""
+    f1 = case.f1
+    f4 = case.f4
+    header = case.decision_header
+
+    blocks: list[tuple[str, str]] = [
+        ("body", f"案　　號：{_value(header.case_no)}"),
+        ("body", f"要　　旨：{_value(header.gist)}"),
+        ("body", f"發文日期：{_value(_strip_era(header.issued_date)) if header.issued_date else _BLANK}"),
+        ("body", f"發文字號：{header.issued_no or _ISSUED_NO_PLACEHOLDER}"),
+    ]
+    law_lines = [line for line in header.related_laws.splitlines() if line.strip()]
+    if law_lines:
+        blocks.append(("body", f"相關法條：{law_lines[0]}"))
+        for line in law_lines[1:]:
+            blocks.append(("body", line))
+    else:
+        blocks.append(("body", f"相關法條：{_BLANK}"))
+    blocks.append(("blank", ""))
+
+    case_no_suffix = f"　　案號：{header.case_no} 號" if header.case_no else ""
+    blocks.append(("title", f"{_AUTHORITY_TITLE}{case_no_suffix}"))
+    blocks.append(("body", f"　訴願人　{_value(header.appellant or (f1 and f1.appellant))}"))
+    if header.agent_name:
+        agent_label = header.agent_role or "代理人"
+        blocks.append(("body", f"　{agent_label}　{header.agent_name}"))
+    blocks.append(("body", f"　原處分機關　{_value(header.agency or (f1 and f1.agency))}"))
+    blocks.append(("blank", ""))
+    blocks.append(("body", _opening_paragraph(f1)))
+    blocks.append(("blank", ""))
+
+    blocks.append(("body", case.draft_plain_text or ""))
+    blocks.append(("blank", ""))
 
     blocks.append(("body", f"訴願審議委員會主任委員　{_value(header.chairman)}"))
     # 填了名單就照名單印,沒填才留 _COMMITTEE_LINES 行空白——人數不由系統決定
@@ -171,9 +202,9 @@ def _opening_paragraph(f1) -> str:
     )
 
 
-def decision_plain_text(case) -> str:
-    """把版面攤平成承辦人實際編輯的那一份全文。F4 產出時呼叫一次寫進 draft_plain_text;
-    之後這份文字就是決定書本身,f4 三欄只是產生它的素材。"""
+def decision_full_text(case) -> str:
+    """把整份版面(表頭+本文+結尾)攤平成 PDF/Word 實際印出的那一份全文。
+    本文段落取 case.draft_plain_text 原樣——承辦人改過的就是它,不再從 f4 三段重組。"""
     lines = []
     for kind, text in build_decision_blocks(case):
         lines.append("" if kind == "blank" else text)
@@ -191,6 +222,6 @@ def _render_plain_pdf(text: str) -> bytes:
 
 
 def render_draft_pdf(case) -> bytes:
-    """依 case.draft_plain_text 產生決定書草稿 PDF bytes。
-    承辦人編輯與下載的都是那一份全文;f4 只是產生它的素材,不再直接印。"""
-    return _render_plain_pdf(case.draft_plain_text)
+    """依 build_decision_blocks 產生決定書草稿 PDF bytes:結構化表頭+本文+結尾整份都印,
+    承辦人下載的是完整可送出的決定書,不是只有本文那一段。"""
+    return _render_plain_pdf(decision_full_text(case))

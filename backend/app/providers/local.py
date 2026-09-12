@@ -6,7 +6,6 @@ from typing import Optional
 
 from app.config import settings
 from app.models import (
-    SERVICE_METHODS,
     CaseInfo,
     DraftResult,
     LawRef,
@@ -31,6 +30,7 @@ from app.providers.aws import (
     case_summary,
 )
 from app.providers.base import AIProvider
+from app.providers.schemas import case_info_json_schema
 
 
 _MAX_OUTPUT_TOKENS = 2048  # 語料最長 f4 為 879 字,留兩倍餘裕;調小會攔腰砍掉正常草稿
@@ -117,53 +117,7 @@ class LocalProvider(AIProvider):
             return cur.fetchall()
 
     def extract_case_info(self, text: str) -> CaseInfo:
-        schema = {
-            "type": "object",
-            "properties": {
-                "appellant": {"type": "string"},
-                "agency": {"type": "string"},
-                "disposition_date": {"type": "string"},
-                "disposition_no": {"type": "string"},
-                "disposition_summary": {"type": "string"},
-                # 理由排在事實前面:grammar-constrained JSON 生成照 schema 順序,事實先寫就會
-                # 把訴願書的內容吃光,理由只剩空陣列,而 §77(1) 會據此誤報缺漏
-                "appeal_reasons": {"type": "array", "items": {"type": "string"}},
-                "appeal_facts": {"type": "array", "items": {"type": "string"}},
-                "case_type": {"type": "string"},
-                "issues": {"type": "array", "items": {"type": "string"}},
-                "cited_articles": {"type": "array", "items": {"type": "string"}},
-                "receipt_date": {"type": "string"},
-                "service_date": {"type": "string"},
-                "service_method": {"type": "string", "enum": list(SERVICE_METHODS)},
-                "disposition_fine": {"type": "string"},
-                "disposition_notice_clause": {"type": "string"},
-                "disposition_recipient": {"type": "string"},
-                "answer_statement": {"type": "string"},
-                "answer_self_revoked": {"type": "string"},
-                "answer_arguments": {"type": "array", "items": {"type": "string"}},
-            },
-            # 程式化檢核讀得到的欄位一律必填:選填時模型會整個略過該鍵,欄位落回空字串,
-            # 吃它的檢核只看得到「空」——沒抽到與卷內沒有變成同一個值,檢核於是靜默停用。
-            # 抽不到要填「未載明」(見 f1_extract.txt),那是誠實回報,與鍵消失不同
-            "required": [
-                "appellant",
-                "agency",
-                "disposition_date",
-                "disposition_no",
-                "disposition_summary",
-                "case_type",
-                "disposition_recipient",  # check_standing → §77(3) 當事人適格
-                "disposition_notice_clause",  # notice_clause → 行政程序法§98 期間分支
-                "receipt_date",  # check_required_fields → 訴願法§56 I⑥
-                "appeal_reasons",  # check_required_fields → 訴願法§56 I⑤
-                # 這四欄選填時模型會整組省略,列進 required 是要它「一定要回答」——
-                # 沒有答辯書就明確回空值,不是當作沒看到
-                "appeal_facts",
-                "answer_statement",
-                "answer_self_revoked",
-                "answer_arguments",
-            ],
-        }
+        schema = case_info_json_schema()
         data = self._chat_json(_load_prompt("f1_extract.txt"), text, schema)
         return CaseInfo(**data)
 
@@ -351,8 +305,9 @@ class LocalProvider(AIProvider):
                 "reason": {"type": "string"},
                 "main_text": {"type": "string"},
                 "cited_laws": {"type": "array", "items": {"type": "string"}},
+                "gist": {"type": "string"},
             },
-            "required": ["draft_type", "fact", "reason", "main_text"],
+            "required": ["draft_type", "fact", "reason", "main_text", "gist"],
         }
         allowed_laws = [f"{l.law_name}#{l.article_no}" for l in laws]
         user_text = (

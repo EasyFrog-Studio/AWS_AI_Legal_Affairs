@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from app.auth import require_api_key
 from app.config import settings
+from app.dates import normalize_case_info_dates, normalize_roc
 from app.document_check import check_document
 from app.models import (
     DraftTextPatch,
@@ -19,13 +20,16 @@ from app.models import (
     CaseDocument,
     CaseInfo,
     CaseSummary,
+    DECISION_HEADER_DATE_FIELDS,
     DOCUMENT_SLOT_LABELS,
+    DecisionHeader,
     DocumentSlot,
     DraftResultOverride,
     DraftVersion,
     MAX_DRAFT_VERSIONS,
     OCR_REVIEW_NOTE,
     OPTIONAL_DOCUMENT_SLOTS,
+    ReanalyzeRequest,
     ScreeningOverride,
     build_input_text,
 )
@@ -130,6 +134,7 @@ class DocumentInput(NamedTuple):
     source: str
     ocr: bool = False
     filename: str = ""  # 上傳的原始檔名;貼上文字為空字串
+    pdf_bytes: bytes = b""  # 上傳的原始 PDF 位元組,落地用;貼上文字為空
 
 
 def _ocr_document(label: str, pdf_bytes: bytes) -> DocumentInput:
@@ -175,7 +180,7 @@ async def _read_document_input(
             if extracted.char_count < MIN_TEXT_CHARS
             else DocumentInput(text=extracted.text, source="pdf")
         )
-        return document._replace(filename=file.filename or "")
+        return document._replace(filename=file.filename or "", pdf_bytes=pdf_bytes)
     if text is not None and text.strip():
         return DocumentInput(text=text, source="text")
     if slot in OPTIONAL_DOCUMENT_SLOTS:
@@ -194,6 +199,24 @@ def _build_document(slot: DocumentSlot, document_input: DocumentInput) -> CaseDo
         filename=document_input.filename,
         review_note=OCR_REVIEW_NOTE if document_input.ocr else "",
     )
+
+
+def _land_pdf_if_any(case_id: str, slot: DocumentSlot, document_input: DocumentInput) -> None:
+    """上傳的 PDF 位元組落地,供文件確認頁預覽(GET .../file);貼上文字或掃描件無原始 PDF 可落。
+    位元組不進 Case/store,寫檔失敗一律往外拋,不可靜默吞掉。"""
+    if document_input.source != "pdf" or not document_input.pdf_bytes:
+        return
+    if settings.AI_PROVIDER == "aws":
+        _s3_client().put_object(
+            Bucket=settings.S3_BUCKET,
+            Key=f"cases/{case_id}/{slot}.pdf",
+            Body=document_input.pdf_bytes,
+            ContentType="application/pdf",
+        )
+        return
+    target_dir = Path(settings.CASE_FILES_DIR) / case_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    (target_dir / f"{slot}.pdf").write_bytes(document_input.pdf_bytes)
 
 
 # 案號會落進 finalized/{case_id}.pdf 的 S3 key 與本機路徑,故限白名單;\w 含中日韓字,「114年訴字第0123號」可用
@@ -222,6 +245,7 @@ def _resolve_case_id(raw: Optional[str]) -> str:
 
 @app.post("/api/cases", dependencies=[Depends(require_api_key)])
 async def create_case(
+    background_tasks: BackgroundTasks,
     case_id: Optional[str] = Form(None),
     appeal_file: Optional[UploadFile] = File(None),
     appeal_text: Optional[str] = Form(None),
@@ -232,7 +256,7 @@ async def create_case(
     answer_file: Optional[UploadFile] = File(None),
     answer_text: Optional[str] = Form(None),
 ):
-    """四份文件各自上傳並確認型態;不在此觸發分析,見 /analyze。
+    """四份文件各自上傳並確認型態,建案後立即起跑整條 pipeline——不再等待「開始分析」。
     送達證書選填:觀念通知等案件本無此文書,擋在收案就測不到後續;缺槽時期間不予計算,
     一律視為未逾期(見 pipeline.check_deadline_from_case)。
     訴願答辯書必填:機關的答辯是實體審理的另一造主張,缺了只聽得到訴願人一方。"""
@@ -265,6 +289,9 @@ async def create_case(
         documents=documents,
     )
     store.create(case)
+    for slot, document_input in (("appeal", appeal), ("service", service), ("disposition", disposition), ("answer", answer)):
+        _land_pdf_if_any(case_id, slot, document_input)
+    background_tasks.add_task(run_case, case_id, store, get_provider())
 
     return {
         "case_id": case_id,
@@ -279,14 +306,17 @@ async def replace_document(
     file: Optional[UploadFile] = File(None),
     text: Optional[str] = Form(None),
 ):
-    """確認結果錯了就整份重傳這一槽,重新跑型態確認;分析中/已完成的案件不可再改文件。"""
+    """確認結果錯了就整份重傳這一槽,重新跑型態確認並落地新的 PDF;分析中的案件不可再改文件。
+    不觸發分析——修正型態或補件之後要看到新結果,呼叫 /reanalyze。"""
     case = store.get(case_id)
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
-    if case.status != "collecting":
-        raise HTTPException(status_code=409, detail="案件已開始分析，無法再修改文件")
+    if case.status == "processing":
+        raise HTTPException(status_code=409, detail="分析進行中，請稍後再重傳")
 
-    document = _build_document(slot, await _read_document_input(slot, file, text))
+    document_input = await _read_document_input(slot, file, text)
+    document = _build_document(slot, document_input)
+    _land_pdf_if_any(case_id, slot, document_input)
     documents = {**case.documents, slot: document}
     # 重建 input_text 是必要的——它是 documents 的衍生值,少了這行 F1/程序審查分析用的
     # 仍是重傳前的舊文字。
@@ -294,34 +324,37 @@ async def replace_document(
     return {"documents": {s: d.check for s, d in documents.items()}}
 
 
-@app.post("/api/cases/{case_id}/analyze", dependencies=[Depends(require_api_key)])
-def analyze_case(case_id: str, background_tasks: BackgroundTasks):
-    """使用者確認文件無誤後按下「開始分析」,才觸發既有的 F1->審查->F2/F3->F4 pipeline。"""
+@app.get("/api/cases/{case_id}/documents/{slot}/file", dependencies=[Depends(require_api_key)])
+def get_document_file(case_id: str, slot: DocumentSlot):
+    """承辦人在文件確認頁點檔名預覽當初上傳的原始 PDF。貼上文字的槽沒有原始檔可看,回 404;
+    aws 模式直接串流 S3 物件回傳,不用 302——前端一律走同一條帶金鑰的 fetch。"""
     case = store.get(case_id)
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
-    if case.status != "collecting":
-        raise HTTPException(status_code=409, detail="此案件已經開始分析或已完成")
+    document = case.documents.get(slot)
+    if document is None or document.source != "pdf":
+        raise HTTPException(status_code=404, detail="此槽無原始 PDF 可預覽")
 
-    # 前端擋了未確認的槽,但後端自己也要擋——直接打 API 不能繞過文件確認這一關。
-    # matched 為 False 或 None 都不算確認完成,None 尤其不可當「還沒查」跟「已放行」混在一起。
-    # 選填槽的空槽除外:沒有文件就沒有東西可確認,擋在這裡等於收案放行卻分析不了;
-    # 缺送達證書的後果由期間計算標成 review_note,不在此處攔。必填槽空著則照擋——
-    # 收案已擋掉一次,但舊案與直接打 API 兩條路仍到得了這裡。
-    unconfirmed = [
-        DOCUMENT_SLOT_LABELS[slot]
-        for slot, doc in case.documents.items()
-        if doc.check.matched is not True
-        and (doc.text.strip() or slot not in OPTIONAL_DOCUMENT_SLOTS)
-    ]
-    if unconfirmed:
-        raise HTTPException(
-            status_code=409, detail=f"以下文件尚未確認無誤，無法開始分析：{'、'.join(unconfirmed)}"
-        )
+    filename = urllib.parse.quote(document.filename or f"{slot}.pdf")
+    if settings.AI_PROVIDER == "aws":
+        try:
+            obj = _s3_client().get_object(Bucket=settings.S3_BUCKET, Key=f"cases/{case_id}/{slot}.pdf")
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
+                raise HTTPException(status_code=404, detail="檔案不存在")
+            raise
+        pdf_bytes = obj["Body"].read()
+    else:
+        path = Path(settings.CASE_FILES_DIR) / case_id / f"{slot}.pdf"
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="檔案不存在")
+        pdf_bytes = path.read_bytes()
 
-    store.update(case_id, {"status": "processing", "current_stage": "f1"})
-    background_tasks.add_task(run_case, case_id, store, get_provider())
-    return {"ok": True}
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{filename}"},
+    )
 
 
 @app.get("/api/cases", dependencies=[Depends(require_api_key)])
@@ -415,14 +448,11 @@ def _same_content(version: DraftVersion, text: str) -> bool:
     return version.text == text
 
 
-_STALE_SCREENING_NOTE = "案件資訊經人工修改，程序審查結論尚未依修改後的資料重跑"
-
-
 @app.patch("/api/cases/{case_id}/f1", dependencies=[Depends(require_api_key)])
 def update_case_info(case_id: str, info: CaseInfo) -> Case:
     """承辦人更正 F1 擷取結果。改完不自動重跑程序審查(那要呼叫 LLM,且會蓋掉人工推翻的結論),
-    只重算期間並在 screening 標一句「尚未依修改後的資料重跑」——不標的話,畫面上就是一份
-    「已審結」但依據已經被改掉的案件。要讓結論跟上,呼叫 /reanalyze。
+    只重算期間;下游是否已經過時由 computed field f1_stale 表達(比對 screening_input_f1),
+    不再另外在 screening.review_note 塞一句。要讓結論跟上,呼叫 /reanalyze。
 
     期間只有教示條款那一項讀 f1;送達日與提起日仍從文件原文抽取,改 f1 的日期欄不會改變算式。
     """
@@ -434,6 +464,7 @@ def update_case_info(case_id: str, info: CaseInfo) -> Case:
     if case.f1 is None:
         raise HTTPException(status_code=409, detail="案件尚未擷取案件資訊，無可修改的內容")
 
+    info = normalize_case_info_dates(info)
     fields = {
         "f1": info,
         "f1_edited": True,
@@ -442,9 +473,6 @@ def update_case_info(case_id: str, info: CaseInfo) -> Case:
     # 只在第一次修改時留快照:第二次改若覆蓋掉,第一次改過的欄位就不再標記為已修改
     if case.f1_system is None:
         fields["f1_system"] = case.f1
-    if case.screening is not None and _STALE_SCREENING_NOTE not in case.screening.review_note:
-        merged = ";".join(n for n in (case.screening.review_note, _STALE_SCREENING_NOTE) if n)
-        fields["screening"] = case.screening.model_copy(update={"review_note": merged})
     store.update(case_id, fields)
     return store.get(case_id)
 
@@ -485,6 +513,8 @@ def override_screening(case_id: str, override: ScreeningOverride):
     case = store.get(case_id)
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
+    if case.status == "processing":
+        raise HTTPException(status_code=409, detail="案件分析中，無法修改程序審查結論")
     if case.screening is None:
         raise HTTPException(status_code=409, detail="此案件尚無程序審查結論，無從推翻")
 
@@ -520,27 +550,85 @@ def update_draft_result(case_id: str, override: DraftResultOverride):
 
 
 @app.post("/api/cases/{case_id}/reanalyze", dependencies=[Depends(require_api_key)])
-def reanalyze_case(case_id: str, background_tasks: BackgroundTasks):
-    """重跑。done 與 error 兩種狀態都允許——推翻程序審查之後重跑正是 done 狀態下的
-    正常業務操作。契約(含起跑點)見 pipeline.rerun_case。"""
+def reanalyze_case(case_id: str, request: ReanalyzeRequest, background_tasks: BackgroundTasks):
+    """重跑,起跑點由前端明確指定。done 與 error 兩種狀態都允許——推翻程序審查之後重跑
+    正是 done 狀態下的正常業務操作。前面的階段只影響後面的:from=screening 保留 f1,
+    from=f2 保留 f1 與 screening。契約見 specs/審理歷程線性重跑與全欄位擷取.md §1.2,
+    實際起跑由 pipeline.rerun_case 執行。"""
     case = store.get(case_id)
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
     if case.status == "processing":
         raise HTTPException(status_code=409, detail="此案件正在分析中")
-    if case.status == "collecting":
-        raise HTTPException(status_code=409, detail="此案件尚未開始分析，請改用 analyze")
+    if request.from_stage in ("screening", "f2") and case.f1 is None:
+        raise HTTPException(status_code=409, detail="案件尚未擷取案件資訊，無法自此重跑")
+    if request.from_stage == "f2" and case.screening is None:
+        raise HTTPException(status_code=409, detail="案件尚無程序審查結論，無法自參考依據重跑")
 
-    # 重跑會重新擷取/重新產出草稿,新結果不是承辦人改的;留著舊快照會讓整份都標成已修改
-    fields = {"status": "processing", "error": None, "f1_system": None, "f4_system": None}
+    # 重跑前一律先存一版:重跑會重新產生全文,不存的話承辦人編輯過的草稿會被無聲蓋掉
+    fields = {"status": "processing", "error": None}
     if case.f4 is not None:
-        # 重跑會重新產生全文,先存一版,否則承辦人編輯過的草稿會被無聲蓋掉
         text = case.draft_plain_text
         if not (case.draft_versions and _same_content(case.draft_versions[-1], text)):
             fields.update(_appended_versions(case, _version_of(text)))
-    store.update(case_id, fields)
 
-    background_tasks.add_task(rerun_case, case_id, store, get_provider())
+    if request.from_stage == "f1":
+        # 整條重跑:新結果不是承辦人改的,留著舊快照會讓整份都標成已修改
+        fields.update(
+            {
+                "f1_system": None,
+                "f1_edited": False,
+                "screening_system": None,
+                "f4_system": None,
+                "screening_input_f1": None,
+                "retrieval_input_screening": None,
+                "current_stage": "f1",
+            }
+        )
+    elif request.from_stage == "screening":
+        # 保留 f1 與 f1_system,自程序審查起跑
+        fields.update(
+            {
+                "screening_system": None,
+                "f4_system": None,
+                "retrieval_input_screening": None,
+                "current_stage": "screening",
+            }
+        )
+    else:  # f2:保留 f1/f1_system/screening/screening_system,自參考依據起跑
+        fields.update(
+            {
+                "f4_system": None,
+                "current_stage": "f2" if case.screening.passed else "f2_refs",
+            }
+        )
+
+    store.update(case_id, fields)
+    background_tasks.add_task(rerun_case, case_id, store, get_provider(), request.from_stage)
+    return {"ok": True}
+
+
+@app.patch("/api/cases/{case_id}/decision-header", dependencies=[Depends(require_api_key)])
+def update_decision_header(case_id: str, header: DecisionHeader):
+    """決定書表頭與結尾的結構化欄位。F4 落地時已寫入預設值,這裡是承辦人之後的修改;
+    案號等欄位允許被改成空白——表頭不是唯讀的衍生資料。"""
+    case = store.get(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    if case.status == "processing":
+        raise HTTPException(status_code=409, detail="案件分析中，無法修改決定書表頭")
+    if case.f4 is None:
+        raise HTTPException(status_code=409, detail="此案件尚無草稿，無可修改的表頭")
+
+    updates = {}
+    for field in DECISION_HEADER_DATE_FIELDS:
+        raw = getattr(header, field)
+        normalized = normalize_roc(raw)
+        if normalized is not None and normalized != raw:
+            updates[field] = normalized
+    normalized_header = header.model_copy(update=updates) if updates else header
+
+    store.update(case_id, {"decision_header": normalized_header})
     return {"ok": True}
 
 

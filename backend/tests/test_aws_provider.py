@@ -1,8 +1,9 @@
 """AWSProvider 單元測試:mock boto3 client,驗證參數組裝,不做真實呼叫。"""
 from unittest.mock import MagicMock
 
-from app.models import SERVICE_METHODS, CaseInfo, ScreeningResult, LawRef
+from app.models import AGENT_ROLES, SERVICE_METHODS, CaseInfo, ScreeningResult, LawRef
 from app.providers.aws import AWSProvider, _clause_to_appeal_article, _retrieval_query, _valid_cited_articles
+from app.providers.schemas import case_info_json_schema
 
 
 def _provider(**clients) -> AWSProvider:
@@ -1111,3 +1112,50 @@ def test_similar_cases_carry_the_source_url_like_local_does():
     cases = provider.find_similar_cases(_info(), screening, "原文")
 
     assert [c.source_url for c in cases] == [url, None]
+
+
+def test_f1_schema_required_matches_every_case_info_field():
+    """schema 的欄位清單推導自 CaseInfo 本身,新增欄位不必記得同步兩份手寫清單。"""
+    brt = MagicMock()
+    brt.converse.return_value = _toolUse_response("extract_case_info", {
+        "appellant": "王大明", "agency": "機關", "disposition_date": "112年1月1日",
+        "disposition_no": "字第1號", "disposition_summary": "罰鍰", "case_type": "廢棄物清理法",
+    })
+    provider = _provider(bedrock_runtime=brt)
+    provider.extract_case_info("卷證全文")
+
+    _, kwargs = brt.converse.call_args
+    schema = kwargs["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
+
+    assert set(schema["required"]) == set(CaseInfo.model_fields.keys())
+
+
+def test_f1_schema_constrains_agent_role_to_statutory_options():
+    schema = case_info_json_schema()
+    assert schema["properties"]["agent_role"]["enum"] == list(AGENT_ROLES)
+    assert schema["properties"]["service_method"]["enum"] == list(SERVICE_METHODS)
+
+
+def test_generate_draft_schema_requires_gist():
+    brt = MagicMock()
+    brt.converse.return_value = _toolUse_response(
+        "generate_draft",
+        {
+            "draft_type": "駁回",
+            "fact": "事實",
+            "reason": "理由",
+            "main_text": "訴願駁回。",
+            "cited_laws": [],
+            "gist": "因違反廢棄物清理法事件提起訴願",
+        },
+    )
+    provider = _provider(bedrock_runtime=brt)
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="x")
+
+    draft = provider.generate_draft(_info(), screening, [], [])
+
+    assert draft.gist == "因違反廢棄物清理法事件提起訴願"
+    _, kwargs = brt.converse.call_args
+    schema = kwargs["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
+    assert "gist" in schema["properties"]
+    assert "gist" in schema["required"]

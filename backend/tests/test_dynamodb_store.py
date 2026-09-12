@@ -297,18 +297,41 @@ def test_roundtrip_keeps_every_case_field_the_pipeline_or_the_clerk_writes():
         "appellant": "王大明", "agency": "彰化縣環境保護局", "disposition_date": "110年1月1日",
         "disposition_no": "彰環字第1號", "disposition_summary": "裁處罰鍰", "case_type": "環保",
     }
+    screening = {"passed": True, "matched_clause": None, "reasoning": "無不受理事由"}
+    edited_screening = {"passed": True, "matched_clause": None, "reasoning": "人工重新認定"}
+    header = {
+        "case_no": "114年訴字第1號",
+        "gist": "因違反廢棄物清理法事件提起訴願",
+        "issued_date": "民國114年7月4日",
+        "issued_no": "新北府訴決字第1號",
+        "related_laws": "廢棄物清理法 第 27 條",
+        "appellant": "王大明",
+        "agent_role": "代理人",
+        "agent_name": "陳大文",
+        "agency": "彰化縣環境保護局",
+        "chairman": "林○○",
+        "committee": "委員甲\n委員乙",
+        "decided_date": "民國114年8月1日",
+    }
+    from app.models import CaseInfo, DecisionHeader, DraftResult, ReferenceRef, ScreeningResult
+
+    # model_copy 不重新驗證型別;computed field(f1_stale 等)要呼叫 .model_dump(),
+    # 巢狀欄位必須是真正的子模型而非 dict,否則跟 store._to_item 實際收到的型別對不上
     case = _case().model_copy(update={
-        "f1": info,
-        "f1_system": {**info, "appellant": "王大明(模型)"},
+        "f1": CaseInfo(**info),
+        "f1_system": CaseInfo(**{**info, "appellant": "王大明(模型)"}),
         "f1_edited": True,
-        "f2_refs": [{"doc_kind": "行政函釋", "name": "法務部法律字第1號", "issued_date": "民國100年1月1日",
-                     "text": "函釋全文", "relevance": "相關"}],
-        "f4": {"draft_type": "撤銷另處", "fact": "事實", "reason": "理由", "main_text": "主文"},
-        "f4_system": {"draft_type": "駁回", "fact": "事實", "reason": "理由", "main_text": "主文"},
-        "decision_header": {"case_no": "114年訴字第1號", "chairman": "林○○"},
+        "screening": ScreeningResult(**edited_screening),
+        "screening_system": ScreeningResult(**screening),
+        "screening_input_f1": CaseInfo(**info),
+        "retrieval_input_screening": ScreeningResult(**screening),
+        "f2_refs": [ReferenceRef(doc_kind="行政函釋", name="法務部法律字第1號", issued_date="民國100年1月1日",
+                                  text="函釋全文", relevance="相關")],
+        "f4": DraftResult(draft_type="撤銷另處", fact="事實", reason="理由", main_text="主文"),
+        "f4_system": DraftResult(draft_type="駁回", fact="事實", reason="理由", main_text="主文"),
+        "decision_header": DecisionHeader(**header),
         "draft_plain_text": "承辦人改過的全文",
     })
-    case = Case.model_validate(case.model_dump())
     table.get_item.return_value = {"Item": store._to_item(case)}
 
     fetched = store.get(case.case_id)
@@ -319,7 +342,13 @@ def test_roundtrip_keeps_every_case_field_the_pipeline_or_the_clerk_writes():
     assert fetched.f1_edited is True
     assert fetched.f4_system.draft_type == "駁回"
     assert fetched.f4.draft_type == "撤銷另處"
-    assert fetched.decision_header.case_no == "114年訴字第1號"
+    # 兩個 staleness 快照:screening 已改過(reasoning 不同),f1 未改過(等於 screening_input_f1)
+    assert fetched.screening_input_f1.appellant == "王大明"
+    assert fetched.retrieval_input_screening.reasoning == "無不受理事由"
+    assert fetched.f1_stale is False
+    assert fetched.screening_stale is True
+    # decision_header 12 欄逐一落地,不是只存了案號那幾個既有欄位
+    assert fetched.decision_header.model_dump() == header
 
 
 def test_old_item_without_the_newer_fields_still_reads_with_defaults():
@@ -327,7 +356,16 @@ def test_old_item_without_the_newer_fields_still_reads_with_defaults():
     table = MagicMock()
     store = DynamoDBStore(table=table)
     item = store._to_item(_case())
-    for key in ("f1_system", "f2_refs", "f4_system", "decision_header", "draft_plain_text", "f1_edited"):
+    for key in (
+        "f1_system",
+        "f2_refs",
+        "f4_system",
+        "decision_header",
+        "draft_plain_text",
+        "f1_edited",
+        "screening_input_f1",
+        "retrieval_input_screening",
+    ):
         item.pop(key, None)
     table.get_item.return_value = {"Item": item}
 
@@ -336,3 +374,5 @@ def test_old_item_without_the_newer_fields_still_reads_with_defaults():
     assert fetched.f1_system is None and fetched.f2_refs is None and fetched.f4_system is None
     assert fetched.decision_header.case_no == ""
     assert fetched.draft_plain_text == "" and fetched.f1_edited is False
+    assert fetched.screening_input_f1 is None and fetched.retrieval_input_screening is None
+    assert fetched.f1_stale is False and fetched.screening_stale is False

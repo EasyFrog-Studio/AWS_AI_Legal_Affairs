@@ -4,6 +4,7 @@ from app.models import CaseInfo, DeadlineCheck, DraftResult, LawRef, ReferenceRe
 from app.deadline_extract import DeadlineExtraction, DeadlineFacts
 from app.pipeline import (
     _check_deadline_from_extraction,
+    _flag_ocr_slots,
     check_deadline,
     check_deadline_from_case,
     enforce_inadmissible_format,
@@ -915,6 +916,63 @@ def test_dates_from_an_ocr_slot_never_override_the_screening():
     assert "未據以覆寫程序審查" in reconciled.review_note
 
 
+# ---------- _flag_ocr_slots:承辦人核對過的 OCR 日期解除該槽的阻擋 ----------
+
+
+def _ocr_case(**overrides) -> Case:
+    from app.models import CaseDocument
+
+    documents = {
+        "service": CaseDocument(slot="service", source="pdf", text="送達證書", ocr=True),
+    }
+    fields = dict(
+        case_id="c-ocrflag01",
+        created_at="2026-08-17T00:00:00",
+        title="OCR 阻擋測試",
+        source="pdf",
+        input_text="x",
+        documents=documents,
+    )
+    fields.update(overrides)
+    return Case(**fields)
+
+
+def test_flag_ocr_slots_unblocks_the_slot_whose_own_date_was_corrected():
+    """承辦人改過該槽對應的日期欄(service -> service_date):解除阻擋,review_note 改記已核對。"""
+    system = _info().model_copy(update={"service_date": "114年5月28日"})
+    human = system.model_copy(update={"service_date": "114年6月1日"})
+    case = _ocr_case(f1=human, f1_system=system)
+
+    result = _flag_ocr_slots(case, DeadlineCheck())
+
+    assert result.override_blocked is False
+    assert "送達證書日期已由承辦人核對" in result.review_note
+    assert "須人工核對原件" not in result.review_note
+
+
+def test_flag_ocr_slots_still_blocks_when_untouched():
+    """從未修改過(f1_system 為 None,尚未有第一次人工修改):維持阻擋。"""
+    case = _ocr_case(f1=_info(), f1_system=None)
+
+    result = _flag_ocr_slots(case, DeadlineCheck())
+
+    assert result.override_blocked is True
+    assert "送達證書文字由 OCR 取得，日期須人工核對原件" in result.review_note
+
+
+def test_flag_ocr_slots_still_blocks_when_a_different_field_was_edited():
+    """改的是別的欄位(appellant),該 OCR 槽對應的日期欄本身沒變:維持阻擋。"""
+    system = _info().model_copy(update={"service_date": "114年5月28日"})
+    human = system.model_copy(update={"appellant": "王大明(更正)"})
+    case = _ocr_case(f1=human, f1_system=system)
+
+    result = _flag_ocr_slots(case, DeadlineCheck())
+
+    assert result.override_blocked is True
+    assert "送達證書文字由 OCR 取得，日期須人工核對原件" in result.review_note
+    assert "已由承辦人核對" not in result.review_note
+
+
 def test_run_case_stores_the_deadline_check():
     """run_case 走真實 pipeline,期間計算讀 case.documents(分槽),不是 input_text 合併字串——
     service_date 只信 service 槽,故送達日的敘述要放在 service 槽,不是隨便塞進 appeal 槽。"""
@@ -1203,7 +1261,7 @@ def test_rerun_after_screening_override_recomputes_reference_opinions():
     )
     store.stages.clear()
 
-    rerun_case("c-11111111", store, StubAdmissibleProvider())
+    rerun_case("c-11111111", store, StubAdmissibleProvider(), start="f2")
 
     case = store.get("c-11111111")
     assert case.f2_refs is not None and [r.name for r in case.f2_refs] == ["釋字第469號"]

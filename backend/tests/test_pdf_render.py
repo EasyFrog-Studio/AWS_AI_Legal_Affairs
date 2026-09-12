@@ -1,7 +1,7 @@
 """決定書草稿的版面:體例照 data_show/decisions_114/ 的 21 份真實決定書。
 下載下來要是一份可直接送出的決定書,系統填得出來的填,填不出來的留空給承辦人。"""
-from app.models import Case, CaseInfo, DraftResult
-from app.pdf_render import build_decision_blocks
+from app.models import Case, CaseInfo, DecisionHeader, DraftResult
+from app.pdf_render import build_decision_blocks, decision_body_text
 
 
 def _case(f1=None, f4=None, **overrides):
@@ -35,6 +35,10 @@ def _info(**overrides):
 
 def _texts(blocks):
     return [text for _kind, text in blocks]
+
+
+def _f4(draft_type="駁回"):
+    return DraftResult(draft_type=draft_type, fact="事實", reason="理由", main_text="主文")
 
 
 def test_the_masthead_carries_the_authority_name_and_an_empty_case_number():
@@ -72,37 +76,48 @@ def test_a_case_without_f1_still_renders_the_skeleton_with_blanks():
     assert "None" not in joined
 
 
-def test_the_three_sections_appear_in_the_official_order_with_their_content():
-    blocks = build_decision_blocks(_case(f1=_info(), f4=DraftResult(
-        draft_type="駁回", fact="緣訴願人於114年…", reason="一、按廢棄物清理法…", main_text="訴願駁回。")))
-    headings = [t for k, t in blocks if k == "heading"]
-    joined = "".join(_texts(blocks))
+# ---------- 本文三段(decision_body_text):draft_plain_text 的內容 ----------
 
-    assert headings == ["主　文", "事　實", "理　由"]
-    assert "訴願駁回。" in joined
-    assert "緣訴願人於114年…" in joined
-    assert "一、按廢棄物清理法…" in joined
+
+def test_the_three_sections_appear_in_the_official_order_with_their_content():
+    case = _case(f1=_info(), f4=DraftResult(
+        draft_type="駁回", fact="緣訴願人於114年…", reason="一、按廢棄物清理法…", main_text="訴願駁回。"))
+    body = decision_body_text(case)
+
+    assert body.index("主　文") < body.index("事　實") < body.index("理　由")
+    assert "訴願駁回。" in body
+    assert "緣訴願人於114年…" in body
+    assert "一、按廢棄物清理法…" in body
 
 
 def test_an_inadmissible_decision_omits_the_fact_section_entirely():
     """語料 90 件不受理決定書事實欄全部為空(訴願法§89 I(3)),不留沒有內文的標題。"""
-    blocks = build_decision_blocks(_case(f1=_info(), f4=DraftResult(
-        draft_type="不受理", fact="", reason="一、按訴願法第77條…", main_text="訴願不受理。")))
-    headings = [t for k, t in blocks if k == "heading"]
+    case = _case(f1=_info(), f4=DraftResult(
+        draft_type="不受理", fact="", reason="一、按訴願法第77條…", main_text="訴願不受理。"))
+    body = decision_body_text(case)
 
-    assert headings == ["主　文", "理　由"]
+    assert "事　實" not in body
+    assert "主　文" in body and "理　由" in body
 
 
 def test_a_revoking_decision_keeps_the_fact_section():
-    blocks = build_decision_blocks(_case(f1=_info(), f4=DraftResult(
-        draft_type="原處分撤銷", fact="緣訴願人…", reason="一、按建築法…", main_text="原處分撤銷。")))
-    headings = [t for k, t in blocks if k == "heading"]
+    case = _case(f1=_info(), f4=DraftResult(
+        draft_type="原處分撤銷", fact="緣訴願人…", reason="一、按建築法…", main_text="原處分撤銷。"))
+    body = decision_body_text(case)
 
-    assert headings == ["主　文", "事　實", "理　由"]
+    assert "主　文" in body and "事　實" in body and "理　由" in body
 
 
-def _f4(draft_type="駁回"):
-    return DraftResult(draft_type=draft_type, fact="事實", reason="理由", main_text="主文")
+def test_a_partially_inadmissible_partially_dismissed_decision_carries_the_notice_and_keeps_fact_section():
+    """部分不受理部分駁回對訴願人不利(仍有駁回部分),附教示段且不省略事實欄。"""
+    case = _case(f1=_info(), f4=DraftResult(
+        draft_type="部分不受理部分駁回", fact="緣訴願人…", reason="一、關於罰鍰部分…",
+        main_text="關於罰鍰部分,訴願駁回。關於限期改善部分,訴願不受理。"))
+    body = decision_body_text(case)
+    joined = "".join(_texts(build_decision_blocks(case)))
+
+    assert "事　實" in body
+    assert "如不服本決定，得於決定書送達之次日起 2 個月內向臺北高等行政法院" in joined
 
 
 def test_the_committee_signature_block_is_labelled_but_left_blank():
@@ -131,6 +146,13 @@ def test_a_revoking_decision_carries_no_litigation_notice():
     assert "如不服本決定" not in joined
 
 
+def test_a_revoke_and_remand_decision_carries_no_litigation_notice():
+    """撤銷另處與原處分撤銷同為訴願有理由,語料 11 件撤銷另處案同樣沒有這段。"""
+    joined = "".join(_texts(build_decision_blocks(_case(f1=_info(), f4=_f4("撤銷另處")))))
+
+    assert "如不服本決定" not in joined
+
+
 def test_the_issue_date_line_is_left_blank_for_the_officer():
     blocks = build_decision_blocks(_case(f1=_info(), f4=_f4()))
     date_line = next(t for _k, t in blocks if t.startswith("中華民國"))
@@ -151,11 +173,11 @@ def test_the_configured_kai_font_is_used_when_the_file_exists(tmp_path, monkeypa
 
     assert fontfile == str(font_file)
     assert fontname != "china-t"
+
+
 def test_the_officer_supplied_case_number_replaces_the_blank():
     """案號、日期、委員名單是機關收文後才定的,系統填不出來;承辦人填了就要印上去,
     不能只在畫面上看得到而下載的 PDF 還是空白——版面只有 build_decision_blocks 這一份定義。"""
-    from app.models import DecisionHeader
-
     case = _case(
         f1=_info(),
         f4=_f4(),
@@ -169,8 +191,6 @@ def test_the_officer_supplied_case_number_replaces_the_blank():
 
 def test_the_officer_supplied_committee_replaces_the_blank_lines():
     """語料每案 10~14 位委員,系統只留空行;填了名單就照名單印,不再多留空行。"""
-    from app.models import DecisionHeader
-
     case = _case(
         f1=_info(),
         f4=_f4(),
@@ -187,8 +207,6 @@ def test_the_officer_supplied_committee_replaces_the_blank_lines():
 def test_the_parties_can_be_corrected_without_touching_f1():
     """訴願人姓名在卷內與擷取結果不一致時,承辦人直接改決定書上的字,
     不必為了印對一個名字而去改 F1(那會連帶影響程序審查與檢索)。"""
-    from app.models import DecisionHeader
-
     case = _case(f1=_info(), f4=_f4(), decision_header=DecisionHeader(appellant="鄭○芳"))
     texts = _texts(build_decision_blocks(case))
 
@@ -198,8 +216,6 @@ def test_the_parties_can_be_corrected_without_touching_f1():
 
 def test_an_empty_header_field_keeps_the_blank_for_handwriting():
     """沒填就維持可書寫的空白,不得因為多了這個欄位而變成印出空字串的光禿一行。"""
-    from app.models import DecisionHeader
-
     case = _case(f1=_info(), f4=_f4(), decision_header=DecisionHeader())
     texts = _texts(build_decision_blocks(case))
 
@@ -208,20 +224,62 @@ def test_an_empty_header_field_keeps_the_blank_for_handwriting():
     assert sum(1 for t in texts if t.startswith("委員")) == 12
 
 
-def test_a_revoke_and_remand_decision_carries_no_litigation_notice():
-    """撤銷另處與原處分撤銷同為訴願有理由,語料 11 件撤銷另處案同樣沒有這段。"""
-    joined = "".join(_texts(build_decision_blocks(_case(f1=_info(), f4=_f4("撤銷另處")))))
-
-    assert "如不服本決定" not in joined
+# ---------- 結構化表頭五欄:案號/要旨/發文日期/發文字號/相關法條 ----------
 
 
-def test_a_partially_inadmissible_partially_dismissed_decision_carries_the_notice_and_keeps_fact_section():
-    """部分不受理部分駁回對訴願人不利(仍有駁回部分),附教示段且不省略事實欄標題。"""
-    blocks = build_decision_blocks(_case(f1=_info(), f4=DraftResult(
-        draft_type="部分不受理部分駁回", fact="緣訴願人…", reason="一、關於罰鍰部分…",
-        main_text="關於罰鍰部分,訴願駁回。關於限期改善部分,訴願不受理。")))
-    headings = [t for k, t in blocks if k == "heading"]
-    joined = "".join(_texts(blocks))
+def test_the_gist_and_dates_are_printed_from_the_structured_header():
+    header = DecisionHeader(
+        gist="因違反建築法事件提起訴願",
+        issued_date="民國114年12月17日",
+        issued_no="新北府訴決字第1141934721號",
+    )
+    joined = "".join(_texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=header))))
 
-    assert headings == ["主　文", "事　實", "理　由"]
-    assert "如不服本決定，得於決定書送達之次日起 2 個月內向臺北高等行政法院" in joined
+    assert "要　　旨：因違反建築法事件提起訴願" in joined
+    assert "發文日期：114年12月17日" in joined  # 「民國」由抬頭模板統一補,欄位本身脫掉
+    assert "發文字號：新北府訴決字第1141934721號" in joined
+
+
+def test_a_blank_issued_no_prints_the_placeholder_gazette_number():
+    """發文字號發文時才由案管系統配,留空印固定套語的空號,而不是一片空白看不出這是哪一欄。"""
+    joined = "".join(_texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=DecisionHeader()))))
+
+    assert "發文字號：新北府訴決字第　　　　號" in joined
+
+
+def test_related_laws_print_one_law_per_line():
+    header = DecisionHeader(related_laws="訴願法 第 81 條\n建築法 第 2 條")
+    texts = _texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=header)))
+
+    assert "相關法條：訴願法 第 81 條" in texts
+    assert "建築法 第 2 條" in texts
+
+
+def test_empty_related_laws_prints_a_blank_line():
+    joined = "".join(_texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=DecisionHeader()))))
+
+    assert "相關法條：" in joined
+
+
+# ---------- 代理人列:agent_name 空整列不印,標籤依 agent_role ----------
+
+
+def test_an_empty_agent_name_prints_no_agent_row_at_all():
+    texts = _texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=DecisionHeader(agent_name=""))))
+
+    assert not any(t.startswith("　代理人") or t.startswith("　送達代收人") for t in texts)
+
+
+def test_an_agent_row_uses_the_officer_supplied_role_label():
+    header = DecisionHeader(agent_role="送達代收人", agent_name="陳大文")
+    texts = _texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=header)))
+
+    assert any(t.startswith("　送達代收人") and "陳大文" in t for t in texts)
+    assert not any(t.startswith("　代理人") for t in texts)
+
+
+def test_an_agent_row_defaults_to_the_agent_label_when_the_role_is_blank():
+    header = DecisionHeader(agent_role="", agent_name="陳大文")
+    texts = _texts(build_decision_blocks(_case(f1=_info(), f4=_f4(), decision_header=header)))
+
+    assert any(t.startswith("　代理人") and "陳大文" in t for t in texts)
