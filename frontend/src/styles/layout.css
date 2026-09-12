@@ -129,6 +129,8 @@
   padding-bottom: var(--space-md);
   border-bottom: 1px solid var(--color-rule);
   margin-bottom: var(--space-xl);
+  /* 與 .btn 同高:右側有沒有按鈕、印章或計數,髮絲線與秤樑都落在同一個位置 */
+  min-height: 40px;
 }
 
 .page-header::after {
@@ -143,13 +145,23 @@
 
 .page-header__title {
   font-size: var(--text-display);
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1.3;
+}
+
+/* 標題與案號同一行:案號較小字,跟在標題後面 */
+.page-header__heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+  min-width: 0;
 }
 
 .page-header__meta {
   font-family: var(--font-mono);
   font-size: var(--text-micro);
+  /* 行高壓到機能文字:用長文的 1.9 時行盒比標題深,髮絲線與秤樑會被這一格壓低 */
+  line-height: var(--leading-ui);
   color: var(--color-ink-soft);
   white-space: nowrap;
 }
@@ -157,21 +169,18 @@
 .page-header__count {
   font-family: var(--font-ui);
   font-size: var(--text-ui);
+  line-height: var(--leading-ui);
   color: var(--color-ink-soft);
   white-space: nowrap;
 }
 
 .page-header__actions {
+  /* 不進基線群組:按鈕比標題行盒深,跟著對基線會把髮絲線壓下去 */
+  align-self: center;
   display: flex;
   align-items: center;
   gap: var(--space-md);
   flex-shrink: 0;
-}
-
-/* 頁首緊排:說明或狀態句要貼齊標題,兩者是同一段交代 */
-.page-header.page-header--tight {
-  padding-bottom: var(--space-sm);
-  margin-bottom: var(--space-xs);
 }
 
 /* ---------- Responsive:左欄收成頂列 ---------- */

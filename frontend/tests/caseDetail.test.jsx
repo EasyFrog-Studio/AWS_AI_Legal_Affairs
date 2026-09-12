@@ -35,18 +35,34 @@ const rail = (name) => screen.getByRole('button', { name })
 const isCurrent = (name) => rail(name).getAttribute('aria-current') === 'true'
 
 describe('頁首標題', () => {
-  it('F1 有結果時顯示訴願人與案由類別事件,而不是文件片段', async () => {
+  it('標題就是左欄選中項的名字,案號以較小字跟在後面', async () => {
+    api.getCase.mockResolvedValue(processingAt('f1'))
+    renderDetail('c-3')
+
+    const heading = await screen.findByRole('heading', { name: 'F1 擷取' })
+    // 案號不進標題本身:標題只講看的是哪一段,案號是附註
+    expect(heading).not.toHaveTextContent('c-3')
+    expect(screen.getByText('c-3')).toHaveClass('page-header__meta')
+  })
+
+  it('選到決定書草稿時標題是「決定書草稿」,案號照舊跟在後面', async () => {
     api.getCase.mockResolvedValue(doneAdmissible)
     renderDetail()
 
-    expect(await screen.findByRole('heading', { name: '王○明　環保事件' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '決定書草稿' })).toBeInTheDocument()
+    expect(screen.getByText('c-1')).toHaveClass('page-header__meta')
   })
 
-  it('F1 尚無結果時退回原標題,並把連續空白(含全形)折成一個', async () => {
-    api.getCase.mockResolvedValue({ ...processingAt('f1'), title: '訴　願　書   陳○瑤' })
-    renderDetail('c-3')
+  it('切換左欄,標題跟著換成該項的名字', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible)
+    const user = userEvent.setup()
+    renderDetail()
 
-    expect(await screen.findByRole('heading', { name: '訴 願 書 陳○瑤' })).toBeInTheDocument()
+    await screen.findByRole('heading', { name: '決定書草稿' })
+    await user.click(rail(/^程序審查/))
+    expect(screen.getByRole('heading', { name: '程序審查' })).toBeInTheDocument()
+    await user.click(rail(/^文件確認/))
+    expect(screen.getByRole('heading', { name: '文件確認' })).toBeInTheDocument()
   })
 })
 

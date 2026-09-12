@@ -72,7 +72,7 @@ export default function NewCase() {
 
   return (
     <AppShell>
-      <div className="page-header page-header--tight">
+      <div className="page-header">
         <h1 className="page-header__title">新增案件</h1>
       </div>
 

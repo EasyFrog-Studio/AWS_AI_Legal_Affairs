@@ -6,9 +6,11 @@ import Icon from '../components/Icon.jsx'
 import Seal, { resolveProgressSeal, resolveResultSeal } from '../components/Seal.jsx'
 import './CaseList.css'
 
-const STATUS_OPTIONS = ['全部', '待確認', '審理中', '待人工確認', '處理失敗', '已審結']
+const STATUS_OPTIONS = ['全部', '審理中', '處理失敗', '已審結']
 const RESULT_OPTIONS = ['全部', '不受理', '駁回', '撤銷另處', '原處分撤銷', '部分不受理部分駁回']
 const ALL = '全部'
+// 清單先看要處理的:失敗的要重收件、審理中的等承辦人動作,已審結的只是留存
+const PROGRESS_ORDER = ['處理失敗', '審理中', '已審結']
 
 const PERIOD_OPTIONS = [
   { label: ALL, days: null },
@@ -92,7 +94,7 @@ export default function CaseList() {
     const q = search.trim().toLowerCase()
     const days = PERIOD_OPTIONS.find((o) => o.label === period)?.days
     const since = days ? Date.now() - days * DAY_MS : null
-    return cases.filter((c) => {
+    const rows = cases.filter((c) => {
       if (q) {
         const inId = (c.case_id || '').toLowerCase().includes(q)
         const inTitle = (c.title || '').toLowerCase().includes(q)
@@ -107,6 +109,12 @@ export default function CaseList() {
       }
       return true
     })
+    // sort 穩定,同一進度內維持 API 給的時間序
+    return rows.sort(
+      (a, b) =>
+        PROGRESS_ORDER.indexOf(resolveProgressSeal(a).text) -
+        PROGRESS_ORDER.indexOf(resolveProgressSeal(b).text),
+    )
   }, [cases, search, status, result, caseType, period])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
@@ -217,7 +225,7 @@ export default function CaseList() {
   return (
     <AppShell railSlot={railSlot}>
       <div className="page-header">
-        <h1 className="page-header__title case-list-title">案件清單</h1>
+        <h1 className="page-header__title">案件清單</h1>
         {cases !== null && !error && (
           <span className="page-header__count">
             共 {cases.length} 件{isFiltering ? ` · 顯示 ${filtered.length} 件` : ''}

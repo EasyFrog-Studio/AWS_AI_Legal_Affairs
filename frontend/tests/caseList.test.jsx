@@ -82,14 +82,14 @@ describe('案件清單', () => {
     expect(screen.getByRole('button', { name: '新增案件' })).toBeInTheDocument()
   })
 
-  it('needs_review 的案件在進度欄印「待人工確認」,結果欄不重複,並可據此篩選', async () => {
+  it('needs_review 的案件進度仍為「審理中」,不算已審結,並可據此篩選', async () => {
     const user = userEvent.setup()
     await renderList([{ ...listRows[0], needs_review: true }, listRows[1]])
 
     const cells = within(dataRows()[0]).getAllByRole('cell')
-    expect(cells[3]).toHaveTextContent('待人工確認')
-    expect(cells[2]).not.toHaveTextContent('待人工確認')
-    await user.selectOptions(screen.getByRole('combobox', { name: '進度' }), '待人工確認')
+    expect(cells[3]).toHaveTextContent('審理中')
+    expect(cells[3]).not.toHaveTextContent('已審結')
+    await user.selectOptions(screen.getByRole('combobox', { name: '進度' }), '審理中')
     expect(dataRows()).toHaveLength(1)
     expect(dataRows()[0]).toHaveTextContent('c-0001')
   })
@@ -219,15 +219,33 @@ describe('案件清單', () => {
     expect(dataRows()).toHaveLength(3)
   })
 
-  it('進度篩選涵蓋五種進度值(待確認/審理中/待人工確認/處理失敗/已審結)', async () => {
+  it('進度篩選只有三種進度值(審理中/處理失敗/已審結)', async () => {
     await renderList(listRows)
     const options = within(screen.getByRole('combobox', { name: '進度' }))
       .getAllByRole('option')
       .map((o) => o.textContent)
-    expect(options).toEqual(['全部', '待確認', '審理中', '待人工確認', '處理失敗', '已審結'])
+    expect(options).toEqual(['全部', '審理中', '處理失敗', '已審結'])
   })
 
-  it('結果篩選只有五種決定類型,不含待人工確認', async () => {
+  it('清單依進度排序:處理失敗 → 審理中 → 已審結,同一組內維持原時間序', async () => {
+    const base = { created_at: new Date().toISOString(), track: null, current_stage: 'f1', case_type: '環保' }
+    const rows = [
+      { ...base, case_id: 'c-A', status: 'done' },
+      { ...base, case_id: 'c-B', status: 'processing' },
+      { ...base, case_id: 'c-C', status: 'error' },
+      { ...base, case_id: 'c-D', status: 'done', needs_review: true },
+      { ...base, case_id: 'c-E', status: 'collecting', documents_failed: true },
+      { ...base, case_id: 'c-F', status: 'collecting', documents_failed: false },
+    ]
+    await renderList(rows)
+
+    const ids = dataRows().map((r) => within(r).getAllByRole('cell')[0].textContent)
+    expect(ids).toEqual(['c-C', 'c-E', 'c-B', 'c-D', 'c-F', 'c-A'])
+    const progress = dataRows().map((r) => within(r).getAllByRole('cell')[3].textContent)
+    expect(progress).toEqual(['處理失敗', '處理失敗', '審理中', '審理中', '審理中', '已審結'])
+  })
+
+  it('結果篩選只有五種決定類型,不含進度狀態', async () => {
     await renderList(listRows)
     const options = within(screen.getByRole('combobox', { name: '結果' }))
       .getAllByRole('option')
@@ -242,7 +260,7 @@ describe('案件清單', () => {
     ])
   })
 
-  it('collecting 案件依 documents_failed 決定進度是「待確認」還是「處理失敗」', async () => {
+  it('collecting 案件依 documents_failed 決定進度是「審理中」還是「處理失敗」', async () => {
     const rows = [
       {
         case_id: 'c-0101',
@@ -267,7 +285,7 @@ describe('案件清單', () => {
     ]
     await renderList(rows)
     expect(within(dataRows()[0]).getAllByRole('cell')[3]).toHaveTextContent('處理失敗')
-    expect(within(dataRows()[1]).getAllByRole('cell')[3]).toHaveTextContent('待確認')
+    expect(within(dataRows()[1]).getAllByRole('cell')[3]).toHaveTextContent('審理中')
   })
 
   it('進度與結果分欄:done 案件進度顯示已審結,結果欄如實顯示 result,無 result 顯示「—」', async () => {
@@ -303,7 +321,7 @@ describe('案件清單', () => {
     expect(row1[2]).toHaveTextContent('—')
   })
 
-  it('結果篩選:選駁回只留 result=駁回;待人工確認改由進度篩選', async () => {
+  it('結果篩選:選駁回只留 result=駁回;待複核案改由進度篩選為審理中', async () => {
     const rows = [
       {
         case_id: 'c-0301',
@@ -345,7 +363,7 @@ describe('案件清單', () => {
     expect(dataRows()[0]).toHaveTextContent('c-0301')
     await user.selectOptions(screen.getByRole('combobox', { name: '結果' }), '全部')
 
-    await user.selectOptions(screen.getByRole('combobox', { name: '進度' }), '待人工確認')
+    await user.selectOptions(screen.getByRole('combobox', { name: '進度' }), '審理中')
     expect(dataRows()).toHaveLength(1)
     expect(dataRows()[0]).toHaveTextContent('c-0302')
   })

@@ -27,6 +27,15 @@ const STAGES = [
   { key: 'screening', label: '程序審查' },
   { key: 'refs', label: '參考依據' },
 ]
+// 左欄的第一項與最後一項各有自己的渲染邏輯,不進 STAGES,但名字要與頁首標題同一份
+const COLLECTING_STAGE = { key: 'collecting', label: '文件確認' }
+const DRAFT_STAGE = { key: 'draft', label: '決定書草稿' }
+
+/** 頁首標題就是左欄選中項的名字;落在三者之外(error 停在 f4/done)時退回節名。 */
+function sectionTitle(selected) {
+  const stage = [COLLECTING_STAGE, ...STAGES, DRAFT_STAGE].find((s) => s.key === selected)
+  return stage ? stage.label : '審理歷程'
+}
 
 /** 合併在「參考依據」底下的三個後端階段。後端仍逐階段跑,左欄只呈現一個節點。 */
 const REF_STAGES = ['f2', 'f2_refs', 'f3']
@@ -901,12 +910,12 @@ export default function CaseDetail() {
               type="button"
               className={`rail-item ${current ? 'rail-item--current' : ''}`}
               aria-current={current ? 'true' : undefined}
-              onClick={() => handleSelect('collecting')}
+              onClick={() => handleSelect(COLLECTING_STAGE.key)}
             >
               <span className={`rail-item__marker rail-item__marker--${marker.modifier}`}>
                 <Icon name={marker.icon} />
               </span>
-              文件確認
+              {COLLECTING_STAGE.label}
               {marker.note && <span className="rail-item__note">{marker.note}</span>}
             </button>
           )
@@ -942,12 +951,12 @@ export default function CaseDetail() {
               type="button"
               className={`rail-item rail-item--emphasis ${current ? 'rail-item--current' : ''}`}
               aria-current={current ? 'true' : undefined}
-              onClick={() => handleSelect('draft')}
+              onClick={() => handleSelect(DRAFT_STAGE.key)}
             >
               <span className={`rail-item__marker rail-item__marker--${marker.modifier}`}>
                 <Icon name={marker.icon} />
               </span>
-              決定書草稿
+              {DRAFT_STAGE.label}
               {hasNewResult('draft') && (
                 <span className="rail-item__dot" role="img" aria-label="有新結果" />
               )}
@@ -967,10 +976,10 @@ export default function CaseDetail() {
       )}
       {!error && caseData && (
         <>
-          <div className="page-header page-header--tight">
+          <div className="page-header">
             <div className="page-header__heading">
               <h1 className="page-header__title">
-                {effectiveSelected === 'draft' ? '決定書草稿' : '審理歷程'}
+                {sectionTitle(effectiveSelected)}
               </h1>
               <span className="page-header__meta">{caseData.case_id}</span>
             </div>

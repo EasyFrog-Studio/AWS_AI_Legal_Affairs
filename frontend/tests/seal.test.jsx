@@ -33,22 +33,22 @@ describe('resolveCaseSeal:五種 draft_type', () => {
   })
 })
 
-describe('resolveProgressSeal:清單頁「進度」欄,僅四值', () => {
+describe('resolveProgressSeal:清單頁「進度」欄,僅三值', () => {
   it('status=error → 處理失敗', () => {
     expect(resolveProgressSeal({ status: 'error' })).toEqual({ kind: 'error', text: '處理失敗' })
   })
 
-  it('status=collecting 且 documents_failed → 處理失敗(文件判定不符,不是待確認)', () => {
+  it('status=collecting 且 documents_failed → 處理失敗(文件判定不符,不是還在跑)', () => {
     expect(resolveProgressSeal({ status: 'collecting', documents_failed: true })).toEqual({
       kind: 'error',
       text: '處理失敗',
     })
   })
 
-  it('status=collecting 且 documents_failed=false → 待確認', () => {
+  it('status=collecting 且 documents_failed=false → 審理中(收案待確認併入進行中)', () => {
     expect(resolveProgressSeal({ status: 'collecting', documents_failed: false })).toEqual({
       kind: 'accent',
-      text: '待確認',
+      text: '審理中',
     })
   })
 
@@ -60,10 +60,10 @@ describe('resolveProgressSeal:清單頁「進度」欄,僅四值', () => {
     expect(resolveProgressSeal({ status: 'done' })).toEqual({ kind: 'accent', text: '已審結' })
   })
 
-  it('done 且 needs_review → 待人工確認(併入進度欄,結果欄只留決定結果)', () => {
+  it('done 且 needs_review → 審理中(尚待複核,還沒結掉)', () => {
     expect(resolveProgressSeal({ status: 'done', needs_review: true })).toEqual({
-      kind: 'review',
-      text: '待人工確認',
+      kind: 'accent',
+      text: '審理中',
     })
   })
 

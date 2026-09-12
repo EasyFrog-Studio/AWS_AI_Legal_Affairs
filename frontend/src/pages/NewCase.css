@@ -1,5 +1,4 @@
-/* NewCase 頁專用;卷證工作檯的格線與落件框在 components.css,與待確認階段共用;
-   page-header--tight 在 layout.css,與案件詳情頁共用 */
+/* NewCase 頁專用;卷證工作檯的格線與落件框在 components.css,與待確認階段共用 */
 
 /* 缺件說明緊跟在導言之下,讀成同一段 */
 .newcase__hint {

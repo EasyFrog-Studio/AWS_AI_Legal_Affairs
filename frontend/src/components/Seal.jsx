@@ -31,19 +31,13 @@ export function resolveCaseSeal(caseData) {
 
 /**
  * 清單頁「進度」欄:只回流程狀態,不摻決定結果(結果另由 resolveResultSeal 給)。
- * error 或 collecting+documents_failed → 處理失敗;collecting → 待確認;processing → 審理中;
- * done+needs_review → 待人工確認;done → 已審結。待人工確認併進本欄,結果欄只留決定結果。
+ * error 或 collecting+documents_failed → 處理失敗;done 且無待複核 → 已審結;
+ * 其餘(收案待確認、跑批中、跑完待複核)一律 → 審理中,承辦人手上還沒結掉的都算進行中。
  */
 export function resolveProgressSeal(row) {
   if (row?.status === 'error') return { kind: 'error', text: '處理失敗' }
-  if (row?.status === 'collecting') {
-    if (row.documents_failed) return { kind: 'error', text: '處理失敗' }
-    return { kind: 'accent', text: '待確認' }
-  }
-  if (row?.status === 'done') {
-    if (row.needs_review) return { kind: 'review', text: '待人工確認' }
-    return { kind: 'accent', text: '已審結' }
-  }
+  if (row?.status === 'collecting' && row.documents_failed) return { kind: 'error', text: '處理失敗' }
+  if (row?.status === 'done' && !row.needs_review) return { kind: 'accent', text: '已審結' }
   return { kind: 'accent', text: '審理中' }
 }
 
