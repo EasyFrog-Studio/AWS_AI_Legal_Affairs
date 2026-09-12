@@ -16,8 +16,9 @@ export const api = {
   updateDraftResult: vi.fn(async () => ({ ok: true, draft_type: '駁回', overridden: true })),
   createCase: vi.fn(async () => ({ case_id: 'c-new' })),
   replaceDocument: vi.fn(async () => ({})),
-  analyzeCase: vi.fn(async () => ({ ok: true })),
   reanalyzeCase: vi.fn(async () => ({ ok: true })),
+  updateDecisionHeader: vi.fn(async () => ({ ok: true })),
+  getDocumentFile: vi.fn(async () => 'blob:fake-doc'),
   overrideScreening: vi.fn(async () => ({ ok: true, track: 'admissible' })),
   health: vi.fn(async () => ({ status: 'ok', provider: 'mock', warning: '' })),
 }

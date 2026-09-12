@@ -1,71 +1,5 @@
 /* CaseDetail 頁專用 */
 
-/* ---------- F1 擷取(單欄直排)---------- */
-
-.f1-grid {
-  display: grid;
-  gap: var(--space-md);
-  margin: 0;
-}
-
-.f1-field--wide {
-  grid-column: 1 / -1;
-}
-
-.f1-field dt {
-  font-family: var(--font-ui);
-  font-size: var(--text-sm);
-  color: var(--color-wood);
-  margin: 0 0 var(--space-2xs);
-}
-
-.f1-field dd {
-  font-family: var(--font-body);
-  margin: 0;
-}
-
-.f1-field dd.mono {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-}
-
-.f1-field ul {
-  margin: 0;
-  padding-left: var(--space-lg);
-}
-
-/* ---------- F1 卷證總匯表(依四份文件分組,一組一張卡) ---------- */
-
-.f1-summary__note {
-  font-size: var(--text-sm);
-  color: var(--color-ink-soft);
-  margin: 0 0 var(--space-md);
-}
-
-.f1-field input,
-.f1-field textarea {
-  width: 100%;
-  font-family: inherit;
-  font-size: inherit;
-}
-
-.f1-field__actions {
-  display: flex;
-  gap: var(--space-sm);
-  margin-top: var(--space-xs);
-}
-
-.f1-field__edit {
-  margin-left: var(--space-sm);
-  font-size: var(--text-sm);
-}
-
-.f1-field__error {
-  color: var(--color-error);
-  font-size: var(--text-sm);
-  margin: var(--space-xs) 0 0;
-}
-
 /* ---------- 程序審查 ---------- */
 
 .screening-result {
@@ -77,6 +11,20 @@
 
 .screening-result__reasoning {
   font-family: var(--font-body);
+}
+
+.screening-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin-block: var(--space-md);
+  max-width: var(--measure);
+}
+
+.screening-form__status {
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+  margin: 0;
 }
 
 /* ---------- F2 法規參照 ---------- */
@@ -225,21 +173,4 @@
   color: var(--color-ink-soft);
   max-width: var(--measure);
   margin-block: 0 var(--space-sm);
-}
-
-/* ---------- 承辦人改過的欄位 ---------- */
-
-/* 改過的值用狀態層的琥珀,與「待人工確認」同一個訊號;旁邊附上模型原本抽的值 */
-.f1-field--edited dd {
-  color: var(--color-review);
-  font-weight: 600;
-}
-
-.f1-field__original {
-  display: inline-block;
-  margin-left: var(--space-sm);
-  font-size: var(--text-sm);
-  font-weight: 400;
-  color: var(--color-ink-soft);
-  text-decoration: line-through;
 }

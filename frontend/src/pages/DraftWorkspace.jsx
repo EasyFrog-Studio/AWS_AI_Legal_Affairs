@@ -2,23 +2,26 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   updateDraftText,
   updateDraftResult,
+  updateDecisionHeader,
   downloadDraftPdf,
   downloadDraftDocx,
 } from '../api'
 import AutoTextarea from '../components/AutoTextarea.jsx'
+import RocDatePicker from '../components/RocDatePicker.jsx'
 import SourceSiteLink from '../components/SourceSiteLink.jsx'
 import { useNavGuard } from '../navGuard.js'
 import { splitDraft, joinDraft } from './draftSections.js'
 import './DraftWorkspace.css'
 
-const SECTION_ARIA = { head: '主旨', main: '主文', fact: '事實', reason: '理由', tail: '決定書結尾' }
-
-// 表頭在畫面上標成「主旨」,但不寫進 section.title:標題進了 joinDraft 就成了決定書的一行
-const HEAD_HEADING = '主　旨'
+const SECTION_ARIA = { main: '主文', fact: '事實', reason: '理由' }
 
 // 值域與順序同 models.DraftType,五值全開:改結果是承辦人的權限,不受目前 track 收斂
 const DRAFT_RESULT_OPTIONS = ['不受理', '駁回', '撤銷另處', '原處分撤銷', '部分不受理部分駁回']
 
+// 教示條款文字同後端 build_decision_blocks:這兩種決定結果本來就沒有救濟教示
+const NOTICE_TEXT =
+  '如不服本決定，得於決定書送達之次日起 2 個月內向臺北高等行政法院（地址：臺北市士林區福國路 101 號）提起行政訴訟。'
+const NO_NOTICE_RESULTS = ['原處分撤銷', '撤銷另處']
 
 function BasisPanel({ laws, refs, cases, track, onViewSource }) {
   return (
@@ -127,6 +130,7 @@ export default function DraftWorkspace({
   refs,
   cases,
   track,
+  header = {},
   versionCount = 0,
   onViewSource,
   onSaved,
@@ -136,12 +140,14 @@ export default function DraftWorkspace({
   const [plain, setPlain] = useState(text || '')
   const [citations, setCitations] = useState(savedCitations)
   const [result, setResult] = useState(draft.draft_type)
+  const [hdr, setHdr] = useState(header)
   const [state, setState] = useState('idle') // idle | saving | saved | error
   const [message, setMessage] = useState('')
   const prevCaseIdRef = useRef(caseId)
   const syncedPlainRef = useRef(text || '')
   const syncedCitationsRef = useRef(savedCitations.join('\n'))
   const syncedResultRef = useRef(draft.draft_type)
+  const syncedHeaderRef = useRef(header)
 
   useEffect(() => {
     if (prevCaseIdRef.current !== caseId) {
@@ -152,10 +158,12 @@ export default function DraftWorkspace({
       syncedCitationsRef.current = savedCitations.join('\n')
       setResult(draft.draft_type)
       syncedResultRef.current = draft.draft_type
+      setHdr(header)
+      syncedHeaderRef.current = header
       setState('idle')
       setMessage('')
     }
-  }, [caseId, draft, savedCitations])
+  }, [caseId, draft, savedCitations, header])
 
   // 重跑會重新產生全文,那份內容要接得住;但使用者已經在改的字不能被輪詢回來的值蓋掉,
   // 故只在「本地仍等於上次同步的值」時採用。
@@ -186,12 +194,32 @@ export default function DraftWorkspace({
     setResult((current) => (current === previous ? next : current))
   }, [draft.draft_type])
 
+  // 表頭是另一個承辦人或重跑可能改動的來源,逐欄同步(與全文整份比對不同):
+  // 全欄比對的話,只要有一欄在編輯中,其餘沒人動的欄位也會停止跟著後端更新
+  useEffect(() => {
+    const previous = syncedHeaderRef.current
+    if (JSON.stringify(header) === JSON.stringify(previous)) return
+    syncedHeaderRef.current = header
+    setHdr((current) => {
+      let changed = false
+      const merged = { ...current }
+      for (const key of Object.keys(header)) {
+        if (current[key] === previous[key] && current[key] !== header[key]) {
+          merged[key] = header[key]
+          changed = true
+        }
+      }
+      return changed ? merged : current
+    })
+  }, [header])
+
   // 空白列只是還沒打字的格子,不送出也不算修改
   const trimmedCitations = citations.map((l) => l.trim()).filter(Boolean)
   const textDirty = plain !== (text || '')
   const citationsDirty = trimmedCitations.join('\n') !== savedCitations.join('\n')
   const resultDirty = result !== draft.draft_type
-  const dirty = textDirty || citationsDirty || resultDirty
+  const headerDirty = JSON.stringify(hdr) !== JSON.stringify(header)
+  const dirty = textDirty || citationsDirty || resultDirty || headerDirty
 
   useNavGuard(dirty, '草稿有未儲存的修改，離開後將遺失。確定要離開？')
 
@@ -199,6 +227,10 @@ export default function DraftWorkspace({
 
   function updateSection(key, body) {
     setPlain(joinDraft(sections.map((s) => (s.key === key ? { ...s, body } : s))))
+  }
+
+  function updateHeaderField(key, value) {
+    setHdr((current) => ({ ...current, [key]: value }))
   }
 
   function updateCitation(index, value) {
@@ -223,6 +255,8 @@ export default function DraftWorkspace({
     setState('saving')
     setMessage('')
     try {
+      // 表頭先送:文件只有一份,表頭與本文分兩支 API,失敗時已成功的一支不回滾
+      if (headerDirty) await updateDecisionHeader(caseId, hdr)
       // 只改結果時不送全文:那會平白多存一版,版本歷史讀起來像改過內容但沒改
       if (textDirty || citationsDirty) {
         await updateDraftText(caseId, {
@@ -265,6 +299,99 @@ export default function DraftWorkspace({
   return (
     <div className="draft-workspace" hidden={hidden}>
       <div className="draft-paper" role="group" aria-label="決定書稿紙">
+        <section className="draft-header" aria-label="決定書表頭">
+          <div className="draft-form-field">
+            <label htmlFor="draft-header-case_no">案號</label>
+            <input
+              id="draft-header-case_no"
+              type="text"
+              className="input"
+              value={hdr.case_no ?? ''}
+              onChange={(e) => updateHeaderField('case_no', e.target.value)}
+            />
+          </div>
+          <div className="draft-form-field">
+            <label htmlFor="draft-header-gist">要旨</label>
+            <input
+              id="draft-header-gist"
+              type="text"
+              className="input"
+              value={hdr.gist ?? ''}
+              onChange={(e) => updateHeaderField('gist', e.target.value)}
+            />
+          </div>
+          <div className="draft-form-field">
+            <RocDatePicker
+              id="draft-header-issued_date"
+              label="發文日期"
+              value={hdr.issued_date ?? ''}
+              onChange={(v) => updateHeaderField('issued_date', v)}
+            />
+          </div>
+          <div className="draft-form-field">
+            <label htmlFor="draft-header-issued_no">發文字號</label>
+            <input
+              id="draft-header-issued_no"
+              type="text"
+              className="input"
+              placeholder="新北府訴決字第　　號"
+              value={hdr.issued_no ?? ''}
+              onChange={(e) => updateHeaderField('issued_no', e.target.value)}
+            />
+          </div>
+          <div className="draft-form-field">
+            <label htmlFor="draft-header-related_laws">相關法條</label>
+            <AutoTextarea
+              id="draft-header-related_laws"
+              value={hdr.related_laws ?? ''}
+              onChange={(v) => updateHeaderField('related_laws', v)}
+            />
+          </div>
+          <div className="draft-form-field">
+            <label htmlFor="draft-header-appellant">訴願人</label>
+            <input
+              id="draft-header-appellant"
+              type="text"
+              className="input"
+              value={hdr.appellant ?? ''}
+              onChange={(e) => updateHeaderField('appellant', e.target.value)}
+            />
+          </div>
+          <div className="draft-form-field">
+            <label htmlFor="draft-header-agent_role">代理人或送達代收人</label>
+            <select
+              id="draft-header-agent_role"
+              className="input"
+              value={hdr.agent_role ?? ''}
+              onChange={(e) => updateHeaderField('agent_role', e.target.value)}
+            >
+              <option value="">未填</option>
+              <option value="代理人">代理人</option>
+              <option value="送達代收人">送達代收人</option>
+            </select>
+          </div>
+          <div className="draft-form-field">
+            <label htmlFor="draft-header-agent_name">代理人姓名</label>
+            <input
+              id="draft-header-agent_name"
+              type="text"
+              className="input"
+              value={hdr.agent_name ?? ''}
+              onChange={(e) => updateHeaderField('agent_name', e.target.value)}
+            />
+          </div>
+          <div className="draft-form-field">
+            <label htmlFor="draft-header-agency">原處分機關</label>
+            <input
+              id="draft-header-agency"
+              type="text"
+              className="input"
+              value={hdr.agency ?? ''}
+              onChange={(e) => updateHeaderField('agency', e.target.value)}
+            />
+          </div>
+        </section>
+
         {isWhole ? (
           <AutoTextarea
             id="draft-plain"
@@ -277,11 +404,9 @@ export default function DraftWorkspace({
         ) : (
           sections.map((s) => (
             <div className={`draft-section draft-section--${s.key}`} key={s.key}>
-              {(s.key === 'head' ? HEAD_HEADING : s.title) && (
-                <label htmlFor={`draft-${s.key}`} className="decision__heading">
-                  {s.key === 'head' ? HEAD_HEADING : s.title}
-                </label>
-              )}
+              <label htmlFor={`draft-${s.key}`} className="decision__heading">
+                {s.title}
+              </label>
               <AutoTextarea
                 id={`draft-${s.key}`}
                 aria-label={SECTION_ARIA[s.key]}
@@ -331,6 +456,43 @@ export default function DraftWorkspace({
             ))}
           </select>
         </div>
+
+        <section className="draft-footer" aria-label="決定書結尾">
+          <div className="draft-form-field">
+            <label htmlFor="draft-footer-chairman">主任委員</label>
+            <input
+              id="draft-footer-chairman"
+              type="text"
+              className="input"
+              value={hdr.chairman ?? ''}
+              onChange={(e) => updateHeaderField('chairman', e.target.value)}
+            />
+          </div>
+          <div className="draft-form-field">
+            <label htmlFor="draft-footer-committee">委員</label>
+            <AutoTextarea
+              id="draft-footer-committee"
+              value={hdr.committee ?? ''}
+              onChange={(v) => updateHeaderField('committee', v)}
+            />
+          </div>
+          <div className="draft-form-field">
+            <RocDatePicker
+              id="draft-footer-decided_date"
+              label="決定日期"
+              value={hdr.decided_date ?? ''}
+              onChange={(v) => updateHeaderField('decided_date', v)}
+            />
+          </div>
+          {!NO_NOTICE_RESULTS.includes(result) && (
+            <p className="draft-notice">
+              {NOTICE_TEXT}
+              <br />
+              （由系統依決定結果帶入，不可編輯）
+            </p>
+          )}
+        </section>
+
         <div className="action-row draft-actions">
           {message && (
             <span

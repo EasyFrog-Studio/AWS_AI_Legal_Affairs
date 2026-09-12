@@ -101,9 +101,27 @@ export const doneAdmissible = {
   f2_refs: f2Refs,
   f3,
   f4: { draft_type: '駁回', fact: '事實原文', reason: '理由原文', main_text: '訴願駁回。' },
-  // 決定書全文:F4 產出時攤平寫入,承辦人改的就是它
-  draft_plain_text: '新北市政府訴願決定書 主文 訴願駁回。 事實 事實原文 理由 理由原文',
+  // 決定書本文,表頭與結尾在 decision_header。單行無標題:走 splitDraft 的 whole 退路,分段路徑用 *Sectioned
+  draft_plain_text: '主文 訴願駁回。 事實 事實原文 理由 理由原文',
   error: null,
+  decision_header: {
+    case_no: '',
+    gist: '',
+    issued_date: '',
+    issued_no: '',
+    related_laws: '',
+    appellant: '',
+    agent_role: '',
+    agent_name: '',
+    agency: '',
+    chairman: '',
+    committee: '',
+    decided_date: '',
+  },
+  f1_stale: false,
+  screening_stale: false,
+  screening_input_f1: null,
+  retrieval_input_screening: null,
 }
 
 export const doneInadmissible = {
@@ -123,22 +141,14 @@ export const doneInadmissible = {
   f2: null,
   f2_refs: f2Refs,
   f4: { draft_type: '不受理', fact: '事實原文B', reason: '理由原文B', main_text: '訴願不受理。' },
-  draft_plain_text: '新北市政府訴願決定書 主文 訴願不受理。 理由 理由原文B',
+  draft_plain_text: '主文 訴願不受理。 理由 理由原文B',
 }
 
-// 決定書全文分段的呈現測試用:多行、含完整標題,才會走 splitDraft 的分段路徑而非 whole 退路
+// 決定書本文分段的呈現測試用:多行、含完整標題,才會走 splitDraft 的分段路徑而非 whole 退路
 export const doneAdmissibleSectioned = {
   ...doneAdmissible,
   case_id: 'c-7',
   draft_plain_text: [
-    '新北市政府訴願決定書',
-    '',
-    '案　　號：113年度訴願字第001號',
-    '　訴願人　王○明',
-    '　原處分機關　新北市政府環境保護局',
-    '',
-    '上列訴願人因違反廢棄物清理法事件，不服原處分機關113年5月1日北環稽字第1130001號裁處書，提起訴願，本府決定如下：',
-    '',
     '主　文',
     '訴願駁回。',
     '',
@@ -147,14 +157,6 @@ export const doneAdmissibleSectioned = {
     '',
     '理　由',
     '按訴願法第79條第1項規定，訴願無理由者，應以決定駁回之。本件原處分認事用法並無違誤，應予駁回。',
-    '',
-    '訴願審議委員會主任委員　林○○',
-    '委員　陳○○',
-    '委員　黃○○',
-    '',
-    '如不服本決定，得於決定書送達之次日起二個月內向臺北高等行政法院提起行政訴訟。',
-    '',
-    '中華民國113年8月1日',
   ].join('\n'),
 }
 
@@ -162,25 +164,11 @@ export const doneInadmissibleSectioned = {
   ...doneInadmissible,
   case_id: 'c-8',
   draft_plain_text: [
-    '新北市政府訴願決定書',
-    '',
-    '案　　號：113年度訴願字第002號',
-    '　訴願人　陳○華',
-    '　原處分機關　新北市政府交通事件裁決處',
-    '',
-    '上列訴願人因交通裁罰事件，不服原處分機關之裁決，提起訴願，因程序不合，本府決定如下：',
-    '',
     '主　文',
     '訴願不受理。',
     '',
     '理　由',
     '訴願人提起本件訴願，已逾訴願法第14條第1項所定30日之法定期間，依同法第77條第2款規定，應為不受理之決定。',
-    '',
-    '訴願審議委員會主任委員　林○○',
-    '委員　陳○○',
-    '委員　黃○○',
-    '',
-    '中華民國113年9月1日',
   ].join('\n'),
 }
 
@@ -206,6 +194,8 @@ export const collectingAllMatched = {
   f3: null,
   f4: null,
   error: null,
+  f1_stale: false,
+  screening_stale: false,
 }
 
 export const collectingWithMismatch = {

@@ -1,38 +1,20 @@
 import { describe, it, expect, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter } from 'react-router-dom'
 import App from '../src/App.jsx'
-import CaseDetail from '../src/pages/CaseDetail.jsx'
 import { api } from './apiMock.js'
 import {
   doneAdmissible,
   doneInadmissible,
-  doneAdmissibleSectioned,
-  doneInadmissibleSectioned,
   processingAt,
   errorAtF2,
   listRows,
   collectingAllMatched,
-  collectingWithMismatch,
 } from './fixtures.js'
-import { splitDraft, joinDraft } from '../src/pages/draftSections.js'
+import { renderDetail, rail, isCurrent, refsStage } from './renderCaseDetail.jsx'
 
 vi.mock('../src/api', async () => (await import('./apiMock.js')).api)
-
-function renderDetail(id = 'c-1') {
-  return render(
-    <MemoryRouter initialEntries={[`/cases/${id}`]}>
-      <Routes>
-        <Route path="/cases/:id" element={<CaseDetail />} />
-      </Routes>
-    </MemoryRouter>,
-  )
-}
-
-const pdf = (name) => new File(['%PDF-1.4'], name, { type: 'application/pdf' })
-const rail = (name) => screen.getByRole('button', { name })
-const isCurrent = (name) => rail(name).getAttribute('aria-current') === 'true'
 
 describe('頁首標題', () => {
   it('標題就是左欄選中項的名字,案號以較小字跟在後面', async () => {
@@ -72,7 +54,7 @@ describe('案件詳情', () => {
     const user = userEvent.setup()
     renderDetail()
     const box = await screen.findByLabelText('決定書全文')
-    expect(box).toHaveValue('新北市政府訴願決定書 主文 訴願駁回。 事實 事實原文 理由 理由原文')
+    expect(box).toHaveValue('主文 訴願駁回。 事實 事實原文 理由 理由原文')
     await user.type(box, ' 補充一段')
 
     await user.click(rail(/^參考依據/))
@@ -81,7 +63,7 @@ describe('案件詳情', () => {
     await user.click(rail(/^決定書草稿/))
 
     expect(screen.getByLabelText('決定書全文')).toHaveValue(
-      '新北市政府訴願決定書 主文 訴願駁回。 事實 事實原文 理由 理由原文 補充一段',
+      '主文 訴願駁回。 事實 事實原文 理由 理由原文 補充一段',
     )
     expect(api.updateDraftText).not.toHaveBeenCalled()
   })
@@ -168,287 +150,12 @@ describe('案件詳情', () => {
     await user.click(screen.getByRole('link', { name: '案件清單' }))
     expect(confirmSpy).toHaveBeenCalledTimes(1)
     expect(screen.getByLabelText('決定書全文')).toHaveValue(
-      '新北市政府訴願決定書 主文 訴願駁回。 事實 事實原文 理由 理由原文 補充',
+      '主文 訴願駁回。 事實 事實原文 理由 理由原文 補充',
     )
 
     confirmSpy.mockReturnValue(true)
     await user.click(screen.getByRole('link', { name: '案件清單' }))
     expect(await screen.findByRole('table')).toBeInTheDocument()
-  })
-})
-
-describe('待確認階段(collecting)', () => {
-  it('預設落在文件確認,四份皆符合時可以開始分析', async () => {
-    api.getCase.mockResolvedValue(collectingAllMatched)
-    renderDetail('c-5')
-
-    await screen.findByRole('button', { name: '開始分析' })
-    expect(isCurrent(/^文件確認/)).toBe(true)
-    expect(screen.getByRole('button', { name: '開始分析' })).toBeEnabled()
-    // 四槽皆為 matched:true,徽章應顯示已確認而非「無法確認」
-    expect(screen.getAllByText(/確認為此文件/).length).toBe(4)
-  })
-
-  it('訴願答辯書標必填,只有送達證書是選填', async () => {
-    api.getCase.mockResolvedValue(collectingAllMatched)
-    renderDetail('c-5')
-
-    await screen.findByRole('button', { name: '開始分析' })
-    const answerHead = screen.getByText('訴願答辯書').closest('.doc-slot__head')
-    expect(within(answerHead).getByText('必填')).toBeInTheDocument()
-    expect(screen.getAllByText('必填')).toHaveLength(3)
-    expect(screen.getAllByText('選填')).toHaveLength(1)
-  })
-
-  it('舊案的答辯書空槽不再視為「未提供」,照必填擋住開始分析', async () => {
-    // 答辯書改必填後,空的那一槽是「沒確認」而不是「本來就沒有」——放行等於漏掉一份必備卷證
-    api.getCase.mockResolvedValue({
-      ...collectingAllMatched,
-      documents: {
-        ...collectingAllMatched.documents,
-        answer: {
-          slot: 'answer',
-          source: 'text',
-          text: '',
-          check: { matched: null, method: 'none', note: '文件內容為空,無法確認' },
-        },
-      },
-    })
-    renderDetail('c-5')
-
-    await screen.findByRole('button', { name: '開始分析' })
-    const slot = screen.getByText('訴願答辯書').closest('.doc-slot')
-    expect(within(slot).queryByText(/未提供/)).toBeNull()
-    expect(screen.getByRole('button', { name: '開始分析' })).toHaveAttribute('aria-disabled', 'true')
-  })
-
-  it('答辯書有內容卻還沒確認時,仍要列進待人工確認', async () => {
-    api.getCase.mockResolvedValue({
-      ...collectingAllMatched,
-      documents: {
-        ...collectingAllMatched.documents,
-        answer: {
-          slot: 'answer',
-          source: 'text',
-          text: '訴願答辯書全文',
-          check: { matched: null, method: 'none', note: '規則判斷特徵不足' },
-        },
-      },
-    })
-    renderDetail('c-5')
-
-    await screen.findByText(/訴願答辯書尚未確認無誤/)
-  })
-
-  it('答辯書有內容但判斷不符時,一樣擋住開始分析', async () => {
-    api.getCase.mockResolvedValue({
-      ...collectingAllMatched,
-      documents: {
-        ...collectingAllMatched.documents,
-        answer: {
-          slot: 'answer',
-          source: 'text',
-          text: '原處分書全文',
-          check: { matched: false, method: 'rule', note: '文字特徵更接近原處分書,不是訴願答辯書' },
-        },
-      },
-    })
-    renderDetail('c-5')
-
-    await screen.findByText(/不是訴願答辯書/)
-    expect(screen.getByRole('button', { name: '開始分析' })).toHaveAttribute('aria-disabled', 'true')
-  })
-
-  it('有文件判斷不符時,開始分析被停用,並標示不符原因', async () => {
-    api.getCase.mockResolvedValue(collectingWithMismatch)
-    renderDetail('c-6')
-
-    await screen.findByText(/不是送達證書/)
-    const analyze = screen.getByRole('button', { name: '開始分析' })
-    expect(analyze).toHaveAttribute('aria-disabled', 'true')
-    api.analyzeCase.mockClear()
-    await userEvent.setup().click(analyze)
-    expect(api.analyzeCase).not.toHaveBeenCalled()
-  })
-
-  it('點擊開始分析呼叫 API 並重新載入案件', async () => {
-    api.getCase.mockResolvedValue(collectingAllMatched)
-    const user = userEvent.setup()
-    renderDetail('c-5')
-    await screen.findByRole('button', { name: '開始分析' })
-    api.getCase.mockClear()
-
-    await user.click(screen.getByRole('button', { name: '開始分析' }))
-    expect(api.analyzeCase).toHaveBeenCalledWith('c-5')
-    expect(api.getCase).toHaveBeenCalledTimes(1) // 分析後重新載入
-  })
-
-  it('重傳可以直接給 PDF,送出的 formData 帶 file', async () => {
-    api.getCase.mockResolvedValue(collectingWithMismatch)
-    const user = userEvent.setup()
-    renderDetail('c-6')
-
-    await screen.findByText(/不是送達證書/)
-    const serviceSlot = screen.getByText('送達證書').closest('.doc-slot')
-    await user.click(within(serviceSlot).getByRole('button', { name: '重新上傳' }))
-    const file = new File(['%PDF-1.4'], '送達證書.pdf', { type: 'application/pdf' })
-    await user.upload(within(serviceSlot).getByLabelText('送達證書 PDF'), file)
-    api.replaceDocument.mockClear()
-    await user.click(within(serviceSlot).getByRole('button', { name: '送出' }))
-
-    const formData = api.replaceDocument.mock.calls[0][2]
-    expect(formData.get('file')).toBe(file)
-    expect(formData.get('text')).toBeNull() // 兩者只送一個,不讓後端猜該用哪個
-  })
-
-  it('展開重傳時不符的理由要留在畫面上,他是照著那句補件的', async () => {
-    api.getCase.mockResolvedValue(collectingWithMismatch)
-    const user = userEvent.setup()
-    renderDetail('c-6')
-
-    await screen.findByText(/不是送達證書/)
-    const serviceSlot = screen.getByText('送達證書').closest('.doc-slot')
-    await user.click(within(serviceSlot).getByRole('button', { name: '重新上傳' }))
-
-    expect(within(serviceSlot).getByText(/不是送達證書/)).toBeInTheDocument()
-  })
-
-  it('重傳只收 PDF,沒有貼上文字的輸入框', async () => {
-    api.getCase.mockResolvedValue(collectingWithMismatch)
-    const user = userEvent.setup()
-    renderDetail('c-6')
-
-    await screen.findByText(/不是送達證書/)
-    const serviceSlot = screen.getByText('送達證書').closest('.doc-slot')
-    await user.click(within(serviceSlot).getByRole('button', { name: '重新上傳' }))
-
-    expect(within(serviceSlot).queryByRole('textbox')).toBeNull()
-    expect(within(serviceSlot).getByText(/拖曳 PDF/)).toBeInTheDocument()
-  })
-
-  it('重傳的落件框拒收非 PDF,不讓壞檔走到後端', async () => {
-    api.getCase.mockResolvedValue(collectingWithMismatch)
-    const user = userEvent.setup()
-    renderDetail('c-6')
-
-    await screen.findByText(/不是送達證書/)
-    const serviceSlot = screen.getByText('送達證書').closest('.doc-slot')
-    await user.click(within(serviceSlot).getByRole('button', { name: '重新上傳' }))
-    const zone = within(serviceSlot).getByLabelText('送達證書 PDF').closest('.dropzone')
-    const notPdf = new File(['送達證書'], '送達證書.txt', { type: 'text/plain' })
-    api.replaceDocument.mockClear()
-    fireEvent.drop(zone, { dataTransfer: { files: [notPdf], types: ['Files'] } })
-
-    expect(within(serviceSlot).getByText(/只接受 PDF 檔/)).toBeInTheDocument()
-    // 檔案沒被帶進來,送出鍵就不該可按——按下去只會把壞檔送到後端才被退
-    expect(within(serviceSlot).getByRole('button', { name: '送出' })).toBeDisabled()
-    expect(api.replaceDocument).not.toHaveBeenCalled()
-  })
-
-  it('換一槽重傳不把上一槽挑好的檔案帶過去', async () => {
-    api.getCase.mockResolvedValue(collectingWithMismatch)
-    const user = userEvent.setup()
-    renderDetail('c-6')
-
-    await screen.findByText(/不是送達證書/)
-    const serviceSlot = screen.getByText('送達證書').closest('.doc-slot')
-    await user.click(within(serviceSlot).getByRole('button', { name: '重新上傳' }))
-    await user.upload(within(serviceSlot).getByLabelText('送達證書 PDF'), pdf('送達證書.pdf'))
-
-    const appealSlot = screen.getByText('訴願書').closest('.doc-slot')
-    await user.click(within(appealSlot).getByRole('button', { name: '重新上傳' }))
-
-    expect(within(appealSlot).queryByText('送達證書.pdf')).toBeNull()
-    expect(within(appealSlot).getByRole('button', { name: '送出' })).toBeDisabled()
-  })
-
-  it('OCR 取字的槽要在卡片上講出來,日期不能被當成已核對', async () => {
-    api.getCase.mockResolvedValue({
-      ...collectingAllMatched,
-      documents: {
-        ...collectingAllMatched.documents,
-        service: {
-          ...collectingAllMatched.documents.service,
-          source: 'pdf',
-          filename: '03_送達證書.pdf',
-          ocr: true,
-        },
-      },
-    })
-    renderDetail('c-5')
-
-    await screen.findByRole('button', { name: '開始分析' })
-    const serviceSlot = screen.getByText('送達證書').closest('.doc-slot')
-    // 來源直接寫當初上傳的檔名,承辦人對得回自己的卷宗
-    expect(within(serviceSlot).getByText(/來源：03_送達證書\.pdf/)).toBeInTheDocument()
-    expect(within(serviceSlot).getByText(/OCR 取字/)).toBeInTheDocument()
-    // 沒走 OCR 的槽不該跟著標,否則這個提醒等於沒說
-    const appealSlot = screen.getByText('訴願書').closest('.doc-slot')
-    expect(within(appealSlot).getByText(/來源：貼上文字$/)).toBeInTheDocument()
-  })
-
-  it('重傳遇 409(案件已離開收案階段)時同步真實狀態', async () => {
-    api.getCase.mockResolvedValue(collectingWithMismatch)
-    const conflict = new Error('案件已開始分析,無法再修改文件')
-    conflict.status = 409
-    api.replaceDocument.mockRejectedValueOnce(conflict)
-    const user = userEvent.setup()
-    renderDetail('c-6')
-
-    await screen.findByText(/不是送達證書/)
-    const serviceSlot = screen.getByText('送達證書').closest('.doc-slot')
-    await user.click(within(serviceSlot).getByRole('button', { name: '重新上傳' }))
-    await user.upload(within(serviceSlot).getByLabelText('送達證書 PDF'), pdf('送達證書.pdf'))
-    api.getCase.mockClear()
-    await user.click(within(serviceSlot).getByRole('button', { name: '送出' }))
-
-    expect(screen.getByText(/已開始分析/)).toBeInTheDocument()
-    expect(api.getCase).toHaveBeenCalledTimes(1)
-  })
-
-  it('重新上傳單一文件槽,送出後呼叫 replaceDocument 並重新載入', async () => {
-    api.getCase.mockResolvedValue(collectingWithMismatch)
-    const user = userEvent.setup()
-    renderDetail('c-6')
-
-    await screen.findByText(/不是送達證書/)
-    const serviceSlot = screen.getByText('送達證書').closest('.doc-slot')
-    await user.click(within(serviceSlot).getByRole('button', { name: '重新上傳' }))
-    await user.upload(within(serviceSlot).getByLabelText('送達證書 PDF'), pdf('新的送達證書.pdf'))
-    api.getCase.mockClear()
-    await user.click(within(serviceSlot).getByRole('button', { name: '送出' }))
-
-    expect(api.replaceDocument).toHaveBeenCalledWith('c-6', 'service', expect.anything())
-    expect(api.getCase).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe('期間認定', () => {
-  it('算得出逾期時列出送達日、末日、收文日', async () => {
-    api.getCase.mockResolvedValue(doneInadmissible)
-    const user = userEvent.setup()
-    renderDetail('c-2')
-    await screen.findByRole('button', { name: /^程序審查/ })
-
-    await user.click(rail(/^程序審查/))
-
-    expect(screen.getByText('已逾期')).toBeInTheDocument()
-    expect(screen.getByText('2025-06-27')).toBeInTheDocument()
-    expect(screen.getByText('2025-10-31')).toBeInTheDocument()
-  })
-
-  it('無從認定不顯示為未逾期,並印出待人工確認的原因', async () => {
-    api.getCase.mockResolvedValue(doneAdmissible)
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByRole('button', { name: /^程序審查/ })
-
-    await user.click(rail(/^程序審查/))
-
-    expect(screen.getByText('無從認定')).toBeInTheDocument()
-    expect(screen.queryByText('未逾期')).toBeNull()
-    // 期間卡片與頁首橫幅都會講這件事(兩處刻意一致),故此處不只一個節點
-    expect(screen.getAllByText(/送達日無法認定/).length).toBeGreaterThan(0)
   })
 })
 
@@ -467,52 +174,6 @@ describe('F3 來源連結', () => {
     )
     expect(links[0]).toHaveAttribute('target', '_blank')
     expect(links[0]).toHaveAttribute('rel', expect.stringContaining('noopener'))
-  })
-})
-
-describe('F1 與 F3 呈現', () => {
-  it('F1 顯示送達證書/原處分書那六欄,抽不到的欄位顯示「—」而不是整欄不畫', async () => {
-    api.getCase.mockResolvedValue({
-      ...doneAdmissible,
-      f1: {
-        ...doneAdmissible.f1,
-        receipt_date: '114年5月28日',
-        service_date: '114年5月28日',
-        service_method: '寄存於板橋郵局',
-        disposition_fine: '6,000元',
-        disposition_notice_clause: '',
-        disposition_recipient: '王○明',
-      },
-    })
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByRole('button', { name: /^F1 擷取/ })
-
-    await user.click(rail(/^F1 擷取/))
-
-    expect(screen.getByText('送達方式')).toBeInTheDocument()
-    expect(screen.getByText('寄存於板橋郵局')).toBeInTheDocument()
-    expect(screen.getByText('6,000元')).toBeInTheDocument()
-    expect(screen.getByText('教示條款')).toBeInTheDocument()
-    // 教示條款抽不到,欄位仍在(限定在那一欄比對:其他抽不到的欄位也會是「—」)
-    const notice = screen.getByText('教示條款').closest('.f1-field')
-    expect(within(notice).getByText('—')).toBeInTheDocument()
-  })
-
-  it('參考依據頁的案例可以開原文,與草稿頁的依據面板一致', async () => {
-    api.getCase.mockResolvedValue({
-      ...doneAdmissible,
-      f3: [{ ...doneAdmissible.f3[0], source_key: 'markdown/訴願決定書/112-0001.md' }],
-    })
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByRole('button', { name: /^參考依據/ })
-    await user.click(rail(/^參考依據/))
-
-    const stageCase = screen.getByText(/摘要一/).closest('.similar-case')
-    await user.click(within(stageCase).getByRole('button', { name: '原文' }))
-
-    expect(api.getSource).toHaveBeenCalledWith('markdown/訴願決定書/112-0001.md')
   })
 })
 
@@ -546,66 +207,115 @@ describe('待人工確認與重跑', () => {
     expect(screen.getByRole('status')).toHaveTextContent(/OCR/)
   })
 
-  it('done 與 error 都能重跑分析', async () => {
+  it('頁首不再有「重跑分析」按鈕:done 與 error 案件都一樣', async () => {
     api.getCase.mockResolvedValue(doneAdmissible)
-    const user = userEvent.setup()
     const { unmount } = renderDetail()
-    await user.click(await screen.findByRole('button', { name: '重跑分析' }))
-    expect(api.reanalyzeCase).toHaveBeenCalledWith('c-1')
+    await screen.findByLabelText('決定書全文')
+    expect(screen.queryByRole('button', { name: '重跑分析' })).toBeNull()
     unmount()
 
-    api.reanalyzeCase.mockClear()
     api.getCase.mockResolvedValue(errorAtF2)
     renderDetail('c-4')
-    await user.click(await screen.findByRole('button', { name: '重跑分析' }))
-    expect(api.reanalyzeCase).toHaveBeenCalledWith('c-4')
+    await screen.findByRole('button', { name: /^參考依據/ })
+    expect(screen.queryByRole('button', { name: '重跑分析' })).toBeNull()
   })
 
-  it('collecting 案件不顯示重跑按鈕(該走開始分析)', async () => {
+  it('collecting 是舊資料的殘留狀態,不再有獨立進行中態:左欄「文件確認」一律是完成標記', async () => {
     api.getCase.mockResolvedValue(collectingAllMatched)
+    const user = userEvent.setup()
     renderDetail('c-5')
 
+    const item = await screen.findByRole('button', { name: /^文件確認/ })
+    expect(item.querySelector('.rail-item__marker')).toHaveClass('rail-item__marker--done')
+    expect(item).not.toHaveTextContent('進行中')
+
+    await user.click(item)
     await screen.findByRole('button', { name: '開始分析' })
     expect(screen.queryByRole('button', { name: '重跑分析' })).toBeNull()
   })
 })
 
-describe('程序審查推翻', () => {
-  it('送出推翻後呼叫 API 並重新載入', async () => {
-    api.getCase.mockResolvedValue(doneInadmissible)
-    const user = userEvent.setup()
-    renderDetail('c-2')
-    await screen.findByRole('button', { name: /^程序審查/ })
-    await user.click(rail(/^程序審查/))
-
-    await user.click(screen.getByRole('button', { name: '推翻此結論' }))
-    await user.selectOptions(screen.getByLabelText('推翻後結論'), 'pass')
-    await user.clear(screen.getByLabelText('推翻理由'))
-    await user.type(screen.getByLabelText('推翻理由'), '經核送達證書,未逾期。')
-    api.getCase.mockClear()
-    await user.click(screen.getByRole('button', { name: '送出推翻' }))
-
-    expect(api.overrideScreening).toHaveBeenCalledWith('c-2', {
-      passed: true,
-      matched_clause: null,
-      reasoning: '經核送達證書,未逾期。',
+describe('中斷階段的重新執行', () => {
+  it('中斷在程序審查:內容區顯示錯誤與「重新執行」,呼叫 reanalyzeCase(id,"screening")', async () => {
+    api.getCase.mockResolvedValue({
+      ...processingAt('screening'),
+      case_id: 'c-4',
+      status: 'error',
+      error: 'Bedrock 逾時。',
     })
-    expect(api.getCase).toHaveBeenCalledTimes(1)
+    const user = userEvent.setup()
+    renderDetail('c-4')
+
+    await screen.findByText(/Bedrock 逾時/)
+    await user.click(screen.getByRole('button', { name: '重新執行' }))
+    expect(api.reanalyzeCase).toHaveBeenCalledWith('c-4', 'screening')
   })
 
-  it('已被推翻的案件同時顯示人工結論與系統原判', async () => {
+  it('中斷在參考依據(F3):「重新執行」呼叫 reanalyzeCase(id,"f2"),不警示', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm')
     api.getCase.mockResolvedValue({
-      ...doneInadmissible,
-      screening: { passed: true, matched_clause: null, reasoning: '人工認定未逾期。', review_note: '' },
-      screening_system: { passed: false, matched_clause: '77條第2款', reasoning: '系統判逾期。', review_note: '' },
+      ...processingAt('f3'),
+      case_id: 'c-4',
+      status: 'error',
+      error: 'Bedrock 檢索逾時。',
     })
     const user = userEvent.setup()
-    renderDetail('c-2')
-    await screen.findByRole('button', { name: /^程序審查/ })
-    await user.click(rail(/^程序審查/))
+    renderDetail('c-4')
 
-    expect(screen.getByText('已由承辦人推翻')).toBeInTheDocument()
-    expect(screen.getByText(/系統原判：不受理/)).toBeInTheDocument()
+    await screen.findByRole('button', { name: /^參考依據/ })
+    await user.click(screen.getByRole('button', { name: '重新執行' }))
+    expect(api.reanalyzeCase).toHaveBeenCalledWith('c-4', 'f2')
+    expect(confirmSpy).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
+  })
+
+  it('中斷在 F1:「重新執行」呼叫 reanalyzeCase(id,"f1")', async () => {
+    api.getCase.mockResolvedValue({
+      ...processingAt('f1'),
+      case_id: 'c-4',
+      status: 'error',
+      error: 'F1 擷取失敗。',
+    })
+    const user = userEvent.setup()
+    renderDetail('c-4')
+
+    await screen.findByText(/F1 擷取失敗/)
+    await user.click(screen.getByRole('button', { name: '重新執行' }))
+    expect(api.reanalyzeCase).toHaveBeenCalledWith('c-4', 'f1')
+  })
+})
+
+describe('staleness 待確認橫幅', () => {
+  it('f1_stale 出現在待確認橫幅', async () => {
+    api.getCase.mockResolvedValue({ ...doneAdmissible, f1_stale: true })
+    renderDetail()
+
+    expect(await screen.findByRole('status')).toHaveTextContent('案件資訊已修改')
+  })
+
+  it('screening_stale 出現在待確認橫幅', async () => {
+    api.getCase.mockResolvedValue({ ...doneAdmissible, screening_stale: true })
+    renderDetail()
+
+    expect(await screen.findByRole('status')).toHaveTextContent('程序審查結論已修改')
+  })
+})
+
+describe('同頁不會同時看到兩個「AI 生成」', () => {
+  it('F1 頁與程序審查頁各自的 AI 生成互斥,切換時最多只看得到一個', async () => {
+    api.getCase.mockResolvedValue(doneAdmissible)
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByLabelText('決定書全文')
+
+    await user.click(rail(/^F1 擷取/))
+    expect(screen.getAllByRole('button', { name: 'AI 生成' })).toHaveLength(1)
+
+    await user.click(rail(/^程序審查/))
+    expect(screen.getAllByRole('button', { name: 'AI 生成' })).toHaveLength(1)
+
+    await user.click(rail(/^決定書草稿/))
+    expect(screen.queryAllByRole('button', { name: 'AI 生成' })).toHaveLength(0)
   })
 })
 
@@ -645,243 +355,6 @@ describe('新結果提示點', () => {
   })
 })
 
-describe('決定書版面', () => {
-  it('版本衝突(409)時保留使用者輸入並重新載入', async () => {
-    api.getCase.mockResolvedValue(doneAdmissible)
-    const conflict = new Error('這份草稿已被他人更新,請重新載入後再改')
-    conflict.status = 409
-    api.updateDraftText.mockRejectedValueOnce(conflict)
-    const user = userEvent.setup()
-    renderDetail()
-    await user.type(await screen.findByLabelText('決定書全文'), '我打的字')
-    api.getCase.mockClear()
-    await user.click(screen.getByRole('button', { name: '儲存修改' }))
-
-    expect(screen.getByText(/已被他人更新/)).toBeInTheDocument()
-    expect(screen.getByLabelText('決定書全文')).toHaveValue(
-      '新北市政府訴願決定書 主文 訴願駁回。 事實 事實原文 理由 理由原文我打的字',
-    ) // 不沖掉他打的字
-    expect(api.getCase).toHaveBeenCalledTimes(1)
-  })
-
-  it('草稿頁只有三個動作:儲存與兩種下載,不再有定稿與版本字樣', async () => {
-    api.getCase.mockResolvedValue({ ...doneAdmissible, finalized_at: '2026-08-27T05:00:00+00:00' })
-    renderDetail()
-    await screen.findByLabelText('決定書全文')
-
-    expect(screen.queryByRole('button', { name: /定稿/ })).toBeNull()
-    expect(screen.queryByText(/已存/)).toBeNull()
-    expect(screen.queryByText(/定稿於/)).toBeNull()
-  })
-
-  it('引用法條逐條一格,可改可增可刪,儲存時一併送出', async () => {
-    api.getCase.mockResolvedValue({
-      ...doneInadmissible,
-      f4: { ...doneInadmissible.f4, cited_laws: ['訴願法#77', '訴願法#14'] },
-    })
-    const user = userEvent.setup()
-    renderDetail('c-2')
-
-    expect(await screen.findByLabelText('引用法條 1')).toHaveValue('訴願法#77')
-    expect(screen.getByLabelText('引用法條 2')).toHaveValue('訴願法#14')
-
-    await user.click(screen.getByRole('button', { name: '刪除引用法條 2' }))
-    await user.click(screen.getByRole('button', { name: '新增法條' }))
-    await user.type(screen.getByLabelText('引用法條 2'), '行政程序法#92')
-    await user.click(screen.getByRole('button', { name: '儲存修改' }))
-
-    expect(api.updateDraftText).toHaveBeenCalledWith('c-2', {
-      text: doneInadmissible.draft_plain_text,
-      cited_laws: ['訴願法#77', '行政程序法#92'],
-      base_version: 0,
-    })
-  })
-
-  it('沒有引用法條時仍可新增', async () => {
-    api.getCase.mockResolvedValue(doneAdmissible)
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByLabelText('決定書全文')
-
-    await user.click(screen.getByRole('button', { name: '新增法條' }))
-    await user.type(screen.getByLabelText('引用法條 1'), '訴願法#79')
-
-    expect(screen.getByRole('button', { name: '儲存修改' })).not.toHaveAttribute(
-      'aria-disabled',
-      'true',
-    )
-  })
-
-  it('沒有修改時儲存鍵不改色,點了說沒有可儲存的修改', async () => {
-    api.getCase.mockResolvedValue(doneAdmissible)
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByLabelText('決定書全文')
-
-    api.updateDraftText.mockClear()
-    const save = screen.getByRole('button', { name: '儲存修改' })
-    expect(save).toHaveAttribute('aria-disabled', 'true')
-    expect(save).toHaveClass('btn-primary', 'btn-submit')
-    await user.click(save)
-
-    expect(api.updateDraftText).not.toHaveBeenCalled()
-    expect(screen.getByText('沒有可儲存的修改')).toBeInTheDocument()
-  })
-})
-
-/** 階段頁的「參考依據」區塊。草稿頁的依據欄是 hidden 而非卸載,兩邊同時在 DOM 裡。 */
-function refsStage() {
-  return document.querySelector('.refs-stack')
-}
-
-describe('決定書草稿:整份可改、兩種下載', () => {
-  it('決定書是一個文字框,存檔送 draft-text', async () => {
-    api.getCase.mockResolvedValue({
-      ...doneAdmissible,
-      draft_plain_text: '新北市政府訴願決定書 主文:訴願駁回。',
-    })
-    const user = userEvent.setup()
-    renderDetail()
-
-    const box = await screen.findByLabelText('決定書全文')
-    expect(box).toHaveValue('新北市政府訴願決定書 主文:訴願駁回。')
-    await user.type(box, ' 補一句')
-    await user.click(screen.getByRole('button', { name: '儲存修改' }))
-
-    // base_version 一起送:兩個視窗同時改時,後送出的那份不該無聲蓋掉前一份
-    expect(api.updateDraftText).toHaveBeenCalledWith('c-1', {
-      text: '新北市政府訴願決定書 主文:訴願駁回。 補一句',
-      cited_laws: [],
-      base_version: 0,
-    })
-    // 逐欄輸入已經不存在:文件只有一份
-    expect(screen.queryByLabelText('事實')).toBeNull()
-  })
-
-  it('可下載 PDF 與 Word', async () => {
-    api.getCase.mockResolvedValue(doneAdmissible)
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByLabelText('決定書全文')
-
-    await user.click(screen.getByRole('button', { name: '下載 Word' }))
-    expect(api.downloadDraftDocx).toHaveBeenCalledWith('c-1')
-
-    await user.click(screen.getByRole('button', { name: '下載 PDF' }))
-    expect(api.downloadDraftPdf).toHaveBeenCalledWith('c-1')
-  })
-
-  it('有未儲存的修改時不給下載,點了只提示尚未儲存', async () => {
-    api.getCase.mockResolvedValue(doneAdmissible)
-    const user = userEvent.setup()
-    renderDetail()
-    await user.type(await screen.findByLabelText('決定書全文'), '改一句')
-
-    api.downloadDraftDocx.mockClear()
-    api.downloadDraftPdf.mockClear()
-    const word = screen.getByRole('button', { name: '下載 Word' })
-    expect(word).toHaveAttribute('aria-disabled', 'true')
-    await user.click(word)
-    expect(api.downloadDraftDocx).not.toHaveBeenCalled()
-    expect(screen.getByText('尚未儲存修改')).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: '下載 PDF' }))
-    expect(api.downloadDraftPdf).not.toHaveBeenCalled()
-  })
-
-  it('儲存之後就能下載', async () => {
-    const saved = { ...doneAdmissible }
-    api.getCase.mockResolvedValue(saved)
-    const user = userEvent.setup()
-    renderDetail()
-    const box = await screen.findByLabelText('決定書全文')
-    await user.type(box, '改一句')
-
-    api.getCase.mockResolvedValue({
-      ...saved,
-      draft_plain_text: `${saved.draft_plain_text}改一句`,
-    })
-    await user.click(screen.getByRole('button', { name: '儲存修改' }))
-
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: '下載 PDF' })).not.toHaveAttribute(
-        'aria-disabled',
-        'true',
-      ),
-    )
-    await user.click(screen.getByRole('button', { name: '下載 PDF' }))
-    expect(api.downloadDraftPdf).toHaveBeenCalledWith('c-1')
-  })
-})
-
-describe('決定書草稿分段', () => {
-  it('受理案件分成主文、事實、理由、表頭、結尾五格，各格值對應全文對應段落', async () => {
-    api.getCase.mockResolvedValue(doneAdmissibleSectioned)
-    renderDetail('c-7')
-
-    const sections = splitDraft(doneAdmissibleSectioned.draft_plain_text)
-    await screen.findByLabelText('主文')
-    expect(screen.getByLabelText('主文')).toHaveValue(sections.find((s) => s.key === 'main').body)
-    expect(screen.getByLabelText('事實')).toHaveValue(sections.find((s) => s.key === 'fact').body)
-    expect(screen.getByLabelText('理由')).toHaveValue(sections.find((s) => s.key === 'reason').body)
-    expect(screen.getByLabelText('主旨')).toBeInTheDocument()
-    expect(screen.getByLabelText('決定書結尾')).toBeInTheDocument()
-    expect(screen.queryByLabelText('決定書全文')).toBeNull()
-  })
-
-  it('不受理案件沒有「事實」格，其餘四格照常', async () => {
-    api.getCase.mockResolvedValue(doneInadmissibleSectioned)
-    renderDetail('c-8')
-
-    await screen.findByLabelText('主文')
-    expect(screen.queryByLabelText('事實')).toBeNull()
-    expect(screen.getByLabelText('主旨')).toBeInTheDocument()
-    expect(screen.getByLabelText('理由')).toBeInTheDocument()
-    expect(screen.getByLabelText('決定書結尾')).toBeInTheDocument()
-  })
-
-  it('在理由末尾打字後儲存，送出的全文是 join 回去的完整逐字結果', async () => {
-    api.getCase.mockResolvedValue(doneAdmissibleSectioned)
-    const user = userEvent.setup()
-    renderDetail('c-7')
-
-    const reasonBox = await screen.findByLabelText('理由')
-    await user.type(reasonBox, '，本件另予敘明。')
-    await user.click(screen.getByRole('button', { name: '儲存修改' }))
-
-    const original = splitDraft(doneAdmissibleSectioned.draft_plain_text)
-    const expectedText = joinDraft(
-      original.map((s) => (s.key === 'reason' ? { ...s, body: s.body + '，本件另予敘明。' } : s)),
-    )
-    // 合併結果要對得上原全文:理由段末尾的空行之後多了打進去的字,其餘逐字不變
-    expect(expectedText).toBe(
-      doneAdmissibleSectioned.draft_plain_text.replace('應予駁回。\n', '應予駁回。\n，本件另予敘明。'),
-    )
-    expect(api.updateDraftText).toHaveBeenCalledWith('c-7', {
-      text: expectedText,
-      cited_laws: [],
-      base_version: 0,
-    })
-  })
-
-  it('儲存失敗(版本衝突)時畫面顯示錯誤，理由格保留剛打的字', async () => {
-    api.getCase.mockResolvedValue(doneAdmissibleSectioned)
-    api.updateDraftText.mockRejectedValueOnce(Object.assign(new Error('版本衝突'), { status: 409 }))
-    const user = userEvent.setup()
-    renderDetail('c-7')
-
-    const reasonBox = await screen.findByLabelText('理由')
-    await user.type(reasonBox, '我打的字')
-    await user.click(screen.getByRole('button', { name: '儲存修改' }))
-
-    expect(await screen.findByText('版本衝突')).toBeInTheDocument()
-    expect(screen.getByLabelText('理由')).toHaveValue(
-      splitDraft(doneAdmissibleSectioned.draft_plain_text).find((s) => s.key === 'reason').body +
-        '我打的字',
-    )
-  })
-})
-
 describe('參考見解的存檔原文', () => {
   it('回傳 file 時改走帶金鑰抓檔再開新分頁,不把金鑰放進網址', async () => {
     const open = vi.spyOn(window, 'open').mockImplementation(() => null)
@@ -906,84 +379,6 @@ describe('參考見解的存檔原文', () => {
     await waitFor(() => expect(api.openSourceFile).toHaveBeenCalledWith('reference/行政函釋/某函釋.pdf'))
     expect(open).toHaveBeenCalledWith('blob:fake', '_blank', 'noopener')
     open.mockRestore()
-  })
-})
-
-describe('F1 訴願事實與已修改標記', () => {
-  it('訴願書那一組畫得出訴願人自述的事實', async () => {
-    api.getCase.mockResolvedValue({
-      ...doneAdmissible,
-      f1: { ...doneAdmissible.f1, appeal_facts: ['114年6月27日在三峽區遭稽查'] },
-    })
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByRole('button', { name: /^F1 擷取/ })
-    await user.click(rail(/^F1 擷取/))
-
-    const group = screen.getByRole('group', { name: '訴願書' })
-    expect(within(group).getByText('訴願事實')).toBeInTheDocument()
-    expect(within(group).getByText('114年6月27日在三峽區遭稽查')).toBeInTheDocument()
-  })
-
-  it('承辦人改過的欄位換色標記,沒改過的不標', async () => {
-    api.getCase.mockResolvedValue({
-      ...doneAdmissible,
-      f1: { ...doneAdmissible.f1, service_date: '114年6月1日' },
-      f1_system: { ...doneAdmissible.f1, service_date: '114年5月28日' },
-    })
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByRole('button', { name: /^F1 擷取/ })
-    await user.click(rail(/^F1 擷取/))
-
-    // 改過的那一欄看得出是人改的,否則承辦人下次分不清哪些字是自己確認過的
-    const edited = screen.getByText('送達時間').closest('.f1-field')
-    expect(edited.className).toContain('f1-field--edited')
-    expect(within(edited).getByTitle(/模型原本擷取/)).toHaveTextContent('114年5月28日')
-
-    const untouched = screen.getByText('原處分字號').closest('.f1-field')
-    expect(untouched.className).not.toContain('f1-field--edited')
-
-    // 卡片抬頭也要標「已修改」,不必逐欄點開才知道哪一組動過;沒改過的組不標
-    expect(within(screen.getByRole('group', { name: '送達證書' })).getByText('已修改')).toBeInTheDocument()
-    expect(
-      within(screen.getByRole('group', { name: '原處分書' })).queryByText('已修改'),
-    ).toBeNull()
-  })
-
-  it('沒有修改紀錄的案件一欄都不標', async () => {
-    api.getCase.mockResolvedValue(doneAdmissible)
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByRole('button', { name: /^F1 擷取/ })
-    await user.click(rail(/^F1 擷取/))
-
-    expect(document.querySelectorAll('.f1-field--edited')).toHaveLength(0)
-  })
-})
-
-describe('草稿頁的參考依據欄', () => {
-  it('法規、參考見解、案例三組都在同一欄,與階段頁一致', async () => {
-    api.getCase.mockResolvedValue(doneAdmissible)
-    renderDetail()
-    await screen.findByLabelText('決定書全文')
-
-    const panel = screen.getByRole('complementary', { name: '承辦參考依據' })
-    expect(within(panel).getByText('參考法規（F2）')).toBeInTheDocument()
-    expect(within(panel).getByText('參考見解（F2+）')).toBeInTheDocument()
-    expect(within(panel).getByText('參考案例（F3）')).toBeInTheDocument()
-    expect(within(panel).getByText('釋字第469號')).toBeInTheDocument()
-  })
-
-  it('不受理案件隱藏法規那一組,參考見解與案例照常', async () => {
-    api.getCase.mockResolvedValue(doneInadmissible)
-    renderDetail('c-2')
-    await screen.findByLabelText('決定書全文')
-
-    const panel = screen.getByRole('complementary', { name: '承辦參考依據' })
-    expect(within(panel).queryByText('參考法規（F2）')).toBeNull()
-    expect(within(panel).getByText('參考見解（F2+）')).toBeInTheDocument()
-    expect(within(panel).getByText('參考案例（F3）')).toBeInTheDocument()
   })
 })
 
@@ -1074,227 +469,5 @@ describe('F2+ 參考見解', () => {
     await screen.findByRole('button', { name: /^參考依據/ })
     await user.click(rail(/^參考依據/))
     expect(within(refsStage()).getByText('未檢索到相關參考見解。')).toBeInTheDocument()
-  })
-})
-
-describe('F1 卷證總匯表', () => {
-  const withAnswer = {
-    ...doneAdmissible,
-    f1: {
-      ...doneAdmissible.f1,
-      service_date: '114年5月28日',
-      service_method: '寄存於板橋郵局',
-      answer_statement: '本件訴願駁回。',
-      answer_self_revoked: '否',
-      answer_arguments: ['訴願人確有違規事實', '裁處於法有據'],
-    },
-  }
-
-  const group = (name) => screen.getByRole('group', { name })
-
-  it('依四份文件分組,各欄落在自己的來源文件底下', async () => {
-    api.getCase.mockResolvedValue(withAnswer)
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByRole('button', { name: /^F1 擷取/ })
-    await user.click(rail(/^F1 擷取/))
-
-    expect(within(group('訴願書')).getByText('王○明')).toBeInTheDocument()
-    expect(within(group('送達證書')).getByText('寄存於板橋郵局')).toBeInTheDocument()
-    expect(within(group('原處分書')).getByText('北環稽字第1130001號')).toBeInTheDocument()
-    expect(within(group('訴願答辯書')).getByText('本件訴願駁回。')).toBeInTheDocument()
-    expect(within(group('訴願答辯書')).getByText(/訴願人確有違規事實/)).toBeInTheDocument()
-    // 送達方式屬送達證書,不該同時出現在原處分書那組
-    expect(within(group('原處分書')).queryByText('寄存於板橋郵局')).toBeNull()
-  })
-
-  it('答辯書三欄抽不到時逐欄印「—」,不整組換成一句話', async () => {
-    // 答辯書改必填後,整組空代表擷取失敗而不是「尚未答辯」;講成後者會把失效說成常態
-    api.getCase.mockResolvedValue(doneAdmissible) // 樣本無答辯書欄位
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByRole('button', { name: /^F1 擷取/ })
-    await user.click(rail(/^F1 擷取/))
-
-    const answer = group('訴願答辯書')
-    expect(within(answer).getByText('答辯聲明')).toBeInTheDocument()
-    expect(within(answer).getAllByText('—')).toHaveLength(3)
-    expect(within(answer).queryByText('尚未答辯')).toBeNull()
-  })
-
-  it('卷內無送達證書時那一組照樣在,兩欄都印「—」', async () => {
-    // 整組藏起來會讓「沒這份文書」看起來像「系統沒這一欄」;空值一律印 — 才看得出是沒抽到
-    api.getCase.mockResolvedValue({
-      ...doneAdmissible,
-      f1: { ...doneAdmissible.f1, service_date: null, service_method: null },
-    })
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByRole('button', { name: /^F1 擷取/ })
-    await user.click(rail(/^F1 擷取/))
-
-    const service = group('送達證書')
-    expect(within(service).getByText('送達時間')).toBeInTheDocument()
-    expect(within(service).getByText('送達方式')).toBeInTheDocument()
-    expect(within(service).getAllByText('—')).toHaveLength(2)
-  })
-
-  it('單值欄位可就地改,送出的是整份案件資訊且只有該欄變了', async () => {
-    api.getCase.mockResolvedValue(withAnswer)
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByRole('button', { name: /^F1 擷取/ })
-    await user.click(rail(/^F1 擷取/))
-
-    await user.click(within(group('送達證書')).getByRole('button', { name: '修改送達方式' }))
-    const input = screen.getByLabelText('送達方式')
-    await user.clear(input)
-    await user.type(input, '本人簽收')
-    await user.click(screen.getByRole('button', { name: '儲存' }))
-
-    expect(api.updateCaseInfo).toHaveBeenCalledWith('c-1', {
-      ...withAnswer.f1,
-      service_method: '本人簽收',
-    })
-  })
-
-  it('清單欄位以換行分行,儲存時拆成陣列並丟掉空行', async () => {
-    api.getCase.mockResolvedValue(withAnswer)
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByRole('button', { name: /^F1 擷取/ })
-    await user.click(rail(/^F1 擷取/))
-
-    await user.click(within(group('訴願答辯書')).getByRole('button', { name: '修改機關主張' }))
-    const box = screen.getByLabelText('機關主張')
-    await user.clear(box)
-    await user.type(box, '第一項主張\n\n第二項主張')
-    await user.click(screen.getByRole('button', { name: '儲存' }))
-
-    expect(api.updateCaseInfo).toHaveBeenCalledWith('c-1', {
-      ...withAnswer.f1,
-      answer_arguments: ['第一項主張', '第二項主張'],
-    })
-  })
-
-  it('分析進行中不給改,不讓使用者送出後才看到 409', async () => {
-    api.getCase.mockResolvedValue({ ...withAnswer, status: 'processing', current_stage: 'f2' })
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByRole('button', { name: /^F1 擷取/ })
-    await user.click(rail(/^F1 擷取/))
-
-    expect(screen.queryByRole('button', { name: '修改送達方式' })).toBeNull()
-    expect(screen.getByText(/分析進行中/)).toBeInTheDocument()
-  })
-
-  it('儲存失敗時錯誤看得見,而且不清掉剛打的字', async () => {
-    api.getCase.mockResolvedValue(withAnswer)
-    api.updateCaseInfo.mockRejectedValueOnce(new Error('案件分析中,無法修改案件資訊'))
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByRole('button', { name: /^F1 擷取/ })
-    await user.click(rail(/^F1 擷取/))
-
-    await user.click(within(group('送達證書')).getByRole('button', { name: '修改送達方式' }))
-    const input = screen.getByLabelText('送達方式')
-    await user.clear(input)
-    await user.type(input, '本人簽收')
-    await user.click(screen.getByRole('button', { name: '儲存' }))
-
-    expect(await screen.findByText(/無法修改案件資訊/)).toBeInTheDocument()
-    expect(screen.getByLabelText('送達方式')).toHaveValue('本人簽收')
-  })
-})
-
-describe('決定結果修改', () => {
-  it('選了新結果要按儲存修改才送出', async () => {
-    api.getCase.mockResolvedValue(doneAdmissible)
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByLabelText('決定書全文')
-    api.updateDraftResult.mockClear()
-
-    await user.selectOptions(screen.getByLabelText('結果'), '撤銷另處')
-    expect(api.updateDraftResult).not.toHaveBeenCalled()
-
-    api.getCase.mockClear()
-    await user.click(screen.getByRole('button', { name: '儲存修改' }))
-
-    expect(api.updateDraftResult).toHaveBeenCalledWith('c-1', { draft_type: '撤銷另處' })
-    await waitFor(() => expect(api.getCase).toHaveBeenCalledTimes(1))
-  })
-
-  it('只改結果時不動全文,不多存一版', async () => {
-    api.getCase.mockResolvedValue(doneAdmissible)
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByLabelText('決定書全文')
-    api.updateDraftText.mockClear()
-
-    await user.selectOptions(screen.getByLabelText('結果'), '原處分撤銷')
-    await user.click(screen.getByRole('button', { name: '儲存修改' }))
-
-    expect(api.updateDraftText).not.toHaveBeenCalled()
-    expect(api.updateDraftResult).toHaveBeenCalledWith('c-1', { draft_type: '原處分撤銷' })
-  })
-
-  it('全文與結果一起改,兩支 API 都送', async () => {
-    api.getCase.mockResolvedValue(doneAdmissible)
-    const user = userEvent.setup()
-    renderDetail()
-    api.updateDraftText.mockClear()
-    api.updateDraftResult.mockClear()
-
-    await user.type(await screen.findByLabelText('決定書全文'), '補一句')
-    await user.selectOptions(screen.getByLabelText('結果'), '撤銷另處')
-    await user.click(screen.getByRole('button', { name: '儲存修改' }))
-
-    expect(api.updateDraftText).toHaveBeenCalledWith('c-1', {
-      text: `${doneAdmissible.draft_plain_text}補一句`,
-      cited_laws: [],
-      base_version: 0,
-    })
-    expect(api.updateDraftResult).toHaveBeenCalledWith('c-1', { draft_type: '撤銷另處' })
-  })
-
-  it('改過的案件只顯示現行結果,不在稿紙上談系統原判', async () => {
-    api.getCase.mockResolvedValue({
-      ...doneAdmissible,
-      f4: { ...doneAdmissible.f4, draft_type: '撤銷另處' },
-      f4_system: { ...doneAdmissible.f4, draft_type: '駁回' },
-    })
-    renderDetail()
-
-    expect(await screen.findByLabelText('結果')).toHaveValue('撤銷另處')
-    expect(screen.queryByText(/系統原判/)).toBeNull()
-  })
-
-  it('儲存失敗時錯誤看得見,選單留著承辦人挑的值不回捲', async () => {
-    api.getCase.mockResolvedValue(doneAdmissible)
-    api.updateDraftResult.mockRejectedValueOnce(new Error('案件正在分析中'))
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByLabelText('決定書全文')
-
-    await user.selectOptions(screen.getByLabelText('結果'), '撤銷另處')
-    await user.click(screen.getByRole('button', { name: '儲存修改' }))
-
-    expect(await screen.findByText('案件正在分析中')).toBeInTheDocument()
-    expect(screen.getByLabelText('結果')).toHaveValue('撤銷另處')
-  })
-
-  it('未儲存的結果修改擋住下載', async () => {
-    api.getCase.mockResolvedValue(doneAdmissible)
-    const user = userEvent.setup()
-    renderDetail()
-    await screen.findByLabelText('決定書全文')
-    api.downloadDraftPdf.mockClear()
-
-    await user.selectOptions(screen.getByLabelText('結果'), '撤銷另處')
-    await user.click(screen.getByRole('button', { name: '下載 PDF' }))
-
-    expect(api.downloadDraftPdf).not.toHaveBeenCalled()
-    expect(screen.getByText('尚未儲存修改')).toBeInTheDocument()
   })
 })

@@ -52,10 +52,6 @@ export function replaceDocument(caseId, slot, formData) {
   return request(`/cases/${caseId}/documents/${slot}`, { method: 'PATCH', body: formData })
 }
 
-export function analyzeCase(caseId) {
-  return request(`/cases/${caseId}/analyze`, { method: 'POST' })
-}
-
 export function listCases() {
   return request('/cases')
 }
@@ -100,8 +96,35 @@ export function updateDraftResult(id, body) {
   })
 }
 
-export function reanalyzeCase(id) {
-  return request(`/cases/${id}/reanalyze`, { method: 'POST' })
+/** 重跑的起跑點由呼叫的按鈕決定:'f1'(文件確認頁 開始分析)/ 'screening'(F1 頁 AI 生成)/ 'f2'(程序審查頁 AI 生成)。 */
+export function reanalyzeCase(id, from) {
+  return request(`/cases/${id}/reanalyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from }),
+  })
+}
+
+export function updateDecisionHeader(id, header) {
+  return request(`/cases/${id}/decision-header`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(header),
+  })
+}
+
+/** 文件確認頁的原始 PDF 預覽:與 openSourceFile 同一條路,帶金鑰抓 blob 再開新分頁。 */
+export async function getDocumentFile(id, slot) {
+  const res = await fetch(`/api/cases/${id}/documents/${slot}/file`, {
+    headers: { 'X-API-Key': getApiKey() },
+  })
+  if (res.status === 401) {
+    clearApiKey()
+    window.location.href = '/login'
+    throw new Error('未授權，請重新登入。')
+  }
+  if (!res.ok) throw new Error(`找不到原始檔案（${res.status}）`)
+  return URL.createObjectURL(await res.blob())
 }
 
 /** 參考見解的存檔 PDF:帶金鑰抓回 blob 再開新分頁。不能直接 window.open 端點——

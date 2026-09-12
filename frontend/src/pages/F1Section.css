@@ -1,0 +1,135 @@
+/* F1Section 頁專用:五個文件分頁 + 欄位常駐輸入框 + 即時自動儲存 */
+
+.f1-section__note {
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+  margin: 0 0 var(--space-md);
+}
+
+/* ---------- 分頁列 ---------- */
+
+.f1-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  border-bottom: var(--rule-strong);
+  margin-bottom: var(--space-lg);
+}
+
+.f1-tab {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--space-xs) var(--space-sm);
+  margin-bottom: -1px;
+  cursor: pointer;
+  color: var(--color-ink-soft);
+}
+
+.f1-tab--current {
+  color: var(--color-ink);
+  font-weight: 600;
+  border-bottom-color: var(--color-gold-deep);
+}
+
+.f1-tab__ocr,
+.f1-tab__flag {
+  margin-left: var(--space-2xs);
+  font-size: var(--text-sm);
+  color: var(--color-review);
+}
+
+/* ---------- 分頁內容 ---------- */
+
+.f1-ocr-note {
+  font-size: var(--text-sm);
+  color: var(--color-review);
+  margin: 0 0 var(--space-md);
+}
+
+.f1-fieldset {
+  border: var(--rule-strong);
+  border-radius: var(--radius-sm, 4px);
+  padding: var(--space-md);
+  margin: 0 0 var(--space-lg);
+}
+
+.f1-fieldset legend {
+  font-family: var(--font-display);
+  font-weight: 600;
+  padding: 0 var(--space-xs);
+}
+
+.f1-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-md);
+}
+
+.f1-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.f1-field label {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--color-wood);
+}
+
+.f1-field input,
+.f1-field select,
+.f1-field textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* 改過的值用狀態層的琥珀,與「待人工確認」同一個訊號;旁邊附上模型原本抽的值 */
+.f1-field--edited label {
+  color: var(--color-review);
+}
+
+.f1-field__flag {
+  margin-left: var(--space-2xs);
+  font-weight: 400;
+}
+
+.f1-field__original {
+  display: inline-block;
+  font-size: var(--text-sm);
+  font-weight: 400;
+  color: var(--color-ink-soft);
+  text-decoration: line-through;
+}
+
+/* ---------- 自動儲存狀態列 / 底部 AI 生成 ---------- */
+
+.f1-status-row {
+  min-height: 1.5em;
+}
+
+.f1-save-status {
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+  margin: 0;
+}
+
+.f1-save-status--error {
+  color: var(--color-error);
+}
+
+.f1-actions__hint {
+  font-size: var(--text-sm);
+  color: var(--color-ink-soft);
+  margin-right: var(--space-sm);
+}
+
+@media (max-width: 767px) {
+  .f1-grid {
+    grid-template-columns: 1fr;
+  }
+}
