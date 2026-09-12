@@ -6,6 +6,9 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from boto3.dynamodb.conditions import Key
+
+from app.bedrock import bedrock_config
 from app.config import settings
 from app.models import (
     CaseInfo,
@@ -20,6 +23,7 @@ from app.models import (
 )
 from app.providers.base import AIProvider
 from app.providers.schemas import case_info_json_schema
+from app.throttle import bedrock_gate
 
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 _DDB_BATCH_LIMIT = 100  # DynamoDB BatchGetItem 單次上限
@@ -147,9 +151,11 @@ class AWSProvider(AIProvider):
         import boto3
 
         region = settings.AWS_REGION
-        self._brt = bedrock_runtime or boto3.client("bedrock-runtime", region_name=region)
+        self._brt = bedrock_runtime or boto3.client(
+            "bedrock-runtime", region_name=region, config=bedrock_config()
+        )
         self._bart = bedrock_agent_runtime or boto3.client(
-            "bedrock-agent-runtime", region_name=region
+            "bedrock-agent-runtime", region_name=region, config=bedrock_config()
         )
         self._ddb = dynamodb_resource or boto3.resource("dynamodb", region_name=region)
 
@@ -181,6 +187,7 @@ class AWSProvider(AIProvider):
         }
         if temperature is not None:
             kwargs["inferenceConfig"] = {"temperature": temperature}
+        bedrock_gate.acquire()
         resp = self._brt.converse(**kwargs)
         content = resp["output"]["message"]["content"]
         for block in content:
@@ -234,6 +241,7 @@ class AWSProvider(AIProvider):
         vector_search_config: dict = {"numberOfResults": num_results}
         if filter_:
             vector_search_config["filter"] = filter_
+        bedrock_gate.acquire()
         resp = self._bart.retrieve(
             knowledgeBaseId=kb_id,
             retrievalQuery={"text": query},
@@ -242,21 +250,37 @@ class AWSProvider(AIProvider):
         return resp.get("retrievalResults", [])
 
     # ---------- DynamoDB 精查(法條全文/修正日期) ----------
-    def _batch_get_law_articles(self, keys: list[str]) -> dict[str, dict]:
-        result: dict[str, dict] = {}
+    def _lookup_law_articles(self, keys: list[str]) -> dict[str, dict]:
+        """DDB_LAW_INDEX 留空:law_article 是主鍵,batch_get_item 一次查完;
+        有值:law_article 只是 GSI,GSI 不支援 batch_get_item,逐鍵 query。"""
         table_name = settings.DDB_LAW_TABLE
-        for i in range(0, len(keys), _DDB_BATCH_LIMIT):
-            chunk = keys[i : i + _DDB_BATCH_LIMIT]
-            resp = self._ddb.batch_get_item(
-                RequestItems={table_name: {"Keys": [{"law_article": k} for k in chunk]}}
+        if not settings.DDB_LAW_INDEX:
+            result: dict[str, dict] = {}
+            for i in range(0, len(keys), _DDB_BATCH_LIMIT):
+                chunk = keys[i : i + _DDB_BATCH_LIMIT]
+                resp = self._ddb.batch_get_item(
+                    RequestItems={table_name: {"Keys": [{"law_article": k} for k in chunk]}}
+                )
+                for item in resp.get("Responses", {}).get(table_name, []):
+                    result[item["law_article"]] = item
+            return result
+
+        table = self._ddb.Table(table_name)
+        result = {}
+        for key in keys:
+            resp = table.query(
+                IndexName=settings.DDB_LAW_INDEX,
+                KeyConditionExpression=Key("law_article").eq(key),
+                Limit=1,
             )
-            for item in resp.get("Responses", {}).get(table_name, []):
-                result[item["law_article"]] = item
+            found = resp.get("Items") or []
+            if found:
+                result[key] = found[0]
         return result
 
     def get_law_articles(self, keys: list[str]) -> list[LawRef]:
         """依「法規名稱#條號」精查全文與修正日期;條號是精確鍵,不走向量檢索。"""
-        items = self._batch_get_law_articles(keys)
+        items = self._lookup_law_articles(keys)
         refs: list[LawRef] = []
         for key in keys:
             item = items.get(key)
@@ -267,7 +291,7 @@ class AWSProvider(AIProvider):
                     article_no=item.get("article_no", article_no) if item else article_no,
                     text=item.get("text", "") if item else "",
                     # 一律來自 DynamoDB,查無資料填死值,禁止由 LLM 生成修正日期
-                    amend_date=(item.get("amend_date") or "未收錄") if item else "未收錄",
+                    amend_date=(item.get(settings.DDB_LAW_DATE_FIELD) or "未收錄") if item else "未收錄",
                     source_key=item.get("source_key") if item else None,
                     relevance="條號精查（DynamoDB）" if item else "條號精查，DynamoDB 未查得資料",
                 )

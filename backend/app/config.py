@@ -18,10 +18,21 @@ class Settings(BaseSettings):
     API_KEY: str = ""  # 空字串=未設定,require_api_key 一律拒絕(見 app/auth.py)
     AWS_REGION: str = "us-west-2"
     BEDROCK_MODEL_ID: str = "us.anthropic.claude-sonnet-4-6"
+    # 相鄰兩次 Bedrock 請求的最小間隔秒數;黑客松規範要求 Bedrock 請求控制在 1 RPS 以下
+    BEDROCK_MIN_INTERVAL_SECONDS: float = 1.0
+    # 單次 Bedrock 回應的等待上限;F1 逐欄擷取大份卷證常超過 botocore 預設的 60 秒
+    BEDROCK_READ_TIMEOUT_SECONDS: float = 300
+    BEDROCK_CONNECT_TIMEOUT_SECONDS: float = 10
+    # botocore 內部重試會在同一次速率閘放行內重發請求,設 1 等於關掉它,讓每次 acquire() 只對應一個請求
+    BEDROCK_MAX_ATTEMPTS: int = 1
     KB_LAW_ID: str = ""
     KB_CASE_ID: str = ""
     S3_BUCKET: str = ""
     DDB_LAW_TABLE: str = "appeal_law_articles"
+    # 法條表以「法規名稱#條號」為主鍵時留空;該鍵只是 GSI 時填索引名,查詢改走逐鍵 query
+    DDB_LAW_INDEX: str = ""
+    # 法條修正日期的屬性名;不同來源建的表欄位名不同,查錯欄位會讓修正日期整批落空
+    DDB_LAW_DATE_FIELD: str = "amend_date"
     DDB_CASE_TABLE: str = "appeal_cases"
     APPEAL_AGENCY_LOCATION: str = "新北市"  # 受理訴願機關所在地,查在途期間對照表用
     # 定稿 PDF 的落地位置(mock/local 模式;aws 模式落 S3 的 finalized/ 前綴)。

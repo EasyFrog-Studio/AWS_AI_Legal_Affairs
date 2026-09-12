@@ -13,7 +13,9 @@ from typing import Callable, Optional, Protocol
 
 import fitz  # PyMuPDF
 
+from app.bedrock import bedrock_config
 from app.config import settings
+from app.throttle import bedrock_gate
 
 _PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
@@ -88,11 +90,14 @@ class BedrockOcrClient:
         if bedrock_runtime is None:
             import boto3
 
-            bedrock_runtime = boto3.client("bedrock-runtime", region_name=settings.AWS_REGION)
+            bedrock_runtime = boto3.client(
+                "bedrock-runtime", region_name=settings.AWS_REGION, config=bedrock_config()
+            )
         self._brt = bedrock_runtime
         self._prompt = (_PROMPTS_DIR / "ocr_page.txt").read_text(encoding="utf-8")
 
     def extract_page(self, image: bytes) -> str:
+        bedrock_gate.acquire()
         resp = self._brt.converse(
             modelId=settings.BEDROCK_MODEL_ID,
             system=[{"text": self._prompt}],
