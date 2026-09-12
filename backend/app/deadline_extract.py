@@ -224,20 +224,34 @@ def _receipt_date_from_appeal(text: str) -> Optional[date]:
     return dates[0] if len(dates) == 1 else None
 
 
-def extract_from_documents(appeal_text: str, service_text: str) -> DeadlineExtraction:
+def extract_from_documents(
+    appeal_text: str,
+    service_text: str,
+    *,
+    service_date: Optional[date] = None,
+    filed_date: Optional[date] = None,
+) -> DeadlineExtraction:
     """分槽版:service_date 只信送達證書槽,receipt_date/filed_date/在途期間/residence 只信
     訴願書槽,不像 extract_deadline_facts(text) 那樣把單一字串裡的各種寫法都收進來——
     因為分槽時「這句話出自哪一份文件」本身就是抽取線索,不該再靠泛用 pattern 硬猜。
 
     兩份文件對送達日的自述若不一致,problem 要明講「不符」,不能跟「抽不到」混在一起——
     那是完全不同的處理路徑:前者是卷宗本身有爭點待人工認定,後者是純粹沒寫。
+
+    service_date / filed_date 是承辦人核定的日期,給了就取代該槽抽到的值(核定過的日期
+    比抽字可信),抽不抽得到都不再退用自述日。
     """
-    service_date, public_notice, service_problem = _service_date_from_certificate(service_text)
+    certified = service_date is not None
+    if not certified:
+        service_date, public_notice, service_problem = _service_date_from_certificate(service_text)
+    else:
+        public_notice, service_problem = False, ""
     receipt_date = _receipt_date_from_appeal(appeal_text)
 
+    # 承辦人核定的送達日不再與自述日對帳:那個爭點已由人認定,再標「與送達證書不符」是張冠李戴
     disputed = (
         receipt_date
-        if service_date is not None and receipt_date is not None and service_date != receipt_date
+        if not certified and service_date is not None and receipt_date is not None and service_date != receipt_date
         else None
     )
 
@@ -260,7 +274,7 @@ def extract_from_documents(appeal_text: str, service_text: str) -> DeadlineExtra
         return DeadlineExtraction(problem=f"期間未計算，{service_problem or '送達日無法認定'}")
 
     transit = _transit_days(appeal_text)
-    filed = _filed_date(appeal_text)
+    filed = filed_date or _filed_date(appeal_text)
     correction = _CORRECTION_PERIOD.search(appeal_text)
     stated_start, stated_due = _stated(appeal_text)
     return DeadlineExtraction(

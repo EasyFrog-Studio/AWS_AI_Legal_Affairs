@@ -1,5 +1,7 @@
 """案件處理 pipeline:F1 -> screening -> (F2 ->) F3 -> F4,逐階段落庫。"""
+from dataclasses import dataclass, field
 from datetime import date
+from typing import Optional
 
 from app.config import settings
 from app.deadline import (
@@ -33,7 +35,7 @@ from app.models import (
     parse_clause,
 )
 from app.appeal_sections import split_appeal_sections
-from app.dates import normalize_case_info_dates
+from app.dates import normalize_case_info_dates, parse_roc
 from app.decision_header import decision_header_defaults
 from app.pdf_render import decision_plain_text
 from app.providers.base import AIProvider
@@ -311,8 +313,60 @@ def check_deadline_from_case(case: Case, info: CaseInfo | None = None) -> Deadli
         disposition_text,
         case_text=f"{appeal_text}\n{disposition_text}",
     )
-    check = _check_deadline_from_extraction(extract_from_documents(appeal_text, service_text), notice)
+    edited = _edited_deadline_dates(case, case_info)
+    extraction = extract_from_documents(
+        appeal_text,
+        service_text,
+        service_date=edited.service_date,
+        filed_date=edited.filed_date,
+    )
+    check = _check_deadline_from_extraction(extraction, notice)
+    if edited.adopted and check.detail:
+        check = check.model_copy(update={"detail": f"{'、'.join(edited.adopted)}依承辦人修正之案件資訊計算。{check.detail}"})
+    if edited.unreadable:
+        note = f"案件資訊{'、'.join(edited.unreadable)}無法辨識，仍依卷內文件計算"
+        check = check.model_copy(update={"review_note": join_review_notes(check.review_note, note)})
     return _flag_ocr_slots(case, check)
+
+
+@dataclass
+class _EditedDates:
+    service_date: Optional[date] = None
+    filed_date: Optional[date] = None
+    adopted: list[str] = field(default_factory=list)  # 採用了哪些承辦人修正的日期,寫進 detail 交代來源
+    unreadable: list[str] = field(default_factory=list)  # 改了但解析不出的欄位,寫進 review_note 而非默默沿用卷內值
+
+
+def _edited_deadline_dates(case: Case, info: CaseInfo | None) -> _EditedDates:
+    """承辦人改過的 F1 日期才覆寫卷內抽取值;基準是模型原判(f1_system,未改過時即 f1)。
+    模型剛擷取的日期不是人核定的:run_case 進來時 case.f1 尚為 None、重跑時 info 就是 case.f1,皆視為未改。"""
+    baseline = case.f1_system or case.f1
+    edited = _EditedDates()
+    if info is None or baseline is None:
+        return edited
+
+    def edited_date(name: str, label: str) -> Optional[date]:
+        value = getattr(info, name)
+        if not value or value == getattr(baseline, name):
+            return None
+        parsed = parse_roc(value)
+        (edited.adopted if parsed else edited.unreadable).append(label)
+        return parsed
+
+    edited.service_date = edited_date("service_date", "送達日期")
+    edited.filed_date = edited_date("appeal_filed_date", "機關收文日")
+    return edited
+    for field, target, label in _DEADLINE_F1_FIELDS:
+        value = getattr(info, field)
+        if not value or value == getattr(baseline, field):
+            continue
+        parsed = parse_roc(value)
+        if parsed is None:
+            edited.unreadable.append(label)
+            continue
+        edited.labels.append(label)
+        setattr(edited, target, parsed)
+    return edited
 
 
 def _flag_ocr_slots(case: Case, check: DeadlineCheck) -> DeadlineCheck:

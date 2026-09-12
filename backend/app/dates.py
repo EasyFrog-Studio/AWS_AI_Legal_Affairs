@@ -22,8 +22,8 @@ _SEP = re.compile(rf"^{_ERA}(\d{{1,3}})\s*[./\-]\s*(\d{{1,2}})\s*[./\-]\s*(\d{{1
 _ISO = re.compile(r"^(\d{4})\s*[./\-]\s*(\d{1,2})\s*[./\-]\s*(\d{1,2})(?!\d)")
 
 
-def normalize_roc(text: Optional[str]) -> Optional[str]:
-    """任一常見寫法 -> 「民國114年7月4日」;解析不出或日期不存在(如 2 月 30 日)回 None。"""
+def parse_roc(text: Optional[str]) -> Optional[date]:
+    """任一常見寫法 -> date;解析不出或日期不存在(如 2 月 30 日)回 None。"""
     if not text:
         return None
     s = text.strip()
@@ -35,11 +35,16 @@ def normalize_roc(text: Optional[str]) -> Optional[str]:
         if offset == 0 and year < _ROC_YEAR_OFFSET + 1:
             continue
         try:
-            value = date(year, int(m.group(2)), int(m.group(3)))
+            return date(year, int(m.group(2)), int(m.group(3)))
         except ValueError:
             return None
-        return format_roc_full(value)
     return None
+
+
+def normalize_roc(text: Optional[str]) -> Optional[str]:
+    """任一常見寫法 -> 「民國114年7月4日」;解析不出回 None。"""
+    value = parse_roc(text)
+    return format_roc_full(value) if value else None
 
 
 def format_roc_full(value: date) -> str:

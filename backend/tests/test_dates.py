@@ -1,7 +1,9 @@
 """app.dates 的正規化行為:標準寫法「民國114年7月4日」的唯一入口。"""
 import pytest
 
-from app.dates import normalize_case_info_dates, normalize_roc
+from datetime import date
+
+from app.dates import normalize_case_info_dates, normalize_roc, parse_roc
 from app.models import CaseInfo
 
 
@@ -27,6 +29,16 @@ def test_normalize_roc_drops_time_of_day():
 @pytest.mark.parametrize("text", ["未載明", "", "114年2月30日"])
 def test_normalize_roc_returns_none_for_unparseable_or_missing_text(text):
     assert normalize_roc(text) is None
+
+
+@pytest.mark.parametrize("text", ["民國114年7月4日", "2025-07-04", "114/7/4"])
+def test_parse_roc_returns_a_date_for_common_writings(text):
+    assert parse_roc(text) == date(2025, 7, 4)
+
+
+@pytest.mark.parametrize("text", ["看不懂的日期", None, "114年2月30日"])
+def test_parse_roc_returns_none_for_unparseable_text(text):
+    assert parse_roc(text) is None
 
 
 def _info(**overrides) -> CaseInfo:

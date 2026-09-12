@@ -111,7 +111,7 @@ describe('程序審查表單:常駐三欄自動儲存', () => {
     expect(screen.getByLabelText('審查適用條款')).toHaveValue('77條第3款')
   })
 
-  it('screening_stale 為 false 時,AI 生成停用且說明未變更,點了不呼叫', async () => {
+  it('screening_stale 為 false 時,AI 生成停用;點了不呼叫,改在按鈕下方說明未變更', async () => {
     api.getCase.mockResolvedValue({ ...doneAdmissible, screening_stale: false })
     renderDetail()
     await screen.findByRole('button', { name: /^程序審查/ })
@@ -120,10 +120,35 @@ describe('程序審查表單:常駐三欄自動儲存', () => {
 
     const generate = screen.getByRole('button', { name: 'AI 生成' })
     expect(generate).toHaveAttribute('aria-disabled', 'true')
-    expect(screen.getByText('程序審查結論未變更')).toBeInTheDocument()
+    expect(screen.queryByText(/程序審查結論未變更/)).toBeNull()
     api.reanalyzeCase.mockClear()
     await user.click(generate)
     expect(api.reanalyzeCase).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent('程序審查結論未變更')
+  })
+
+  it('案件處理中點 AI 生成,說明的是分析進行中而不是未變更', async () => {
+    api.getCase.mockResolvedValue({ ...doneAdmissible, status: 'processing', screening_stale: true })
+    renderDetail()
+    await screen.findByRole('button', { name: /^程序審查/ })
+    const user = userEvent.setup()
+    await user.click(rail(/^程序審查/))
+
+    await user.click(screen.getByRole('button', { name: 'AI 生成' }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent('分析進行中')
+  })
+
+  it('審查結論上方不再另印受理/不受理印章,結論只在下拉選單', async () => {
+    api.getCase.mockResolvedValue(doneInadmissible)
+    const user = userEvent.setup()
+    renderDetail('c-2')
+    await screen.findByRole('button', { name: /^程序審查/ })
+    await user.click(rail(/^程序審查/))
+
+    const card = screen.getByLabelText('審查結論').closest('.card')
+    expect(card.querySelector('.seal')).toBeNull()
+    expect(screen.getByLabelText('審查結論')).toHaveValue('reject')
   })
 
   it('screening_stale 為 true 且已有下游結果時,AI 生成先警示;取消不呼叫,確認才呼叫 reanalyzeCase(id,"f2")', async () => {

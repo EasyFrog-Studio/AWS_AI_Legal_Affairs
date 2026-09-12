@@ -18,7 +18,17 @@
   flex-direction: column;
   gap: var(--space-md);
   margin-block: var(--space-md);
-  max-width: var(--measure);
+  /* 標籤只有四字,不必佔 F1 那麼寬的一欄;輸入與理由全文吃滿卡片,長理由不得被截 */
+  --form-label-col: 7em;
+  --form-control-max: 1fr;
+}
+
+.action-hint {
+  font-family: var(--font-ui);
+  font-size: var(--text-ui);
+  color: var(--color-error);
+  text-align: right;
+  margin: var(--space-xs) 0 0;
 }
 
 .screening-form__status {
@@ -143,7 +153,7 @@
   padding-left: var(--space-md);
 }
 
-/* ---------- 參考依據:法規 / 參考見解 / 案例三組同頁 ---------- */
+/* ---------- 參考依據:法規 / 參考見解 同列分頁,案例另成一組在下 ---------- */
 
 .refs-stack {
   display: flex;
@@ -171,6 +181,5 @@
   font-family: var(--font-body);
   font-size: var(--text-sm);
   color: var(--color-ink-soft);
-  max-width: var(--measure);
   margin-block: 0 var(--space-sm);
 }

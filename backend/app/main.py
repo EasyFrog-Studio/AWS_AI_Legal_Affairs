@@ -454,7 +454,7 @@ def update_case_info(case_id: str, info: CaseInfo) -> Case:
     只重算期間;下游是否已經過時由 computed field f1_stale 表達(比對 screening_input_f1),
     不再另外在 screening.review_note 塞一句。要讓結論跟上,呼叫 /reanalyze。
 
-    期間只有教示條款那一項讀 f1;送達日與提起日仍從文件原文抽取,改 f1 的日期欄不會改變算式。
+    期間重算時,承辦人改過的送達時間與機關收文日期取代文件原文抽到的值(見 pipeline._edited_deadline_dates)。
     """
     case = store.get(case_id)
     if case is None:

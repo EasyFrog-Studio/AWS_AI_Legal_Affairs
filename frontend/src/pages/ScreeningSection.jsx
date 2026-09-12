@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { overrideScreening, reanalyzeCase } from '../api'
 import { useAutosave } from '../hooks/useAutosave.js'
 import AutoTextarea from '../components/AutoTextarea.jsx'
-import Seal from '../components/Seal.jsx'
 
 /** 程序審查結論常駐可改:自動判之後承辦人只做確認,那就必須改得動——
  * 否則自動判等於終局判斷。三欄自動儲存,不再收合成「推翻」表單。
@@ -11,6 +10,7 @@ export function ScreeningSection({ caseData, onChanged }) {
   const { screening } = caseData
   const [genBusy, setGenBusy] = useState(false)
   const [genError, setGenError] = useState('')
+  const [hintCaseId, setHintCaseId] = useState(null) // 停用時點了才說明為何按不下去;記案號讓提示不跨案殘留
 
   const processing = caseData.status === 'processing'
 
@@ -54,7 +54,12 @@ export function ScreeningSection({ caseData, onChanged }) {
   }
 
   async function handleGenerate() {
-    if (!caseData.screening_stale || genBusy || processing) return
+    if (genBusy) return
+    if (!caseData.screening_stale || processing) {
+      setHintCaseId(caseData.case_id)
+      return
+    }
+    setHintCaseId(null)
     await flushPending()
     const hasDownstream = caseData.f2 || caseData.f2_refs || caseData.f3 || caseData.f4
     if (
@@ -77,10 +82,9 @@ export function ScreeningSection({ caseData, onChanged }) {
     }
   }
 
-  const kind = screening.passed ? 'pass' : 'reject'
-  const text = screening.passed ? '受理' : '不受理'
   const fieldsDisabled = processing
   const generateDisabled = !caseData.screening_stale || genBusy || processing
+  const generateHint = processing ? '分析進行中，請稍候' : '程序審查結論未變更，無需重新生成'
 
   const saveStatusText = {
     idle: '',
@@ -91,12 +95,11 @@ export function ScreeningSection({ caseData, onChanged }) {
 
   return (
     <div className="card">
-      <div className="screening-result">
-        <Seal kind={kind} size="lg">
-          {text}
-        </Seal>
-        {caseData.screening_system && <span className="doc-check">已由承辦人推翻</span>}
-      </div>
+      {caseData.screening_system && (
+        <div className="screening-result">
+          <span className="doc-check">已由承辦人推翻</span>
+        </div>
+      )}
       {screening.review_note && (
         <p className="deadline__note">須人工確認：{screening.review_note}</p>
       )}
@@ -111,7 +114,7 @@ export function ScreeningSection({ caseData, onChanged }) {
       )}
 
       <div className="screening-form">
-        <div className="field">
+        <div className="field form-row">
           <label className="field__label" htmlFor="screening-passed">
             審查結論
           </label>
@@ -127,7 +130,7 @@ export function ScreeningSection({ caseData, onChanged }) {
           </select>
         </div>
         {!passed && (
-          <div className="field">
+          <div className="field form-row">
             <label className="field__label" htmlFor="screening-clause">
               審查適用條款
             </label>
@@ -143,7 +146,7 @@ export function ScreeningSection({ caseData, onChanged }) {
             />
           </div>
         )}
-        <div className="field">
+        <div className="field form-row form-row--block">
           <label className="field__label" htmlFor="screening-reasoning">
             審查理由
           </label>
@@ -171,8 +174,12 @@ export function ScreeningSection({ caseData, onChanged }) {
         >
           AI 生成
         </button>
-        {generateDisabled && <span className="doc-verdict__meta">程序審查結論未變更</span>}
       </div>
+      {hintCaseId === caseData.case_id && generateDisabled && (
+        <p className="action-hint" role="alert">
+          {generateHint}
+        </p>
+      )}
       {genError && <div className="form-result form-result--error">{genError}</div>}
     </div>
   )
