@@ -16,6 +16,8 @@ finalized/
 .coverage
 htmlcov/
 eval/reports/
+aws_setup/.cache/
+aws_setup/ingest_failures.json
 
 # 工具 / 編輯器 / OS
 .vscode/

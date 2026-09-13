@@ -1,10 +1,19 @@
 {
   "vector_bucket": "appeal-ai-vectors",
-  "index_law_arn": "arn:aws:s3vectors:us-west-2:047877300727:bucket/appeal-ai-vectors/index/kb-law-index",
-  "index_case_arn": "arn:aws:s3vectors:us-west-2:047877300727:bucket/appeal-ai-vectors/index/kb-case-index",
-  "role_arn": "arn:aws:iam::047877300727:role/appeal-kb-role",
-  "kb_law_id": "Y3REHA6HNN",
-  "kb_case_id": "BUMDFYCWCM",
-  "data_source_law_id": "JDUONPLF5X",
-  "data_source_case_id": "FTEFUXOQAC"
+  "index_law_arn": "arn:aws:s3vectors:us-west-2:000000000000:bucket/appeal-ai-vectors/index/kb-law-index",
+  "index_case_arn": "arn:aws:s3vectors:us-west-2:000000000000:bucket/appeal-ai-vectors/index/kb-case-index",
+  "role_arn": "arn:aws:iam::000000000000:role/appeal-kb-role",
+  "kb_law_id": "WQVGZBCEUA",
+  "kb_case_id": "HEVPST3YK1",
+  "data_source_law_id": "FPA4Z1IXPL",
+  "data_source_case_id": "RW43MEJLFE",
+  "index_interpretation_arn": "arn:aws:s3vectors:us-west-2:000000000000:bucket/appeal-ai-vectors/index/kb-interpretation-index",
+  "kb_interpretation_id": "ROM2C4XC2J",
+  "data_source_interpretation_id": "EBDFFDXNVO",
+  "index_ruling_arn": "arn:aws:s3vectors:us-west-2:000000000000:bucket/appeal-ai-vectors/index/kb-ruling-index",
+  "kb_ruling_id": "I1PEFUMBIZ",
+  "data_source_ruling_id": "CGL4OQ41VU",
+  "index_judgment_arn": "arn:aws:s3vectors:us-west-2:000000000000:bucket/appeal-ai-vectors/index/kb-judgment-index",
+  "kb_judgment_id": "YHTYVE9RJG",
+  "data_source_judgment_id": "QFV7DZBZP6"
 }

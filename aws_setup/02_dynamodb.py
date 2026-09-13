@@ -51,7 +51,6 @@ def load_law_articles(resource, table_name: str) -> int:
                 "text": row.get("text", ""),
                 "amend_date": meta.get("amend_date", ""),
                 "chapter": meta.get("chapter", ""),
-                "law_type": meta.get("law_type", ""),
             }
             batch.put_item(Item=item)
             count += 1

@@ -1,9 +1,9 @@
-"""驗證資料已正確落地:DynamoDB 條文查詢 + KB-LAW/KB-CASE 檢索。任一步失敗 exit(1)。"""
+"""驗證資料已正確落地:DynamoDB 條文查詢 + KB-LAW 檢索 + KB-CASE 檢索並回 DynamoDB 精查。任一步失敗 exit(1)。"""
 import sys
 
 import boto3
 
-from config import DDB_LAW_TABLE, REGION, load_resources
+from config import DDB_LAW_TABLE, DDB_PAST_DECISIONS_TABLE, REGION, load_resources
 
 
 def verify_dynamodb(ddb):
@@ -37,7 +37,9 @@ def verify_kb_law(runtime, kb_id: str):
         print(f"  law_name={meta.get('law_name')} article_no={meta.get('article_no')}")
 
 
-def verify_kb_case(runtime, kb_id: str):
+def verify_kb_case(runtime, ddb, kb_id: str):
+    """KB 只存 case_id,詳細欄位在 DynamoDB:兩層接得起來才算過,
+    只印 KB metadata 的話,精查那一半壞掉時這支腳本照樣印綠燈。"""
     resp = runtime.retrieve(
         knowledgeBaseId=kb_id,
         retrievalQuery={"text": "未於期限內提起訴願"},
@@ -51,10 +53,18 @@ def verify_kb_case(runtime, kb_id: str):
     results = resp.get("retrievalResults", [])
     if not results:
         raise RuntimeError("KB-CASE retrieve 無結果")
+    table = ddb.Table(DDB_PAST_DECISIONS_TABLE)
     print("[KB-CASE] top3:")
     for r in results[:3]:
-        meta = r.get("metadata", {})
-        print(f"  case_no={meta.get('case_no')} section={meta.get('section')}")
+        case_id = (r.get("metadata") or {}).get("case_id")
+        if not case_id:
+            raise RuntimeError(f"KB-CASE chunk 缺 case_id,無法回 DynamoDB 精查: {r.get('metadata')}")
+        item = table.get_item(Key={"case_id": case_id}).get("Item")
+        if not item:
+            raise RuntimeError(f"{DDB_PAST_DECISIONS_TABLE} 查無 {case_id}")
+        if item.get("result") != "不受理":
+            raise RuntimeError(f"{case_id} 的 result 與檢索 filter 不符: {item.get('result')}")
+        print(f"  case_id={case_id} case_no={item.get('case_no')} 案型={item.get('case_type')} 原文={item.get('source_url') or item.get('source_file')}")
 
 
 def main():
@@ -73,7 +83,7 @@ def main():
 
     verify_dynamodb(ddb)
     verify_kb_law(runtime, kb_law_id)
-    verify_kb_case(runtime, kb_case_id)
+    verify_kb_case(runtime, ddb, kb_case_id)
 
     print("[DONE] 全部驗證步驟通過")
 
