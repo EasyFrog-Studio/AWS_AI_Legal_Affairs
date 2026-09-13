@@ -1,10 +1,14 @@
 """resolve_api_key() 與白名單/帳號 ID 的取值來源,不觸碰真實 AWS。"""
+import os
 import re
 from pathlib import Path
 
 import pytest
 
-from ecs_fargate import CLOUD_API_KEY, ENV, parse_allowed_ingress, resolve_api_key
+_ENVIRON_BEFORE_IMPORT = dict(os.environ)  # 必須早於下面的匯入,用來驗證 .env 沒被灌進 os.environ
+
+import ecs_fargate  # noqa: E402
+from ecs_fargate import CLOUD_API_KEY, ENV, parse_allowed_ingress, resolve_api_key  # noqa: E402
 
 
 @pytest.mark.parametrize("value", ["from-environ", "another-key"])
@@ -23,6 +27,16 @@ def test_empty_environ_value_falls_back_to_cloud_key():
 def test_cloud_api_key_is_not_empty():
     """空字串會讓 auth.require_api_key 拒絕所有請求,部署出去就是沒有人能登入。"""
     assert CLOUD_API_KEY
+
+
+def test_reading_env_file_does_not_pollute_environ():
+    """.env 的鍵灌進 os.environ 會讓 resolve_api_key(os.environ) 撈到開發者本機那把金鑰,
+    雲端就不是登入頁公告的 CLOUD_API_KEY——評審照著頁面輸入會登不進去。"""
+    leaked = sorted(
+        k for k in ecs_fargate.ENV_FILE_VALUES
+        if k not in _ENVIRON_BEFORE_IMPORT and k in os.environ
+    )
+    assert not leaked, leaked
 
 
 def test_task_env_carries_no_gemini_key():

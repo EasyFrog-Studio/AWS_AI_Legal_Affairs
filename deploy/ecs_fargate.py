@@ -11,15 +11,16 @@ from pathlib import Path
 
 import boto3
 from botocore.exceptions import ClientError
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
-load_dotenv(ENV_PATH, override=False)
+# 只讀成 dict 不灌進 os.environ:API_KEY 混進來會讓 resolve_api_key() 拿開發者本機那把當雲端金鑰
+ENV_FILE_VALUES = dotenv_values(ENV_PATH)
 
 
 def require_env(name: str) -> str:
-    """帳號 ID 與白名單留在 .env(不進版控);缺了就中止,不用預設值頂替。"""
-    value = os.environ.get(name, "").strip()
+    """帳號 ID 與白名單留在 .env(不進版控),執行環境變數優先;缺了就中止,不用預設值頂替。"""
+    value = (os.environ.get(name) or ENV_FILE_VALUES.get(name) or "").strip()
     if not value:
         raise ValueError(f"{name} 未設定:填在 {ENV_PATH}(範本見 .env.example)")
     return value
@@ -74,7 +75,7 @@ DDB_RULING_TABLE = "appeal_rulings"
 DDB_JUDGMENT_TABLE = "appeal_judgments"
 
 # 這份清單就是對外暴露面的全部,故留在 .env 而不進版控
-ALLOWED_INGRESS = parse_allowed_ingress(os.environ.get("DEPLOY_ALLOWED_INGRESS", ""))
+ALLOWED_INGRESS = parse_allowed_ingress(require_env("DEPLOY_ALLOWED_INGRESS"))
 
 # 登入頁已公告這把金鑰;環境變數 API_KEY 可在部署時覆蓋
 CLOUD_API_KEY = "0000"
