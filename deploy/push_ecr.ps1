@@ -2,7 +2,16 @@
 # 用法:cd AWS_AI_Legal_Affairs 後執行 .\deploy\push_ecr.ps1
 $ErrorActionPreference = "Stop"
 $REGION = "us-west-2"
-$ACCOUNT = "000000000000"
+# 帳號 ID 留在 .env(不進版控);環境變數優先,方便 CI 不落檔
+$ACCOUNT = $env:AWS_ACCOUNT_ID
+if (-not $ACCOUNT) {
+    $envFile = Join-Path $PSScriptRoot "..\.env"
+    if (Test-Path $envFile) {
+        $hit = Select-String -Path $envFile -Pattern '^\s*AWS_ACCOUNT_ID\s*=\s*(\S+)'
+        if ($hit) { $ACCOUNT = $hit.Matches[0].Groups[1].Value }
+    }
+}
+if (-not $ACCOUNT) { throw "AWS_ACCOUNT_ID 未設定:填在 AWS_AI_Legal_Affairs/.env(範本見 .env.example)" }
 $REPO = "appeal-ai"
 $REGISTRY = "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
 

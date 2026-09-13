@@ -7,12 +7,44 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 
 import boto3
 from botocore.exceptions import ClientError
+from dotenv import load_dotenv
+
+ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(ENV_PATH, override=False)
+
+
+def require_env(name: str) -> str:
+    """帳號 ID 與白名單留在 .env(不進版控);缺了就中止,不用預設值頂替。"""
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise ValueError(f"{name} 未設定:填在 {ENV_PATH}(範本見 .env.example)")
+    return value
+
+
+def parse_allowed_ingress(raw: str) -> list[tuple[str, str]]:
+    """把 `CIDR=說明` 的逗號清單解析成 SG 規則;解析不出來一律拋,不靜靜放行或靜靜清空。"""
+    entries: list[tuple[str, str]] = []
+    for item in (part.strip() for part in (raw or "").split(",")):
+        if not item:
+            continue
+        cidr, sep, note = item.partition("=")
+        cidr, note = cidr.strip(), note.strip()
+        if not sep or not note:
+            raise ValueError(f"白名單項目要寫成 CIDR=說明:{item!r}")
+        if not cidr.endswith("/32"):
+            raise ValueError(f"白名單只收單一主機 /32:{cidr!r}")
+        entries.append((cidr, note))
+    if not entries:
+        raise ValueError(f"DEPLOY_ALLOWED_INGRESS 未設定或全空:填在 {ENV_PATH}")
+    return entries
+
 
 REGION = "us-west-2"
-ACCOUNT = "000000000000"
+ACCOUNT = require_env("AWS_ACCOUNT_ID")
 REPO = "appeal-ai"
 IMAGE = f"{ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com/{REPO}:latest"
 CLUSTER = "appeal-ai"
@@ -41,14 +73,8 @@ DDB_INTERPRETATION_TABLE = "appeal_interpretations"
 DDB_RULING_TABLE = "appeal_rulings"
 DDB_JUDGMENT_TABLE = "appeal_judgments"
 
-# 評審四組 + 開發者自用;這份清單就是對外暴露面的全部
-ALLOWED_INGRESS = [
-    ("203.0.113.11/32", "judge-1"),
-    ("203.0.113.12/32", "judge-2"),
-    ("203.0.113.13/32", "judge-3"),
-    ("203.0.113.14/32", "judge-4"),
-    ("203.0.113.10/32", "developer"),
-]
+# 這份清單就是對外暴露面的全部,故留在 .env 而不進版控
+ALLOWED_INGRESS = parse_allowed_ingress(os.environ.get("DEPLOY_ALLOWED_INGRESS", ""))
 
 # 登入頁已公告這把金鑰;環境變數 API_KEY 可在部署時覆蓋
 CLOUD_API_KEY = "0000"

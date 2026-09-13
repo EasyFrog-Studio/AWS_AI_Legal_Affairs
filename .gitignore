@@ -27,3 +27,6 @@ Thumbs.db
 
 # 設計技能產出的紀錄檔,不隨專案分發
 .hallmark/
+
+# 建置腳本產出的資源清單(含帶帳號 ID 的 ARN);執行 01~03 會重建,不進版控
+aws_setup/resources.json

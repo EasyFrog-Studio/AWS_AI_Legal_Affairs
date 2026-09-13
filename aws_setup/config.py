@@ -3,8 +3,16 @@ import json
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(ENV_PATH, override=False)
+
 # --- Account / region ---
-ACCOUNT_ID = "000000000000"
+# 帳號 ID 留在 .env(不進版控);各腳本以它比對 STS 身分,避免灌進別的帳號,故不改用 STS 自動取得
+ACCOUNT_ID = os.environ.get("AWS_ACCOUNT_ID", "").strip()
+if not ACCOUNT_ID:
+    raise RuntimeError(f"AWS_ACCOUNT_ID 未設定:填在 {ENV_PATH}(範本見 .env.example)")
 REGION = "us-west-2"
 
 # --- S3 ---
