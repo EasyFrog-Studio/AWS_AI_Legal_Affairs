@@ -114,3 +114,92 @@ def test_the_file_endpoint_requires_the_api_key():
     client = TestClient(main_module.app)
     resp = client.get("/api/source/file", params={"key": "reference/行政函釋/x.pdf"})
     assert resp.status_code == 401
+
+
+# ---------- /api/source/file 的 aws 模式 S3 後援(本機掛載找不到時) ----------
+
+
+class _FakeBody:
+    def __init__(self, data: bytes):
+        self._data = data
+
+    def read(self) -> bytes:
+        return self._data
+
+
+class _FakeS3Client:
+    """假 boto3 s3 client:get_object 依 side_effect/return_value 決定行為,記錄呼叫參數。"""
+
+    def __init__(self, return_value=None, side_effect=None):
+        self._return_value = return_value
+        self._side_effect = side_effect
+        self.calls: list = []
+
+    def get_object(self, **kwargs):
+        self.calls.append(kwargs)
+        if self._side_effect is not None:
+            raise self._side_effect
+        return self._return_value
+
+
+def test_the_file_endpoint_falls_back_to_s3_when_the_local_mount_is_missing(tmp_path, monkeypatch):
+    """本機掛載(compose volume)沒有這份檔案時,aws 模式的實際落地是 S3,同一個 key 當 S3 Key 用。"""
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(main_module, "_REFERENCE_DIR", tmp_path / "reference")  # 本機目錄故意留空
+    monkeypatch.setattr(settings, "S3_BUCKET", "appeal-ai-test-bucket")
+    fake_client = _FakeS3Client(
+        return_value={"Body": _FakeBody(b"%PDF-1.7\n s3 data"), "ContentType": "application/pdf"}
+    )
+    monkeypatch.setattr(main_module, "_s3_client", lambda: fake_client)
+
+    client = TestClient(main_module.app)
+    resp = client.get(
+        "/api/source/file", params={"key": "reference/司法院釋字/釋字第469號.pdf"}, headers=_headers()
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/pdf")
+    assert resp.content == b"%PDF-1.7\n s3 data"
+    assert fake_client.calls == [
+        {"Bucket": "appeal-ai-test-bucket", "Key": "reference/司法院釋字/釋字第469號.pdf"}
+    ]
+
+
+def test_the_file_endpoint_returns_404_when_s3_reports_no_such_key(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from botocore.exceptions import ClientError
+
+    monkeypatch.setattr(main_module, "_REFERENCE_DIR", tmp_path / "reference")
+    monkeypatch.setattr(settings, "S3_BUCKET", "appeal-ai-test-bucket")
+    fake_client = _FakeS3Client(
+        side_effect=ClientError({"Error": {"Code": "NoSuchKey", "Message": "not found"}}, "GetObject")
+    )
+    monkeypatch.setattr(main_module, "_s3_client", lambda: fake_client)
+
+    client = TestClient(main_module.app)
+    resp = client.get(
+        "/api/source/file", params={"key": "reference/行政函釋/不存在的檔.pdf"}, headers=_headers()
+    )
+
+    assert resp.status_code == 404
+
+
+def test_the_file_endpoint_stays_404_without_an_s3_bucket_and_never_builds_a_client(tmp_path, monkeypatch):
+    """S3_BUCKET 未設定(local/mock 的常態)時不得嘗試建立 s3 client——那沒有憑證可用。"""
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(main_module, "_REFERENCE_DIR", tmp_path / "reference")
+    monkeypatch.setattr(settings, "S3_BUCKET", "")
+
+    def _explode():
+        raise AssertionError("S3_BUCKET 為空時不該建立 s3 client")
+
+    monkeypatch.setattr(main_module, "_s3_client", _explode)
+
+    client = TestClient(main_module.app)
+    resp = client.get(
+        "/api/source/file", params={"key": "reference/行政函釋/不存在的檔.pdf"}, headers=_headers()
+    )
+
+    assert resp.status_code == 404

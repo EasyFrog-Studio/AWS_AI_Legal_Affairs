@@ -415,18 +415,36 @@ _REFERENCE_DIR = Path("/data/reference")
 
 @app.get("/api/source/file", dependencies=[Depends(require_api_key)])
 def get_source_file(key: str):
-    """參考見解的存檔 PDF。key 由 providers.archived_source_key 產生(`reference/<類別>/<檔名>.pdf`),
-    resolve 後必須仍在存放目錄內——那個值來自語料 metadata,不是使用者輸入,但它會被組成路徑。"""
+    """參考見解的存檔 PDF。key 由 providers.archived_source_key/F2+ 的 s3_key 產生
+    (`reference/<類別>/<檔名>.pdf`),resolve 後必須仍在存放目錄內——那個值來自語料 metadata,
+    不是使用者輸入,但它會被組成路徑。本機掛載(local/mock,compose 掛 volume)優先;
+    找不到本機檔且設定了 S3_BUCKET 時,aws 模式的檔案實際落在 S3,同一個 key 直接當 S3 Key 用。"""
     if not key.startswith("reference/"):
         raise HTTPException(status_code=404, detail="source not found")
     base = _REFERENCE_DIR.resolve()
     path = (base / key[len("reference/") :]).resolve()
-    if not path.is_relative_to(base) or not path.is_file():
+    if not path.is_relative_to(base):
         raise HTTPException(status_code=404, detail="source not found")
+
     filename = urllib.parse.quote(path.name)
+    if path.is_file():
+        return Response(
+            content=path.read_bytes(),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"inline; filename*=UTF-8''{filename}"},
+        )
+
+    if not settings.S3_BUCKET:
+        raise HTTPException(status_code=404, detail="source not found")
+    try:
+        obj = _s3_client().get_object(Bucket=settings.S3_BUCKET, Key=key)
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
+            raise HTTPException(status_code=404, detail="source not found")
+        raise
     return Response(
-        content=path.read_bytes(),
-        media_type="application/pdf",
+        content=obj["Body"].read(),
+        media_type=obj.get("ContentType") or "application/pdf",
         headers={"Content-Disposition": f"inline; filename*=UTF-8''{filename}"},
     )
 

@@ -271,6 +271,62 @@ describe('決定書草稿分段', () => {
   })
 })
 
+describe('引用法條連結', () => {
+  it('引用法條在 f2 中找得到且有 source_url 時顯示來源網站連結,找不到 source_url 的那條不顯示', () => {
+    const lawsWithSource = [
+      { law_name: '訴願法', article_no: '77', source_url: 'https://example.com/77' },
+      { law_name: '停車場法', article_no: '32', source_url: null },
+    ]
+    const { container } = renderWorkspace(doneAdmissible, {
+      laws: lawsWithSource,
+      draft: { ...doneAdmissible.f4, cited_laws: ['訴願法#77', '停車場法#32'] },
+    })
+
+    const citations = within(container.querySelector('.draft-citations'))
+    const links = citations.getAllByRole('link', { name: '來源網站' })
+    expect(links).toHaveLength(1)
+    expect(links[0]).toHaveAttribute('href', 'https://example.com/77')
+  })
+
+  it('引用法條在 f2 中找不到同一筆時不顯示連結', () => {
+    const lawsWithSource = [{ law_name: '訴願法', article_no: '77', source_url: 'https://example.com/77' }]
+    const { container } = renderWorkspace(doneAdmissible, {
+      laws: lawsWithSource,
+      draft: { ...doneAdmissible.f4, cited_laws: ['行政程序法#92'] },
+    })
+
+    const citations = within(container.querySelector('.draft-citations'))
+    expect(citations.queryByRole('link', { name: '來源網站' })).toBeNull()
+  })
+
+  it('承辦人新增法條後輸入 f2 中存在的鍵,連結即時出現(依 citations state 而非初值)', async () => {
+    const user = userEvent.setup()
+    const lawsWithSource = [{ law_name: '訴願法', article_no: '79', source_url: 'https://example.com/79' }]
+    const { container } = renderWorkspace(doneAdmissible, { laws: lawsWithSource })
+
+    const citations = within(container.querySelector('.draft-citations'))
+    expect(citations.queryByRole('link', { name: '來源網站' })).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: '新增法條' }))
+    await user.type(screen.getByLabelText('引用法條 1'), '訴願法#79')
+
+    expect(citations.getByRole('link', { name: '來源網站' })).toHaveAttribute(
+      'href',
+      'https://example.com/79',
+    )
+  })
+
+  it('laws 為 null(不受理案或未跑)時不渲染任何連結,不報錯', () => {
+    const { container } = renderWorkspace(doneInadmissible, {
+      laws: null,
+      draft: { ...doneInadmissible.f4, cited_laws: ['訴願法#77'] },
+    })
+
+    const citations = within(container.querySelector('.draft-citations'))
+    expect(citations.queryByRole('link', { name: '來源網站' })).toBeNull()
+  })
+})
+
 describe('草稿頁的參考依據欄', () => {
   it('法規、參考見解、案例三組都在同一欄,與階段頁一致', () => {
     renderWorkspace(doneAdmissible)

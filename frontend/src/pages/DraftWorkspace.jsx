@@ -227,6 +227,13 @@ export default function DraftWorkspace({
 
   const sections = useMemo(() => splitDraft(plain), [plain])
 
+  // 查表用同一把鍵組法:法規名#條號,與 citations 逐條字串同格式
+  const lawSourceMap = useMemo(() => {
+    const map = new Map()
+    ;(laws ?? []).forEach((law) => map.set(`${law.law_name}#${law.article_no}`, law.source_url))
+    return map
+  }, [laws])
+
   function updateSection(key, body) {
     setPlain(joinDraft(sections.map((s) => (s.key === key ? { ...s, body } : s))))
   }
@@ -372,6 +379,7 @@ export default function DraftWorkspace({
                 value={law}
                 onChange={(e) => updateCitation(i, e.target.value)}
               />
+              <SourceSiteLink url={lawSourceMap.get(law.trim())} />
               <button
                 type="button"
                 className="btn-link"
