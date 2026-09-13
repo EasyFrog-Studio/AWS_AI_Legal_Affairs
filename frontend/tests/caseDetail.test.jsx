@@ -237,6 +237,27 @@ describe('待人工確認與重跑', () => {
   })
 })
 
+describe('參考依據合併節點的完成判準', () => {
+  it('新順序 f3→f2→f2_refs→f4 下,f3 先有值但 f2_refs 還沒跑完時,左欄不得標成已完成', async () => {
+    api.getCase.mockResolvedValue({
+      ...doneAdmissible,
+      case_id: 'c-9',
+      status: 'processing',
+      current_stage: 'f2',
+      f3: doneAdmissible.f3,
+      f2: null,
+      f2_refs: null,
+      f4: null,
+    })
+    renderDetail('c-9')
+
+    const item = await screen.findByRole('button', { name: /^參考依據/ })
+    expect(item.querySelector('.rail-item__marker')).not.toHaveClass('rail-item__marker--done')
+    expect(item.querySelector('.rail-item__marker')).toHaveClass('rail-item__marker--active')
+    expect(item).toHaveTextContent('進行中')
+  })
+})
+
 describe('中斷階段的重新執行', () => {
   it('中斷在程序審查:內容區顯示錯誤與「重新執行」,呼叫 reanalyzeCase(id,"screening")', async () => {
     api.getCase.mockResolvedValue({

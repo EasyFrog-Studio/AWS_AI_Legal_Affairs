@@ -134,6 +134,15 @@ def build_references(rows: list[tuple[str, str, dict]], relevance: str) -> list[
     return list(refs.values())[:_REF_TOP_K]
 
 
+def _law_id_of(result: dict) -> Optional[int]:
+    """KB 檢索結果 -> law_id;缺漏或非數字回 None,那種 chunk 湊不出可引用的法條。"""
+    raw = (result.get("metadata") or {}).get("law_id")
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def _retrieval_query(info: CaseInfo) -> str:
     """F2/F3 共用的檢索查詢字串:只取首個爭點(截斷),不把全部爭點串成長句。issues 全句串接
     會把語意重心稀釋掉,案由本身(case_type)與最主要的爭點才是決定該撈哪部法規/哪些案例的關鍵訊號。"""
@@ -278,6 +287,27 @@ class AWSProvider(AIProvider):
                 result[key] = found[0]
         return result
 
+    def _lookup_past_decisions(self, case_ids: list[str]) -> dict[str, dict]:
+        """case_id -> appeal_past_decisions item;查不到的 case_id 不出現在回傳 dict。"""
+        table_name = settings.DDB_PAST_DECISIONS_TABLE
+        # 同一案的多個段落各自帶同一個 case_id;重複鍵會讓整批 BatchGetItem 被退回
+        unique_ids = list(dict.fromkeys(case_ids))
+        result: dict[str, dict] = {}
+        for i in range(0, len(unique_ids), _DDB_BATCH_LIMIT):
+            chunk = unique_ids[i : i + _DDB_BATCH_LIMIT]
+            resp = self._ddb.batch_get_item(
+                RequestItems={table_name: {"Keys": [{"case_id": c} for c in chunk]}}
+            )
+            # 被限流而沒查成的鍵不能當成查無:那會讓資料層被限流長得像「這案沒收錄」
+            unprocessed = (resp.get("UnprocessedKeys") or {}).get(table_name, {}).get("Keys", [])
+            if unprocessed:
+                raise RuntimeError(
+                    f"DynamoDB {table_name} 有 {len(unprocessed)} 個 case_id 未處理(多為限流),不視為查無"
+                )
+            for item in resp.get("Responses", {}).get(table_name, []):
+                result[item["case_id"]] = item
+        return result
+
     def get_law_articles(self, keys: list[str]) -> list[LawRef]:
         """依「法規名稱#條號」精查全文與修正日期;條號是精確鍵,不走向量檢索。"""
         items = self._lookup_law_articles(keys)
@@ -298,115 +328,48 @@ class AWSProvider(AIProvider):
             )
         return refs
 
-    def recommend_laws(self, info: CaseInfo) -> list[LawRef]:
-        # 只撈法規:KB-LAW 同時裝著函釋/判解,它們沒有條號,湊不出「法名#條號」鍵
-        filter_ = {
-            "andAll": [
-                {"equals": {"key": "doc_kind", "value": "法規"}},
-                {"notEquals": {"key": "law_type", "value": "普通法"}},
-            ]
-        }
-        retrieved = self._retrieve(settings.KB_LAW_ID, _retrieval_query(info), filter_)
-
-        law_refs: dict[str, LawRef] = {}
-        for r in retrieved:
-            metadata = r.get("metadata", {})
-            law_name = metadata.get("law_name", "")
-            article_no = metadata.get("article_no", "")
-            key = f"{law_name}#{article_no}"
-            law_refs[key] = LawRef(
-                law_name=law_name,
-                article_no=article_no,
-                text=r.get("content", {}).get("text", ""),
-                amend_date=metadata.get("amend_date") or "未收錄",  # 一律來自 KB metadata,LLM 不生成
-                source_key=viewable_source_key(metadata),
-                relevance="向量檢索命中（KB-LAW）",
+    def _laws_by_id(self, law_ids: list[int]) -> dict[int, dict]:
+        """law_id 是 appeal_law_articles 的主鍵,一次 batch_get_item 查完。"""
+        table_name = settings.DDB_LAW_TABLE
+        # 一條法規可被切成多個 chunk,各自帶同一個 law_id;重複鍵會讓整批 BatchGetItem 被退回
+        unique_ids = list(dict.fromkeys(law_ids))
+        result: dict[int, dict] = {}
+        for i in range(0, len(unique_ids), _DDB_BATCH_LIMIT):
+            chunk = unique_ids[i : i + _DDB_BATCH_LIMIT]
+            resp = self._ddb.batch_get_item(
+                RequestItems={table_name: {"Keys": [{"law_id": lid} for lid in chunk]}}
             )
+            # 被限流而沒查成的鍵不能當成查無:那會讓資料層被限流長得像「這條法規沒收錄」
+            unprocessed = (resp.get("UnprocessedKeys") or {}).get(table_name, {}).get("Keys", [])
+            if unprocessed:
+                raise RuntimeError(
+                    f"DynamoDB {table_name} 有 {len(unprocessed)} 個 law_id 未處理(多為限流),不視為查無"
+                )
+            for item in resp.get("Responses", {}).get(table_name, []):
+                result[int(item["law_id"])] = item
+        return result
 
-        # F1 cited_articles 走 DynamoDB 精查,補齊 KB 檢索未涵蓋的引用法條;先濾掉「未載明」等假條號
-        cited_keys = _valid_cited_articles(info.cited_articles)
-        missing_keys = [a for a in cited_keys if a not in law_refs]
-        # 以請求的 key 落位,不用回傳值重組:DB 的 law_name/article_no 與 key 不一致時,
-        # 重組出的 key 會撞掉檢索結果
-        for key, ref in zip(missing_keys, self.get_law_articles(missing_keys)):
-            law_refs[key] = ref
-        return _cap_law_refs(law_refs, cited_keys)
+    def recommend_laws(
+        self, info: CaseInfo, candidate_law_ids: Optional[list[int]] = None
+    ) -> list[LawRef]:
+        """薄委派:實作見 aws_retrieval.recommend_laws(F3 帶出的候選 law_id 檢索 + sonnet 重排取 3)。"""
+        from app.providers import aws_retrieval
 
+        return aws_retrieval.recommend_laws(self, info, candidate_law_ids)
 
     def find_references(self, info: CaseInfo) -> list[ReferenceRef]:
-        query = _retrieval_query(info)
-        refs: list[ReferenceRef] = []
-        for doc_kind in _REF_DOC_KINDS:
-            retrieved = self._retrieve(
-                settings.KB_LAW_ID,
-                query,
-                {"equals": {"key": "doc_kind", "value": doc_kind}},
-                _REF_CHUNK_FETCH,
-            )
-            refs.extend(
-                build_references(
-                    [
-                        (
-                            r.get("metadata", {}).get("law_name", ""),
-                            r.get("content", {}).get("text", ""),
-                            r.get("metadata", {}),
-                        )
-                        for r in retrieved
-                    ],
-                    "向量檢索命中（KB-LAW，非法規）",
-                )
-            )
-        return refs
+        """薄委派:實作見 aws_retrieval.find_references(三類各自 KB 檢索、文件聚合、sonnet 重排取 3)。"""
+        from app.providers import aws_retrieval
+
+        return aws_retrieval.find_references(self, info)
 
     def find_similar_cases(
         self, info: CaseInfo, screening: ScreeningResult, text: str
     ) -> list[SimilarCase]:
-        query = _retrieval_query(info)
+        """薄委派:實作見 aws_retrieval.find_similar_cases(兩路查詢 RRF 合流取 25 件、sonnet 重排)。"""
+        from app.providers import aws_retrieval
 
-        if screening.passed:
-            filter_ = {"equals": {"key": "case_type", "value": info.case_type}}
-        else:
-            clauses = [
-                {"equals": {"key": "case_type", "value": info.case_type}},
-                {"equals": {"key": "result", "value": "不受理"}},
-            ]
-            appeal_article = _clause_to_appeal_article(screening.matched_clause)
-            if appeal_article:
-                clauses.append({"equals": {"key": "appeal_article", "value": appeal_article}})
-            filter_ = {"andAll": clauses}
-
-        retrieved = self._retrieve(settings.KB_CASE_ID, query, filter_, _CASE_CHUNK_FETCH)
-        if not retrieved:
-            # 無結果則放寬 filter(僅保留 case_type)重查一次
-            relaxed_filter = {"equals": {"key": "case_type", "value": info.case_type}}
-            retrieved = self._retrieve(
-                settings.KB_CASE_ID, query, relaxed_filter, _CASE_CHUNK_FETCH
-            )
-        if not retrieved:
-            # F1 的 case_type 字面可能與 KB metadata 不一致(如「廢棄物清理」vs「廢棄物清理法」),
-            # 最後退為純語意檢索(不受理案件仍保留 result filter)
-            last_filter = None if screening.passed else {"equals": {"key": "result", "value": "不受理"}}
-            retrieved = self._retrieve(settings.KB_CASE_ID, query, last_filter, _CASE_CHUNK_FETCH)
-
-        cases: dict[str, SimilarCase] = {}
-        for r in retrieved:
-            metadata = r.get("metadata", {})
-            case_no = metadata.get("case_no", "")
-            if not case_no:
-                continue  # 缺 case_no 的結果不可辨識,跳過以免以空 key 相互覆蓋
-            cases[case_no] = SimilarCase(
-                case_no=case_no,
-                year=metadata.get("year", ""),
-                case_type=metadata.get("case_type", ""),
-                appeal_article=metadata.get("appeal_article", ""),
-                issue=metadata.get("issue", ""),
-                result=metadata.get("result", ""),
-                summary=case_summary(r.get("content", {}).get("text", "")),
-                similarity_note="向量檢索命中（KB-CASE）",
-                source_key=viewable_source_key(metadata),
-                source_url=external_source_url(metadata),
-            )
-        return list(cases.values())[:_TOP_K]
+        return aws_retrieval.find_similar_cases(self, info, screening, text)
 
     def generate_draft(
         self,

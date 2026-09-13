@@ -182,7 +182,9 @@ class LocalProvider(AIProvider):
         return refs
 
     # ---------- pgvector law_chunks 檢索 + law_articles 精查(對應 AWSProvider.recommend_laws) ----------
-    def recommend_laws(self, info: CaseInfo) -> list[LawRef]:
+    def recommend_laws(
+        self, info: CaseInfo, candidate_law_ids: Optional[list[int]] = None
+    ) -> list[LawRef]:
         vec_lit = _vector_literal(self._embed(_retrieval_query(info)))
         rows = self._execute(
             "SELECT id, text, metadata, 1 - (embedding <=> %s::vector) AS score "

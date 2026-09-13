@@ -1,6 +1,9 @@
 """AWSProvider 單元測試:mock boto3 client,驗證參數組裝,不做真實呼叫。"""
 from unittest.mock import MagicMock
 
+import pytest
+
+from app.config import settings
 from app.models import AGENT_ROLES, SERVICE_METHODS, CaseInfo, ScreeningResult, LawRef
 from app.providers.aws import AWSProvider, _clause_to_appeal_article, _retrieval_query, _valid_cited_articles
 from app.providers.schemas import case_info_json_schema
@@ -30,10 +33,54 @@ def _filtering_retrieve(rows: list[dict]):
     def _retrieve(**kwargs):
         config = kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]
         cond = config.get("filter")
-        kept = [r for r in rows if _matches(cond, r["metadata"])]
+        kept = rows if cond is None else [r for r in rows if _matches(cond, r["metadata"])]
         return {"retrievalResults": kept[: config["numberOfResults"]]}
 
     return _retrieve
+
+
+class _LawIdDdb:
+    """假 DynamoDB:law_id 是主鍵,與實際 appeal_law_articles 一致。
+    `unprocessed` 模擬被限流而沒查成的鍵(僅套用在 law_id 精查路徑),那與查無是兩回事。"""
+
+    def __init__(self, items_by_law_id: dict, unprocessed: bool = False):
+        self._items = items_by_law_id
+        self._unprocessed = unprocessed
+        self.batch_get_calls: list = []
+
+    def batch_get_item(self, RequestItems):
+        self.batch_get_calls.append(RequestItems)
+        table = next(iter(RequestItems))
+        keys = RequestItems[table]["Keys"]
+        if keys and "law_id" in keys[0]:
+            ids = [key["law_id"] for key in keys]
+            resp = {"Responses": {table: [self._items[i] for i in ids if i in self._items]}}
+            if self._unprocessed:
+                resp["UnprocessedKeys"] = {table: {"Keys": keys}}
+            return resp
+        articles = [key["law_article"] for key in keys]
+        return {"Responses": {table: [i for i in self._items.values() if i["law_article"] in articles]}}
+
+
+@pytest.fixture
+def _date_field_revised():
+    before = settings.DDB_LAW_DATE_FIELD
+    settings.DDB_LAW_DATE_FIELD = "revised_date"
+    yield
+    settings.DDB_LAW_DATE_FIELD = before
+
+
+def _ddb_law(law_id: int, law_name: str, article_no: str, revised: str, law_type: str = "實體法") -> dict:
+    return {
+        "law_id": law_id,
+        "law_article": f"{law_name}#{article_no}",
+        "law_name": law_name,
+        "article_no": article_no,
+        "text": f"{law_name}第{article_no}條全文",
+        "revised_date": revised,
+        "law_type": law_type,
+        "source_url": f"https://law.moj.gov.tw/LawClass/LawSingle.aspx?flno={article_no}",
+    }
 
 
 def _toolUse_response(tool_name: str, input_data: dict) -> dict:
@@ -224,172 +271,504 @@ def test_screening_prompt_embeds_full_article_77_text():
     assert "對於非行政處分或其他依法不屬訴願救濟範圍內之事項提起訴願者" in text
 
 
-def test_recommend_laws_retrieves_statutes_only_never_empty_shell_refs():
-    """KB-LAW 同時裝著法規與官方函釋/判解,後者沒有 law_name/article_no。F2 的 filter 若
-    只排除普通法,那些 chunk 會一起被撈出來,鍵全組成 "#" 互相覆蓋,承辦人看到「 第  條」。"""
-    rows = [
-        {
-            "content": {"text": "廢棄物清理法第27條全文"},
-            "metadata": {
-                "law_name": "廢棄物清理法",
-                "article_no": "27",
-                "amend_date": "民國106年01月18日",
-                "law_type": "實體法",
-                "doc_kind": "法規",
-            },
-        },
-        {
-            "content": {"text": "民法第148條全文"},
-            "metadata": {
-                "law_name": "民法",
-                "article_no": "148",
-                "amend_date": "民國110年01月20日",
-                "law_type": "普通法",
-                "doc_kind": "法規",
-            },
-        },
-        {
-            "content": {"text": "內政部函釋全文"},
-            "metadata": {"law_type": "其他", "doc_kind": "行政函釋"},
-        },
-        {
-            "content": {"text": "釋字第469號解釋全文"},
-            "metadata": {"law_type": "其他", "doc_kind": "判解"},
-        },
-    ]
-    bart = MagicMock()
-    bart.retrieve.side_effect = _filtering_retrieve(rows)
+# ---------- F2:法規推薦(候選來自 F3 案例的 law_id,向量檢索 + Sonnet 重排取 3) ----------
 
-    provider = _provider(bedrock_agent_runtime=bart)
-    laws = provider.recommend_laws(_info(cited_articles=[]))
-
-    assert [(l.law_name, l.article_no) for l in laws] == [("廢棄物清理法", "27")]
+_WASTE_LAW_IDS = {"27": 5137, "50": 5160, "12": 5122}
 
 
-def test_recommend_laws_filter_excludes_general_law_and_does_not_call_llm():
-    bart = MagicMock()
-    bart.retrieve.return_value = {
-        "retrievalResults": [
-            {
-                "content": {"text": "廢棄物清理法第27條全文"},
-                "metadata": {
-                    "law_name": "廢棄物清理法",
-                    "article_no": "27",
-                    "amend_date": "民國106年01月18日",
-                    "law_type": "實體法",
-                    "source_file": "markdown/相關法規/廢棄物清理法.md",
-                },
-            }
-        ]
+def _kb_law_result(article_no="27"):
+    """KB-LAW 的 metadata 只帶 law_id,法規名稱與條號要由 DynamoDB 補。"""
+    return {
+        "content": {"text": f"廢棄物清理法第{article_no}條全文"},
+        "metadata": {"law_id": str(_WASTE_LAW_IDS[article_no])},
     }
-    ddb = MagicMock()
-    ddb.batch_get_item.return_value = {"Responses": {"appeal_law_articles": []}}
+
+
+def _waste_law_ddb(*article_nos, extra: dict | None = None) -> "_LawIdDdb":
+    items = {
+        _WASTE_LAW_IDS[a]: _ddb_law(_WASTE_LAW_IDS[a], "廢棄物清理法", a, "民國106年01月18日")
+        for a in article_nos
+    }
+    items.update(extra or {})
+    return _LawIdDdb(items)
+
+
+def _rerank_response(ranked_ids: list[str]) -> dict:
+    return _toolUse_response("rerank", {"ranked_ids": ranked_ids})
+
+
+def test_recommend_laws_sends_no_filter_without_candidates(_date_field_revised):
+    """F3 案例全無 law_ids(或 F3 零命中)時退回全庫檢索,不送 in filter,relevance 要標出來。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {"retrievalResults": [_kb_law_result("27")]}
+    ddb = _waste_law_ddb("27")
     brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["5137"])
 
     provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
-    laws = provider.recommend_laws(_info())
+    laws = provider.recommend_laws(_info(cited_articles=[]), None)
+
+    _, kwargs = bart.retrieve.call_args
+    config = kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]
+    assert "filter" not in config
+    assert config["numberOfResults"] == 25
+    assert laws[0].relevance.startswith("（無案例法規可依，改採全庫檢索）")
+
+
+def test_recommend_laws_sends_in_filter_with_string_law_ids_when_candidates_given(_date_field_revised):
+    """候選 law_id 來自 F3 案例;KB metadata 的 law_id 是字串,in filter 值須轉字串。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {"retrievalResults": [_kb_law_result("27"), _kb_law_result("50")]}
+    ddb = _waste_law_ddb("27", "50")
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["5137", "5160"])
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    laws = provider.recommend_laws(_info(cited_articles=[]), [5137, 5160])
 
     _, kwargs = bart.retrieve.call_args
     filter_ = kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]["filter"]
-    assert filter_["andAll"] == [
-        {"equals": {"key": "doc_kind", "value": "法規"}},
-        {"notEquals": {"key": "law_type", "value": "普通法"}},
-    ]
+    assert filter_ == {"in": {"key": "law_id", "value": ["5137", "5160"]}}
+    assert not laws[0].relevance.startswith("（無案例法規可依")
+
+
+def test_recommend_laws_caps_candidate_ids_at_fifty(_date_field_revised):
+    bart = MagicMock()
+    bart.retrieve.return_value = {"retrievalResults": []}
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=MagicMock())
+
+    provider.recommend_laws(_info(cited_articles=[]), list(range(1, 101)))
+
+    _, kwargs = bart.retrieve.call_args
+    filter_ = kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]["filter"]
+    assert len(filter_["in"]["value"]) == 50
+    assert filter_["in"]["value"] == [str(i) for i in range(1, 51)]
+
+
+def test_recommend_laws_reranks_and_returns_top_three(_date_field_revised):
+    """候選超過 3 筆時只呈現重排後的前 3 筆。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {
+        "retrievalResults": [_kb_law_result("27"), _kb_law_result("50"), _kb_law_result("12")]
+    }
+    ddb = _waste_law_ddb("27", "50", "12")
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["5122", "5137", "5160"])  # 重排後:12,27,50
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    laws = provider.recommend_laws(_info(cited_articles=[]), [5137, 5160, 5122])
+
+    assert [law.article_no for law in laws] == ["12", "27", "50"]
+    assert len(laws) == 3
+
+
+def test_recommend_laws_rerank_called_once_with_at_most_25_candidates(_date_field_revised):
+    bart = MagicMock()
+    bart.retrieve.return_value = {"retrievalResults": [_kb_law_result("27")]}
+    ddb = _waste_law_ddb("27")
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["5137"])
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    provider.recommend_laws(_info(cited_articles=[]), None)
+
+    assert brt.converse.call_count == 1
+    _, kwargs = bart.retrieve.call_args
+    assert kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]["numberOfResults"] == 25
+
+
+def test_recommend_laws_rerank_output_out_of_order_and_with_unknown_id_is_corrected(_date_field_revised):
+    """重排回傳亂序、且夾帶不在候選中的 id 時,程式驗證要修正:不在候選內的丟掉,
+    漏掉的候選依原向量順序補在後面。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {
+        "retrievalResults": [_kb_law_result("27"), _kb_law_result("50"), _kb_law_result("12")]
+    }
+    ddb = _waste_law_ddb("27", "50", "12")
+    brt = MagicMock()
+    # "99999" 不在候選內;"5160"(50) 漏掉未回傳
+    brt.converse.return_value = _rerank_response(["99999", "5122"])
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    laws = provider.recommend_laws(_info(cited_articles=[]), [5137, 5160, 5122])
+
+    # 5122(12) 排第一,漏掉的 5137(27)、5160(50) 依原向量順序補在後面
+    assert [law.article_no for law in laws] == ["12", "27", "50"]
+
+
+def test_recommend_laws_rerank_returns_nothing_usable_falls_back_to_vector_order(_date_field_revised):
+    """重排回傳格式不合(全不在候選內)時,沿用向量檢索順序,不得整批掛掉。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {
+        "retrievalResults": [_kb_law_result("27"), _kb_law_result("50")]
+    }
+    ddb = _waste_law_ddb("27", "50")
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["不存在的id"])
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    laws = provider.recommend_laws(_info(cited_articles=[]), [5137, 5160])
+
+    assert [law.article_no for law in laws] == ["27", "50"]
+
+
+def test_recommend_laws_rerank_llm_exception_propagates(_date_field_revised):
+    """LLM 呼叫本身拋例外要往上拋,不得吞掉——案件因此落 error 好過安靜地用未排序的結果。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {"retrievalResults": [_kb_law_result("27")]}
+    ddb = _waste_law_ddb("27")
+    brt = MagicMock()
+    brt.converse.side_effect = RuntimeError("Bedrock converse 逾時")
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    with pytest.raises(RuntimeError, match="逾時"):
+        provider.recommend_laws(_info(cited_articles=[]), None)
+
+
+def test_recommend_laws_source_url_comes_from_dynamodb_item(_date_field_revised):
+    bart = MagicMock()
+    bart.retrieve.return_value = {"retrievalResults": [_kb_law_result("27")]}
+    item = _ddb_law(5137, "廢棄物清理法", "27", "民國106年01月18日")
+    item["source_url"] = "https://law.moj.gov.tw/LawClass/LawSingle.aspx?flno=27"
+    ddb = _LawIdDdb({5137: item})
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["5137"])
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    (law,) = provider.recommend_laws(_info(cited_articles=[]), [5137])
+
+    assert law.source_url == "https://law.moj.gov.tw/LawClass/LawSingle.aspx?flno=27"
+    assert law.source_key is None
+
+
+def test_recommend_laws_source_url_empty_string_falls_back_to_computed_url(_date_field_revised):
+    """DynamoDB item 的 source_url 存空字串(等同未填)時不得原樣頂著一個空字串,
+    應視同 None 交給 model_validator 用 law_article_url 補算。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {"retrievalResults": [_kb_law_result("27")]}
+    item = _ddb_law(5137, "廢棄物清理法", "27", "民國106年01月18日")
+    item["source_url"] = ""
+    ddb = _LawIdDdb({5137: item})
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["5137"])
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    (law,) = provider.recommend_laws(_info(cited_articles=[]), [5137])
+
+    assert law.source_url is not None
+    assert law.source_url.endswith("&flno=27")
+
+
+def test_recommend_laws_raises_when_no_law_id_resolves(_date_field_revised):
+    """全數查無要炸開:回空清單與「本案查無相關法條」同形,承辦人分不出是資料斷了。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {
+        "retrievalResults": [
+            {"content": {"text": "全文"}, "metadata": {"law_id": "99998"}},
+            {"content": {"text": "全文"}, "metadata": {"law_id": "99999"}},
+        ]
+    }
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=_LawIdDdb({}))
+
+    with pytest.raises(RuntimeError, match="DynamoDB"):
+        provider.recommend_laws(_info(cited_articles=[]), None)
+
+
+def test_recommend_laws_drops_law_id_missing_from_dynamodb(_date_field_revised):
+    """查無的 law_id 沒有法名與條號,不能進候選——會以 "#" 混進 F4 的可引用法規清單。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {
+        "retrievalResults": [
+            _kb_law_result("27"),
+            {"content": {"text": "已從 DynamoDB 刪掉的條文"}, "metadata": {"law_id": "99999"}},
+        ]
+    }
+    ddb = _waste_law_ddb("27")
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["5137"])
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    laws = provider.recommend_laws(_info(cited_articles=[]), None)
+
+    assert [(law.law_name, law.article_no) for law in laws] == [("廢棄物清理法", "27")]
+    assert "#" not in [f"{law.law_name}#{law.article_no}" for law in laws]
+
+
+def test_recommend_laws_tolerates_unusable_law_id(_date_field_revised):
+    """law_id 缺漏或非數字時只失去那一筆,不連累整批檢索結果。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {
+        "retrievalResults": [
+            {"content": {"text": "沒有 law_id"}, "metadata": {}},
+            {"content": {"text": "law_id 不是數字"}, "metadata": {"law_id": "LAW#7"}},
+            _kb_law_result("27"),
+        ]
+    }
+    ddb = _waste_law_ddb("27")
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["5137"])
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    laws = provider.recommend_laws(_info(cited_articles=[]), None)
+
+    assert [(law.law_name, law.article_no) for law in laws] == [("廢棄物清理法", "27")]
+
+
+def test_recommend_laws_looks_up_dynamodb_once_by_law_id(_date_field_revised):
+    """一次 batch_get 查完:逐筆查會讓每則推薦各付一次往返。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {
+        "retrievalResults": [_kb_law_result("27"), _kb_law_result("50")]
+    }
+    ddb = _waste_law_ddb("27", "50")
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["5137", "5160"])
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    provider.recommend_laws(_info(cited_articles=[]), None)
+
+    assert len(ddb.batch_get_calls) == 1
+    sent = ddb.batch_get_calls[0]["appeal_law_articles"]["Keys"]
+    assert sent == [{"law_id": 5137}, {"law_id": 5160}]
+
+
+def test_recommend_laws_raises_when_dynamodb_leaves_law_ids_unprocessed(_date_field_revised):
+    """被限流而沒查成的 law_id 不得當成查無:那會讓資料層被限流長得像「這條法規沒收錄」。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {"retrievalResults": [_kb_law_result("27")]}
+    ddb = _LawIdDdb(
+        {5137: _ddb_law(5137, "廢棄物清理法", "27", "民國106年01月18日")}, unprocessed=True
+    )
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb)
+    with pytest.raises(RuntimeError, match="未處理"):
+        provider.recommend_laws(_info(cited_articles=[]), None)
+
+
+def test_recommend_laws_dedupes_law_ids_sharing_one_article(_date_field_revised):
+    """同一條法規切成多個 chunk 時各自帶同一個 law_id;重複鍵會讓整批 BatchGetItem 被退回。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {
+        "retrievalResults": [_kb_law_result("27"), _kb_law_result("27")]
+    }
+    ddb = _waste_law_ddb("27")
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["5137"])
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    laws = provider.recommend_laws(_info(cited_articles=[]), None)
+
+    sent = ddb.batch_get_calls[0]["appeal_law_articles"]["Keys"]
+    assert sent == [{"law_id": 5137}]
+    assert [(law.law_name, law.article_no) for law in laws] == [("廢棄物清理法", "27")]
+
+
+def test_recommend_laws_keeps_general_law_recommendations(_date_field_revised):
+    """民法是 §77(4) 無訴願能力案的法源(訴願法§20 III 指向民法),不得排除。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {
+        "retrievalResults": [
+            {"content": {"text": "民法第12條全文"}, "metadata": {"law_id": "7456"}},
+            {"content": {"text": "訴願法第20條全文"}, "metadata": {"law_id": "11269"}},
+        ]
+    }
+    ddb = _LawIdDdb({
+        7456: _ddb_law(7456, "民法", "12", "民國110年01月20日", law_type="普通法"),
+        11269: _ddb_law(11269, "訴願法", "20", "民國101年06月27日", law_type="程序法"),
+    })
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["7456", "11269"])
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    laws = provider.recommend_laws(_info(cited_articles=[]), None)
+
+    assert ("民法", "12") in [(law.law_name, law.article_no) for law in laws]
+
+
+# ---------- F2:F1 cited_articles 精查附加(AWS_PLAN.md「精查 + 語意兩條路合併去重」) ----------
+
+
+def test_recommend_laws_appends_a_cited_article_not_in_the_top_three(_date_field_revised):
+    """F1 從原處分書／訴願書抽到的引用條號是 100% 準確來源,附加在重排 top 3 之後,
+    不佔用重排名額;relevance 要標明來源,F4 的 cited_laws 後置過濾才引得到它。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {
+        "retrievalResults": [_kb_law_result("27"), _kb_law_result("50"), _kb_law_result("12")]
+    }
+    ddb = _waste_law_ddb(
+        "27", "50", "12",
+        extra={6000: _ddb_law(6000, "廢棄物清理法", "99", "民國100年05月01日")},
+    )
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["5137", "5160", "5122"])
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    laws = provider.recommend_laws(_info(cited_articles=["廢棄物清理法#99"]), [5137, 5160, 5122])
+
+    assert len(laws) == 4
+    assert (laws[3].law_name, laws[3].article_no) == ("廢棄物清理法", "99")
+    assert laws[3].relevance == "原處分書／訴願書明文引用"
+
+
+def test_recommend_laws_does_not_duplicate_a_cited_article_already_in_the_top_three(_date_field_revised):
+    """cited 條號與重排 top 3 重複時不得重複列出,長度仍為 3。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {
+        "retrievalResults": [_kb_law_result("27"), _kb_law_result("50"), _kb_law_result("12")]
+    }
+    ddb = _waste_law_ddb("27", "50", "12")
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["5137", "5160", "5122"])
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    laws = provider.recommend_laws(_info(cited_articles=["廢棄物清理法#27"]), [5137, 5160, 5122])
+
+    assert len(laws) == 3
+    assert [f"{l.law_name}#{l.article_no}" for l in laws].count("廢棄物清理法#27") == 1
+
+
+def test_recommend_laws_ignores_a_cited_article_dynamodb_cannot_resolve(_date_field_revised):
+    """DynamoDB 精查不到 cited 條號就忽略,不報錯、不生空殼條目。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {"retrievalResults": [_kb_law_result("27")]}
+    ddb = _waste_law_ddb("27")
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["5137"])
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    laws = provider.recommend_laws(_info(cited_articles=["查無此法#1"]), [5137])
 
     assert len(laws) == 1
-    assert laws[0].amend_date == "民國106年01月18日"
-    # F2 不應呼叫 LLM(converse),修正日期不得由 LLM 生成
-    brt.converse.assert_not_called()
+    assert [f"{l.law_name}#{l.article_no}" for l in laws] == ["廢棄物清理法#27"]
 
 
-def test_recommend_laws_missing_cited_article_falls_back_to_未收錄():
+# ---------- F3:相似案例(appeal_facts/appeal_reasons 兩路查詢 RRF 合流,重排 25 件) ----------
+
+
+class _PastDecisionDdb:
+    """假 DynamoDB:appeal_past_decisions 以 case_id 為主鍵。
+    `unprocessed` 模擬被限流而沒查成的鍵,那與查無是兩回事。"""
+
+    def __init__(self, items_by_case_id: dict, unprocessed: bool = False):
+        self._items = items_by_case_id
+        self._unprocessed = unprocessed
+        self.batch_get_calls: list = []
+
+    def batch_get_item(self, RequestItems):
+        self.batch_get_calls.append(RequestItems)
+        table = next(iter(RequestItems))
+        keys = RequestItems[table]["Keys"]
+        ids = [key["case_id"] for key in keys]
+        resp = {"Responses": {table: [self._items[i] for i in ids if i in self._items]}}
+        if self._unprocessed:
+            resp["UnprocessedKeys"] = {table: {"Keys": keys}}
+        return resp
+
+
+def _ddb_case(case_id: str, **overrides) -> dict:
+    item = {
+        "case_id": case_id,
+        "case_no": case_id.removeprefix("NTPC-"),
+        "year": "112",
+        "case_type": "廢棄物清理法",
+        "case_subtype": "廢棄物清理法",
+        "appeal_article": "",
+        "issue": "",
+        "result": "駁回",
+        "source_url": f"https://web.law.ntpc.gov.tw/Scripts/Su_contents03.aspx?EANO={case_id}",
+        "source_file": case_id,
+    }
+    item.update(overrides)
+    return item
+
+
+def _case_chunk(case_id: str, text: str = "案情內容", **metadata) -> dict:
+    meta = {"case_id": case_id, "case_type": "廢棄物清理", "result": "駁回"}
+    meta.update(metadata)
+    return {"content": {"text": text}, "metadata": meta}
+
+
+def _info_with_sections(**overrides) -> CaseInfo:
+    base = dict(appeal_facts=["訴願人於某日遭裁處罰鍰"], appeal_reasons=["原處分認定事實有誤"])
+    base.update(overrides)
+    return _info(**base)
+
+
+def test_find_similar_cases_queries_appeal_facts_and_appeal_reasons_separately():
+    """兩路查詢:一路 appeal_facts、一路 appeal_reasons,同一 filter,各撈 100 chunk。
+    tier1 兩路皆非空,不觸發降級,故恰好各打一次。"""
     bart = MagicMock()
-    bart.retrieve.return_value = {"retrievalResults": []}
-    ddb = MagicMock()
-    ddb.batch_get_item.return_value = {"Responses": {"appeal_law_articles": []}}
+    bart.retrieve.return_value = {"retrievalResults": [_case_chunk("NTPC-A")]}
+    ddb = _PastDecisionDdb({"NTPC-A": _ddb_case("NTPC-A")})
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["NTPC-A"])
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
+    info = _info_with_sections()
 
-    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb)
-    laws = provider.recommend_laws(_info(cited_articles=["廢棄物清理法#99"]))
+    provider.find_similar_cases(info, screening, "原文")
 
-    assert len(laws) == 1
-    assert laws[0].amend_date == "未收錄"
-    assert laws[0].law_name == "廢棄物清理法"
-    assert laws[0].article_no == "99"
-
-
-def test_recommend_laws_skips_placeholder_cited_article_without_querying_dynamodb():
-    """F1 對抽不到條號的欄位填「未載明」,這種假條號不該送進 DynamoDB 精查,也不該出現在結果裡。"""
-    bart = MagicMock()
-    bart.retrieve.return_value = {"retrievalResults": []}
-    ddb = MagicMock()
-
-    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb)
-    laws = provider.recommend_laws(_info(cited_articles=["廢棄物清理法#未載明"]))
-
-    assert laws == []
-    ddb.batch_get_item.assert_not_called()
-
-
-def test_recommend_laws_batches_dynamodb_batch_get_item_at_100():
-    bart = MagicMock()
-    bart.retrieve.return_value = {"retrievalResults": []}
-    ddb = MagicMock()
-    ddb.batch_get_item.return_value = {"Responses": {"appeal_law_articles": []}}
-
-    cited = [f"某法#{i}" for i in range(101)]
-    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb)
-    provider.recommend_laws(_info(cited_articles=cited))
-
-    assert ddb.batch_get_item.call_count == 2
-    first_keys = ddb.batch_get_item.call_args_list[0].kwargs["RequestItems"]["appeal_law_articles"]["Keys"]
-    second_keys = ddb.batch_get_item.call_args_list[1].kwargs["RequestItems"]["appeal_law_articles"]["Keys"]
-    assert len(first_keys) == 100
-    assert len(second_keys) == 1
-
-
-def test_find_similar_cases_admissible_filter_is_case_type_only():
-    bart = MagicMock()
-    bart.retrieve.return_value = {"retrievalResults": []}
-    provider = _provider(bedrock_agent_runtime=bart)
-
-    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過審查")
-    provider.find_similar_cases(_info(), screening, "原文")
-
-    # 三層 fallback:case_type filter → case_type filter(放寬)→ 純語意(無 filter)
     calls = bart.retrieve.call_args_list
-    assert len(calls) == 3
-    first = calls[0].kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]["filter"]
-    assert first == {"equals": {"key": "case_type", "value": "廢棄物清理"}}
-    last = calls[-1].kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]
-    assert "filter" not in last
+    assert len(calls) == 2
+    queries = [c.kwargs["retrievalQuery"]["text"] for c in calls]
+    assert queries[0] == "訴願人於某日遭裁處罰鍰"
+    assert queries[1] == "原處分認定事實有誤"
+    for c in calls:
+        config = c.kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]
+        assert config["numberOfResults"] == 100
+        assert config["filter"] == {"equals": {"key": "case_type", "value": "廢棄物清理"}}
+
+
+def test_find_similar_cases_falls_back_to_retrieval_query_when_a_section_is_empty():
+    """appeal_facts 或 appeal_reasons 任一路為空字串時,該路退回 _retrieval_query(info)。"""
+    bart = MagicMock()
+    bart.retrieve.return_value = {"retrievalResults": [_case_chunk("NTPC-A")]}
+    ddb = _PastDecisionDdb({"NTPC-A": _ddb_case("NTPC-A")})
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["NTPC-A"])
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
+    info = _info_with_sections(appeal_facts=[], appeal_reasons=[])
+
+    provider.find_similar_cases(info, screening, "原文")
+
+    queries = [c.kwargs["retrievalQuery"]["text"] for c in bart.retrieve.call_args_list]
+    assert queries == ["廢棄物清理 是否構成任意棄置", "廢棄物清理 是否構成任意棄置"]
 
 
 def test_find_similar_cases_inadmissible_filter_includes_result_and_appeal_article():
     bart = MagicMock()
     bart.retrieve.return_value = {
         "retrievalResults": [
-            {
-                "content": {"text": "相似案例全文"},
-                "metadata": {
-                    "case_no": "北市訴字第1號",
-                    "year": "109",
-                    "case_type": "社會救助",
-                    "appeal_article": "77(2)",
-                    "issue": "逾期提起",
-                    "result": "不受理",
-                    "source_file": "markdown/歷史訴願決定書/北市訴字第1號.md",
-                },
-            }
+            _case_chunk(
+                "NTPC-1090011520", case_type="社會救助", appeal_article="77(2)", result="不受理", year="109"
+            )
         ]
     }
-    provider = _provider(bedrock_agent_runtime=bart)
+    ddb = _PastDecisionDdb(
+        {
+            "NTPC-1090011520": _ddb_case(
+                "NTPC-1090011520",
+                case_no="北市訴字第1號",
+                year="109",
+                case_type="社會救助",
+                appeal_article="77(2)",
+                issue="逾期提起",
+                result="不受理",
+            )
+        }
+    )
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["NTPC-1090011520"])
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
     screening = ScreeningResult(passed=False, matched_clause="77條第2款", reasoning="逾期")
-    info = _info(case_type="社會救助")
+    info = _info_with_sections(case_type="社會救助")
 
     cases = provider.find_similar_cases(info, screening, "原文")
 
-    _, kwargs = bart.retrieve.call_args
-    filter_ = kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]["filter"]
+    filter_ = bart.retrieve.call_args_list[0].kwargs["retrievalConfiguration"]["vectorSearchConfiguration"][
+        "filter"
+    ]
     assert filter_ == {
         "andAll": [
             {"equals": {"key": "case_type", "value": "社會救助"}},
@@ -401,38 +780,174 @@ def test_find_similar_cases_inadmissible_filter_includes_result_and_appeal_artic
     assert cases[0].case_no == "北市訴字第1號"
 
 
-def test_find_similar_cases_retries_with_relaxed_filter_when_empty():
+def test_find_similar_cases_falls_back_through_filter_tiers_when_both_queries_are_empty():
+    """兩路查詢在某一層 filter 都是 0 筆才降級;受理案第一、二層皆為 case_type,第三層去 filter。"""
     bart = MagicMock()
     bart.retrieve.side_effect = [
-        {"retrievalResults": []},
+        {"retrievalResults": []},  # tier1 facts
+        {"retrievalResults": []},  # tier1 reasons
+        {"retrievalResults": []},  # tier2 facts(受理案 tier2==tier1)
+        {"retrievalResults": []},  # tier2 reasons
         {
             "retrievalResults": [
-                {
-                    "content": {"text": "相似案例全文"},
-                    "metadata": {
-                        "case_no": "彰府訴字第1號",
-                        "year": "109",
-                        "case_type": "廢棄物清理",
-                        "appeal_article": "無",
-                        "issue": "任意棄置",
-                        "result": "駁回",
-                        "source_file": "x.md",
-                    },
-                }
+                _case_chunk("NTPC-1090011564", case_type="廢棄物清理", result="駁回", year="109")
             ]
-        },
+        },  # tier3 facts(無 filter)
+        {"retrievalResults": []},  # tier3 reasons
     ]
-    provider = _provider(bedrock_agent_runtime=bart)
+    ddb = _PastDecisionDdb({"NTPC-1090011564": _ddb_case("NTPC-1090011564", case_no="彰府訴字第1號", year="109")})
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["NTPC-1090011564"])
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
     screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
 
-    cases = provider.find_similar_cases(_info(), screening, "原文")
+    cases = provider.find_similar_cases(_info_with_sections(), screening, "原文")
 
-    assert bart.retrieve.call_count == 2
-    second_filter = bart.retrieve.call_args_list[1].kwargs["retrievalConfiguration"][
-        "vectorSearchConfiguration"
-    ]["filter"]
-    assert second_filter == {"equals": {"key": "case_type", "value": "廢棄物清理"}}
+    assert bart.retrieve.call_count == 6
+    for c in bart.retrieve.call_args_list[-2:]:
+        config = c.kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]
+        assert "filter" not in config
     assert len(cases) == 1
+
+
+def test_find_similar_cases_includes_cases_found_only_in_one_of_the_two_queries():
+    """案例只在其中一路(理由)命中,另一路完全沒撈到,仍要進候選——RRF 是聯集不是交集。"""
+    bart = MagicMock()
+    bart.retrieve.side_effect = [
+        {"retrievalResults": [_case_chunk("NTPC-A", text="A")]},
+        {"retrievalResults": [_case_chunk("NTPC-B", text="B")]},
+    ]
+    ddb = _PastDecisionDdb({"NTPC-A": _ddb_case("NTPC-A"), "NTPC-B": _ddb_case("NTPC-B")})
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["NTPC-A", "NTPC-B"])
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
+
+    cases = provider.find_similar_cases(_info_with_sections(), screening, "原文")
+
+    assert {c.case_no for c in cases} == {"A", "B"}
+
+
+def test_find_similar_cases_reranks_and_caps_at_twenty_five():
+    """RRF 合流後最多取前 25 案送進重排;find_similar_cases 回傳長度上限 25、已依重排排序。"""
+    chunks = [_case_chunk(f"NTPC-{i:03d}") for i in range(30)]
+    bart = MagicMock()
+    bart.retrieve.side_effect = [{"retrievalResults": chunks}, {"retrievalResults": []}]
+    items = {f"NTPC-{i:03d}": _ddb_case(f"NTPC-{i:03d}") for i in range(25)}
+    ddb = _PastDecisionDdb(items)
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response([f"NTPC-{i:03d}" for i in range(25)])
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
+
+    cases = provider.find_similar_cases(_info_with_sections(), screening, "原文")
+
+    assert len(cases) == 25
+    assert "029" not in [c.case_no for c in cases]
+
+
+def test_find_similar_cases_marks_case_missing_from_dynamodb_instead_of_empty_shell():
+    """DynamoDB 查不到就標示查不到:回一筆空欄位的卡片會讓「沒收錄」和「這案沒有爭點」長得一樣。"""
+    bart = MagicMock()
+    bart.retrieve.side_effect = [
+        {"retrievalResults": [_case_chunk("NTPC-9999999999")]},
+        {"retrievalResults": []},
+    ]
+    ddb = _PastDecisionDdb({})
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["NTPC-9999999999"])
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
+
+    cases = provider.find_similar_cases(_info_with_sections(), screening, "原文")
+
+    assert len(cases) == 1
+    assert cases[0].case_no == "NTPC-9999999999"
+    assert "未查得" in cases[0].similarity_note
+    assert cases[0].source_url is None
+
+
+def test_find_similar_cases_raises_when_dynamodb_leaves_keys_unprocessed():
+    """被限流而沒查成的鍵不得當成查無:那會讓資料層被限流長得像「這案沒收錄」。"""
+    bart = MagicMock()
+    bart.retrieve.side_effect = [
+        {"retrievalResults": [_case_chunk("NTPC-1121090455")]},
+        {"retrievalResults": []},
+    ]
+    ddb = _PastDecisionDdb({"NTPC-1121090455": _ddb_case("NTPC-1121090455")}, unprocessed=True)
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb)
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
+
+    with pytest.raises(RuntimeError, match="未處理"):
+        provider.find_similar_cases(_info_with_sections(), screening, "原文")
+
+
+def test_find_similar_cases_dedupes_case_ids_before_batch_get():
+    """RRF 排序本身以 case_id 去重,同一案的多段命中只算一次候選。"""
+    bart = MagicMock()
+    bart.retrieve.side_effect = [
+        {"retrievalResults": [_case_chunk("NTPC-1121090455", text=f"第{i}段") for i in range(3)]},
+        {"retrievalResults": []},
+    ]
+    ddb = _PastDecisionDdb({"NTPC-1121090455": _ddb_case("NTPC-1121090455")})
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["NTPC-1121090455"])
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
+
+    cases = provider.find_similar_cases(_info_with_sections(), screening, "原文")
+
+    assert len(cases) == 1
+    keys = ddb.batch_get_calls[0]["appeal_past_decisions"]["Keys"]
+    assert keys == [{"case_id": "NTPC-1121090455"}]
+
+
+def test_find_similar_cases_reads_law_ids_from_dynamodb_item():
+    """有 law_ids 欄位的案子轉成 int 清單,缺欄位的案子回空清單——F2 的候選來源。"""
+    bart = MagicMock()
+    bart.retrieve.side_effect = [
+        {"retrievalResults": [_case_chunk("NTPC-A"), _case_chunk("NTPC-B")]},
+        {"retrievalResults": []},
+    ]
+    ddb = _PastDecisionDdb(
+        {
+            "NTPC-A": _ddb_case("NTPC-A", law_ids=[5137, 5160]),
+            "NTPC-B": _ddb_case("NTPC-B"),  # 缺 law_ids 欄位
+        }
+    )
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["NTPC-A", "NTPC-B"])
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
+
+    cases = provider.find_similar_cases(_info_with_sections(), screening, "原文")
+
+    by_case_no = {c.case_no: c for c in cases}
+    assert by_case_no["A"].law_ids == [5137, 5160]
+    assert by_case_no["B"].law_ids == []
+
+
+def test_find_similar_cases_source_url_and_key_pass_through_from_dynamodb():
+    url = "https://web.law.ntpc.gov.tw/Scripts/Su_contents03.aspx?NO=3&EANO=1141021559"
+    bart = MagicMock()
+    bart.retrieve.side_effect = [
+        {"retrievalResults": [_case_chunk("NTPC-1141021559"), _case_chunk("NTPC-1141021560")]},
+        {"retrievalResults": []},
+    ]
+    ddb = _PastDecisionDdb(
+        {
+            "NTPC-1141021559": _ddb_case("NTPC-1141021559", source_url=url),
+            "NTPC-1141021560": _ddb_case("NTPC-1141021560", source_url="NTPC-1141021560"),  # 非網址
+        }
+    )
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["NTPC-1141021559", "NTPC-1141021560"])
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
+
+    cases = provider.find_similar_cases(_info_with_sections(), screening, "原文")
+
+    assert [c.source_url for c in cases] == [url, None]
 
 
 def test_generate_draft_strips_laws_not_in_allowed_list():
@@ -516,45 +1031,6 @@ def test_get_law_articles_empty_keys_returns_empty():
     assert provider.get_law_articles([]) == []
 
 
-def test_recommend_laws_keeps_retrieved_entry_when_ddb_metadata_disagrees_with_key():
-    """精查結果須以請求的 key 落位——DB 的 law_name/article_no 與 key 不符時,不得覆蓋檢索結果。"""
-    bart = MagicMock()
-    bart.retrieve.return_value = {
-        "retrievalResults": [
-            {
-                "content": {"text": "檢索到的條文"},
-                "metadata": {
-                    "law_name": "廢棄物清理法",
-                    "article_no": "27",
-                    "amend_date": "民國106年01月18日",
-                },
-            }
-        ]
-    }
-    ddb = MagicMock()
-    # law_article 是「訴願法#77」,但 metadata 卻寫成廢清法#27(資料髒)
-    ddb.batch_get_item.return_value = {
-        "Responses": {
-            "appeal_law_articles": [
-                {
-                    "law_article": "訴願法#77",
-                    "law_name": "廢棄物清理法",
-                    "article_no": "27",
-                    "text": "髒資料",
-                    "amend_date": "民國101年06月27日",
-                }
-            ]
-        }
-    }
-    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb)
-
-    refs = provider.recommend_laws(_info(cited_articles=["訴願法#77"]))
-
-    # 兩筆都要在:檢索到的廢清法#27 沒有被精查結果擠掉
-    assert len(refs) == 2
-    assert refs[0].text == "檢索到的條文"
-
-
 def test_clause_to_appeal_article_accepts_chinese_numeral():
     """模型回中文數字時,F3 的 appeal_article filter 不能跟著失效。"""
     assert _clause_to_appeal_article("77條第二款") == "77(2)"
@@ -594,228 +1070,283 @@ def test_case_summary_without_any_sentence_end_still_returns_something_bounded()
 
     assert 0 < len(summary) <= 200
 
-# ---------- 推薦筆數上限 ----------
-def _vector_config(bart, call_index):
-    kwargs = bart.retrieve.call_args_list[call_index].kwargs
-    return kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]
+
+# ---------- F2+:參考見解(三類各自 KB 檢索、依 ref_id 聚合、重排取 3) ----------
 
 
-def test_recommend_laws_retrieves_three_results():
+class _RefDdb:
+    """假 DynamoDB:appeal_interpretations/appeal_rulings/appeal_judgments 皆以 ref_id 為主鍵。
+    `unprocessed` 模擬被限流而沒查成的鍵,那與查無是兩回事。"""
+
+    def __init__(self, items_by_ref_id: dict, unprocessed: bool = False):
+        self._items = items_by_ref_id
+        self._unprocessed = unprocessed
+        self.batch_get_calls: list = []
+
+    def batch_get_item(self, RequestItems):
+        self.batch_get_calls.append(RequestItems)
+        table = next(iter(RequestItems))
+        keys = RequestItems[table]["Keys"]
+        ids = [key["ref_id"] for key in keys]
+        resp = {"Responses": {table: [self._items[i] for i in ids if i in self._items]}}
+        if self._unprocessed:
+            resp["UnprocessedKeys"] = {table: {"Keys": keys}}
+        return resp
+
+
+def _ref_chunk(ref_id: str, text: str, score: float = 1.0) -> dict:
+    return {"content": {"text": text}, "metadata": {"ref_id": ref_id}, "score": score}
+
+
+def _ddb_interp(ref_id: str, **overrides) -> dict:
+    item = {
+        "ref_id": ref_id,
+        "doc_kind": "司法院釋字",
+        "name": ref_id,
+        "issuer": "",
+        "issued_date": "民國87年11月20日",
+        "topic": "怠於執行職務之國家賠償責任",
+        "title": ref_id,
+        "source_file": "",
+        "s3_key": "",
+        "source_url": "",
+        "full_text": "解釋文全文",
+        "chunk_count": 1,
+        "chunk_ids": [f"{ref_id}#p1"],
+    }
+    item.update(overrides)
+    return item
+
+
+@pytest.fixture
+def _ref_kb_settings(monkeypatch):
+    """三類 KB id 全部設定好,模擬部署完成後的正常狀態。"""
+    monkeypatch.setattr(settings, "KB_INTERPRETATION_ID", "KB-INTERP")
+    monkeypatch.setattr(settings, "KB_RULING_ID", "KB-RULING")
+    monkeypatch.setattr(settings, "KB_JUDGMENT_ID", "KB-JUDGMENT")
+
+
+def test_find_references_skips_a_kind_whose_kb_id_is_unset(monkeypatch):
+    """部署環境可能還沒設某一類 KB;空字串時跳過該類,不 raise,其餘類仍要跑完。"""
+    monkeypatch.setattr(settings, "KB_INTERPRETATION_ID", "KB-INTERP")
+    monkeypatch.setattr(settings, "KB_RULING_ID", "")
+    monkeypatch.setattr(settings, "KB_JUDGMENT_ID", "")
+    bart = MagicMock()
+    bart.retrieve.return_value = {"retrievalResults": [_ref_chunk("釋字第469號", "解釋文…")]}
+    ddb = _RefDdb({"釋字第469號": _ddb_interp("釋字第469號")})
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["釋字第469號"])
+
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+    refs = provider.find_references(_info())
+
+    assert [r.doc_kind for r in refs] == ["司法院釋字"]
+    assert bart.retrieve.call_count == 1  # 只打了設了 KB id 的那一類
+
+
+def test_find_references_queries_each_kind_kb_with_no_filter(_ref_kb_settings):
     bart = MagicMock()
     bart.retrieve.return_value = {"retrievalResults": []}
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=_RefDdb({}))
 
-    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=MagicMock())
-    provider.recommend_laws(_info(cited_articles=[]))
+    provider.find_references(_info())
 
-    assert _vector_config(bart, 0)["numberOfResults"] == 3
+    calls = bart.retrieve.call_args_list
+    assert len(calls) == 3
+    assert [c.kwargs["knowledgeBaseId"] for c in calls] == ["KB-INTERP", "KB-RULING", "KB-JUDGMENT"]
+    for c in calls:
+        config = c.kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]
+        assert "filter" not in config
+        assert config["numberOfResults"] == 30
 
 
-def test_find_similar_cases_returns_at_most_three_distinct_cases():
-    """一份決定書切成多個 chunk,靠 numberOfResults 湊不出三件不同案號,須以案號去重後截斷。"""
-
-    def _result(case_no, section="事實"):
-        return {
-            "content": {"text": f"【{section}】{case_no} 本件訴願人不服原處分…"},
-            "metadata": {
-                "case_no": case_no,
-                "year": "112",
-                "case_type": "廢棄物清理",
-                "appeal_article": "",
-                "issue": "任意棄置",
-                "result": "駁回",
-                "source_file": f"{case_no}.pdf",
-            },
-        }
-
+def test_find_references_aggregates_multi_chunk_hits_of_the_same_document_by_score(_ref_kb_settings):
+    """同一份文件的多片命中分數加總,代表整體相關度;應該排在只命中一片、單片分數更高的
+    文件之前——聚合結果先送進重排,而不是逐片各自參賽。"""
+    rows = [
+        _ref_chunk("釋字第469號", "解釋文片段一", score=0.5),
+        _ref_chunk("釋字第469號", "解釋文片段二", score=0.5),
+        _ref_chunk("釋字第813號", "解釋文片段", score=0.9),
+    ]
     bart = MagicMock()
-    bart.retrieve.return_value = {
-        "retrievalResults": [
-            _result("112-0001", "事實"),
-            _result("112-0001", "理由"),
-            _result("112-0002"),
-            _result("112-0003"),
-            _result("112-0004"),
-        ]
-    }
-    provider = _provider(bedrock_agent_runtime=bart)
-
-    cases = provider.find_similar_cases(
-        _info(), ScreeningResult(passed=True, matched_clause=None, reasoning="通過"), "原文"
-    )
-
-    assert [c.case_no for c in cases] == ["112-0001", "112-0002", "112-0003"]
-    # chunk 取用量要大於呈現筆數,否則同一案號的多個段落會把三件不同案例佔滿
-    assert _vector_config(bart, 0)["numberOfResults"] > 3
-
-
-def _kb_law_result(article_no="27"):
-    return {
-        "content": {"text": f"廢棄物清理法第{article_no}條全文"},
-        "metadata": {
-            "law_name": "廢棄物清理法",
-            "article_no": article_no,
-            "amend_date": "民國106年01月18日",
-            "law_type": "實體法",
-            "source_file": "markdown/相關法規/廢棄物清理法.md",
-        },
-    }
-
-
-def test_recommend_laws_returns_at_most_three_entries():
-    """降到三條是呈現上限,不是只管檢索那一段:精查補進來的引用條號也算在內。"""
-    bart = MagicMock()
-    bart.retrieve.return_value = {
-        "retrievalResults": [_kb_law_result("27"), _kb_law_result("50"), _kb_law_result("12")]
-    }
-    ddb = MagicMock()
-    ddb.batch_get_item.return_value = {"Responses": {"appeal_law_articles": []}}
-
-    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb)
-    laws = provider.recommend_laws(_info(cited_articles=["行政罰法#7", "訴願法#77"]))
-
-    assert len(laws) == 3
-
-
-def test_the_article_the_appeal_itself_cites_survives_the_cap():
-    """引用條號被擠掉的代價不只是少一條推薦——F4 的可引用清單是從這裡組出來的,
-    掉了就等於決定書不能引訴願人自己援引的那一條。"""
-    bart = MagicMock()
-    bart.retrieve.return_value = {
-        "retrievalResults": [_kb_law_result("27"), _kb_law_result("50"), _kb_law_result("12")]
-    }
-    ddb = MagicMock()
-    ddb.batch_get_item.return_value = {
-        "Responses": {
-            "appeal_law_articles": [
-                {"law_article": "訴願法#77", "law_name": "訴願法", "article_no": "77",
-                 "text": "訴願事件有左列各款情形之一者…", "amend_date": "民國101年06月27日"}
-            ]
-        }
-    }
-
-    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb)
-    laws = provider.recommend_laws(_info(cited_articles=["訴願法#77"]))
-
-    assert len(laws) == 3
-    assert "訴願法#77" in [f"{l.law_name}#{l.article_no}" for l in laws]
-
-
-# ---------- F2+ 參考見解(find_references) ----------
-
-_REF_ROWS = [
-    {
-        "content": {"text": "廢棄物清理法第27條全文"},
-        "metadata": {
-            "law_name": "廢棄物清理法",
-            "article_no": "27",
-            "amend_date": "民國106年01月18日",
-            "law_type": "實體法",
-            "doc_kind": "法規",
-        },
-    },
-    {
-        "content": {"text": "釋字第469號解釋文…"},
-        "metadata": {
-            "law_name": "釋字第469號",
-            "article_no": "",
-            "law_type": "其他",
-            "doc_kind": "司法院釋字",
-            "topic": "怠於執行職務之國家賠償責任",
-            "source_file": "markdown/司法院釋字/釋字第469號解釋-國家賠償請求權.md",
-        },
-    },
-    {
-        "content": {"text": "法務部函釋說明…"},
-        "metadata": {
-            "law_name": "法務部 法律字第1000002151號",
-            "article_no": "",
-            "law_type": "其他",
-            "doc_kind": "行政函釋",
-            "issuer": "法務部",
-            "amend_date": "民國 100 年 03 月 30 日",
-        },
-    },
-]
-
-
-def test_find_references_excludes_statutes_and_maps_heterogeneous_kinds():
-    """釋字有題旨無發文機關無日期,函釋有發文機關有日期無題旨——同一組欄位對應要兩種都撐得住。"""
-    bart = MagicMock()
-    bart.retrieve.side_effect = _filtering_retrieve(_REF_ROWS)
+    bart.retrieve.side_effect = [{"retrievalResults": rows}, {"retrievalResults": []}, {"retrievalResults": []}]
+    ddb = _RefDdb({"釋字第469號": _ddb_interp("釋字第469號"), "釋字第813號": _ddb_interp("釋字第813號")})
     brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["釋字第469號", "釋字第813號"])
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
 
-    refs = _provider(bedrock_agent_runtime=bart, bedrock_runtime=brt).find_references(_info())
+    refs = provider.find_references(_info())
 
-    assert [r.doc_kind for r in refs] == ["司法院釋字", "行政函釋"]
-
-    yizi, hanshi = refs
-    assert yizi.name == "釋字第469號"
-    assert yizi.topic == "怠於執行職務之國家賠償責任"
-    assert yizi.issuer == ""
-    assert yizi.issued_date == "未收錄"  # metadata 無日期,不得由 LLM 補
-    assert yizi.source_key == "markdown/司法院釋字/釋字第469號解釋-國家賠償請求權.md"
-
-    assert hanshi.name == "法務部 法律字第1000002151號"
-    assert hanshi.issuer == "法務部"
-    assert hanshi.issued_date == "民國 100 年 03 月 30 日"
-    assert hanshi.topic == ""
-    assert hanshi.source_key is None  # 爬蟲來源沒有 markdown,前端據此不畫「原文」鈕
-
-    brt.converse.assert_not_called()  # F2+ 純檢索,不經 LLM
+    user_text = brt.converse.call_args_list[0].kwargs["messages"][0]["content"][0]["text"]
+    assert user_text.index("釋字第469號") < user_text.index("釋字第813號")
+    assert [r.name for r in refs] == ["釋字第469號", "釋字第813號"]
 
 
-def test_find_references_dedupes_chunks_of_the_same_document():
-    """一份長判決被切成多筆 chunk,畫面上只該出現一則。"""
-    chunks = [
+def test_find_references_reranks_and_caps_at_three(_ref_kb_settings):
+    rows = [_ref_chunk(f"釋字第{n}號", f"解釋文{n}") for n in range(400, 415)]  # 15 篇不同文件
+    bart = MagicMock()
+    bart.retrieve.side_effect = [{"retrievalResults": rows}, {"retrievalResults": []}, {"retrievalResults": []}]
+    ddb = _RefDdb({f"釋字第{n}號": _ddb_interp(f"釋字第{n}號") for n in range(400, 415)})
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response([f"釋字第{n}號" for n in range(400, 415)])
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+
+    refs = provider.find_references(_info())
+
+    assert len(refs) == 3
+
+
+def test_find_references_each_kind_gets_its_own_kb_and_quota(_ref_kb_settings):
+    """三類各自獨立 KB,互不排擠彼此的重排名額;共用一個前 N 名時,排序靠前的那類
+    會把另兩類的分頁擠空,這裡驗證三類都各自取滿(或取盡)自己的上限。"""
+    interp_rows = [_ref_chunk("釋字第469號", "解釋文")]
+    ruling_rows = [_ref_chunk(f"法務部 法律字第{n}號", f"函釋{n}") for n in range(1, 6)]
+    judgment_rows = [_ref_chunk("最高行政法院 102年度判字第147號", "判決")]
+    bart = MagicMock()
+    bart.retrieve.side_effect = [
+        {"retrievalResults": interp_rows},
+        {"retrievalResults": ruling_rows},
+        {"retrievalResults": judgment_rows},
+    ]
+    ddb = _RefDdb(
         {
-            "content": {"text": f"判決全文第{i}段"},
-            "metadata": {
-                "law_name": "最高行政法院 102年度判字第147號",
-                "doc_kind": "行政法院裁判",
-                "issuer": "最高行政法院",
-                "law_type": "其他",
+            "釋字第469號": _ddb_interp("釋字第469號"),
+            **{
+                f"法務部 法律字第{n}號": _ddb_interp(
+                    f"法務部 法律字第{n}號", doc_kind="行政函釋", issuer="法務部"
+                )
+                for n in range(1, 6)
             },
+            "最高行政法院 102年度判字第147號": _ddb_interp(
+                "最高行政法院 102年度判字第147號", doc_kind="行政法院裁判"
+            ),
         }
-        for i in (1, 2, 3)
+    )
+    brt = MagicMock()
+    brt.converse.side_effect = [
+        _rerank_response(["釋字第469號"]),
+        _rerank_response([f"法務部 法律字第{n}號" for n in range(1, 6)]),
+        _rerank_response(["最高行政法院 102年度判字第147號"]),
     ]
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+
+    refs = provider.find_references(_info())
+
+    by_kind = {
+        k: [r.name for r in refs if r.doc_kind == k] for k in ("司法院釋字", "行政函釋", "行政法院裁判")
+    }
+    assert by_kind["司法院釋字"] == ["釋字第469號"]
+    assert by_kind["行政法院裁判"] == ["最高行政法院 102年度判字第147號"]
+    assert by_kind["行政函釋"] == [f"法務部 法律字第{n}號" for n in range(1, 4)]  # 每類自己的上限仍是 3
+
+
+def test_find_references_fills_details_from_dynamodb_by_ref_id(_ref_kb_settings):
+    """KB metadata 只帶 ref_id;名稱、發文機關、日期、原文出處一律由 DynamoDB 補。"""
     bart = MagicMock()
-    bart.retrieve.side_effect = _filtering_retrieve(chunks)
-
-    refs = _provider(bedrock_agent_runtime=bart).find_references(_info())
-
-    assert len(refs) == 1
-    assert refs[0].name == "最高行政法院 102年度判字第147號"
-
-
-def test_find_references_skips_rows_without_a_name():
-    """認不出是哪一份文件的列,寧可不給——比照相似案例檢索缺案號時的處置。"""
-    rows = [
-        {"content": {"text": "來源不明"}, "metadata": {"doc_kind": "行政函釋", "law_type": "其他"}},
-        _REF_ROWS[1],
+    bart.retrieve.side_effect = [
+        {"retrievalResults": [_ref_chunk("釋字第469號", "解釋文")]},
+        {"retrievalResults": []},
+        {"retrievalResults": []},
     ]
+    item = _ddb_interp(
+        "釋字第469號",
+        s3_key="reference/司法院釋字/釋字第469號.pdf",
+        source_url="https://law.moj.gov.tw/LawClass/ExContent.aspx?ty=C&CC=D&CNO=469",
+    )
+    ddb = _RefDdb({"釋字第469號": item})
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["釋字第469號"])
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+
+    (ref,) = provider.find_references(_info())
+
+    assert ref.name == "釋字第469號"
+    assert ref.topic == "怠於執行職務之國家賠償責任"
+    assert ref.source_key == "reference/司法院釋字/釋字第469號.pdf"
+    assert ref.source_url == "https://law.moj.gov.tw/LawClass/ExContent.aspx?ty=C&CC=D&CNO=469"
+
+
+def test_find_references_marks_ref_missing_from_dynamodb_instead_of_dropping_it(_ref_kb_settings):
+    """DynamoDB 查無時仍以 KB 資料組 ReferenceRef,不整批 raise——與 F3 查無案件的處置一致。"""
     bart = MagicMock()
-    bart.retrieve.side_effect = _filtering_retrieve(rows)
+    bart.retrieve.side_effect = [
+        {"retrievalResults": [_ref_chunk("釋字第999號", "解釋文")]},
+        {"retrievalResults": []},
+        {"retrievalResults": []},
+    ]
+    ddb = _RefDdb({})
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["釋字第999號"])
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
 
-    refs = _provider(bedrock_agent_runtime=bart).find_references(_info())
+    (ref,) = provider.find_references(_info())
 
-    assert [r.name for r in refs] == ["釋字第469號"]
+    assert ref.name == "釋字第999號"
+    assert ref.source_key is None
+    assert "未查得" in ref.relevance
 
 
-def test_find_references_caps_at_three():
-    rows = [
+def test_find_references_raises_when_dynamodb_leaves_ref_ids_unprocessed(_ref_kb_settings):
+    """被限流而沒查成的 ref_id 不得當成查無:那會讓資料層被限流長得像「這份文件沒收錄」。"""
+    bart = MagicMock()
+    bart.retrieve.side_effect = [
+        {"retrievalResults": [_ref_chunk("釋字第469號", "解釋文")]},
+        {"retrievalResults": []},
+        {"retrievalResults": []},
+    ]
+    ddb = _RefDdb({"釋字第469號": _ddb_interp("釋字第469號")}, unprocessed=True)
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["釋字第469號"])
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+
+    with pytest.raises(RuntimeError, match="未處理"):
+        provider.find_references(_info())
+
+
+def test_find_references_treats_a_none_chunk_text_as_empty_without_crashing(_ref_kb_settings):
+    """KB 回傳的 content.text 鍵存在但值為 None 時(殘缺 chunk)不得 TypeError,
+    該片段視為空文字參與聚合與候選文本組裝。"""
+    bart = MagicMock()
+    bart.retrieve.side_effect = [
         {
-            "content": {"text": f"釋字第{n}號解釋文"},
-            "metadata": {"law_name": f"釋字第{n}號", "doc_kind": "司法院釋字", "law_type": "其他"},
-        }
-        for n in range(400, 410)
+            "retrievalResults": [
+                {"content": {"text": None}, "metadata": {"ref_id": "釋字第469號"}, "score": 1.0}
+            ]
+        },
+        {"retrievalResults": []},
+        {"retrievalResults": []},
     ]
+    ddb = _RefDdb({"釋字第469號": _ddb_interp("釋字第469號")})
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["釋字第469號"])
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
+
+    (ref,) = provider.find_references(_info())
+
+    assert ref.name == "釋字第469號"
+
+
+def test_find_references_source_url_empty_string_falls_back_to_computed_url(_ref_kb_settings):
+    """DynamoDB item 的 source_url 存空字串時視同未填,司法院釋字類別應由 validator
+    補算出 law.moj 的解釋文網址,而不是原樣頂著一個空字串。"""
     bart = MagicMock()
-    bart.retrieve.side_effect = _filtering_retrieve(rows)
+    bart.retrieve.side_effect = [
+        {"retrievalResults": [_ref_chunk("釋字第469號", "解釋文")]},
+        {"retrievalResults": []},
+        {"retrievalResults": []},
+    ]
+    item = _ddb_interp("釋字第469號", source_url="")
+    ddb = _RefDdb({"釋字第469號": item})
+    brt = MagicMock()
+    brt.converse.return_value = _rerank_response(["釋字第469號"])
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=ddb, bedrock_runtime=brt)
 
-    assert len(_provider(bedrock_agent_runtime=bart).find_references(_info())) == 3
+    (ref,) = provider.find_references(_info())
+
+    assert ref.source_url == "https://law.moj.gov.tw/LawClass/ExContent.aspx?ty=C&CC=D&CNO=469"
 
 
-def test_find_references_propagates_retrieval_failure_instead_of_returning_empty():
+def test_find_references_propagates_retrieval_failure_instead_of_returning_empty(_ref_kb_settings):
     """檢索爆掉不能吞成空清單:畫面上的「未檢索到相關參考見解」會同時代表查了沒有與查爆了。"""
     from botocore.exceptions import ClientError
 
@@ -823,136 +1354,10 @@ def test_find_references_propagates_retrieval_failure_instead_of_returning_empty
     bart.retrieve.side_effect = ClientError(
         {"Error": {"Code": "ThrottlingException", "Message": "rate exceeded"}}, "Retrieve"
     )
+    provider = _provider(bedrock_agent_runtime=bart, dynamodb_resource=_RefDdb({}))
 
-    try:
-        _provider(bedrock_agent_runtime=bart).find_references(_info())
-    except ClientError:
-        return
-    raise AssertionError("檢索失敗必須往外傳,不得回空清單")
-
-
-def test_find_references_overfetches_so_one_long_document_cannot_starve_the_list():
-    """一份長判決切成多筆 chunk,若只撈 3 筆就去重,畫面上只會剩一則——與 F3 同一種失效。"""
-    rows = [
-        {
-            "content": {"text": f"最高行政法院判決第{i}段"},
-            "metadata": {
-                "law_name": "最高行政法院 102年度判字第147號",
-                "doc_kind": "行政法院裁判",
-                "law_type": "其他",
-            },
-        }
-        for i in (1, 2, 3)
-    ] + [
-        {
-            "content": {"text": "釋字第469號解釋文"},
-            "metadata": {"law_name": "釋字第469號", "doc_kind": "司法院釋字", "law_type": "其他"},
-        },
-        {
-            "content": {"text": "法務部函釋"},
-            "metadata": {
-                "law_name": "法務部 法律字第1000002151號",
-                "doc_kind": "行政函釋",
-                "law_type": "其他",
-            },
-        },
-    ]
-    bart = MagicMock()
-    bart.retrieve.side_effect = _filtering_retrieve(rows)
-
-    refs = _provider(bedrock_agent_runtime=bart).find_references(_info())
-
-    # 逐類檢索後,結果依 _REF_DOC_KINDS 的類別次序分組,不再是單一檢索的相關性次序
-    assert [r.name for r in refs] == [
-        "釋字第469號",
-        "法務部 法律字第1000002151號",
-        "最高行政法院 102年度判字第147號",
-    ]
-
-
-def test_find_references_routes_a_crawled_pdf_to_the_archived_store():
-    """爬蟲語料的 source_file 是 PDF 檔名,取原文端點的 markdown 那一支找不到它;
-    但那份 PDF 就在本機存檔目錄裡,改指過去(`reference/<類別>/<檔名>`)——
-    原本一律回 None 的結果是 F2+ 在畫面上一個可點的來源都沒有。"""
-    rows = [
-        {
-            "content": {"text": "釋字第718號解釋文"},
-            "metadata": {
-                "law_name": "釋字第718號",
-                "doc_kind": "司法院釋字",
-                "law_type": "其他",
-                "source_file": "釋字第0718號_103-03-21_集會遊行法申請許可規定.pdf",
-            },
-        },
-        {
-            "content": {"text": "內政部函釋"},
-            "metadata": {
-                "law_name": "內政部 內授營建管字第1000810874號",
-                "doc_kind": "行政函釋",
-                "law_type": "其他",
-                "source_file": "markdown/行政函釋/內政部100年12月9日內授營建管字第1000810874號函釋-場所區隔方式.md",
-            },
-        },
-    ]
-    bart = MagicMock()
-    bart.retrieve.side_effect = _filtering_retrieve(rows)
-
-    yizi, hanshi = _provider(bedrock_agent_runtime=bart).find_references(_info())
-
-    assert yizi.source_key == "reference/司法院釋字/釋字第0718號_103-03-21_集會遊行法申請許可規定.pdf"
-    assert hanshi.source_key == rows[1]["metadata"]["source_file"]  # 官方語料仍走 markdown
-
-
-def test_retrieval_paths_drop_source_keys_the_source_endpoint_cannot_serve():
-    """F2 法規與 F3 案例的 source_file 同樣混著取原文端點服務不到的值(爬蟲法規 4,133 筆、
-    爬蟲決定書的內部編號),與參考見解是同一個問題,判斷要一致。"""
-    law_rows = [
-        {
-            "content": {"text": "某法第5條"},
-            "metadata": {
-                "law_name": "某法",
-                "article_no": "5",
-                "doc_kind": "法規",
-                "law_type": "實體法",
-                "source_file": "法條-某法.jsonl",
-            },
-        }
-    ]
-    bart = MagicMock()
-    bart.retrieve.side_effect = _filtering_retrieve(law_rows)
-    (law,) = _provider(bedrock_agent_runtime=bart).recommend_laws(_info(cited_articles=[]))
-    assert law.source_key is None
-
-    case_rows = [
-        {
-            "content": {"text": "【事實】本件訴願人不服原處分…"},
-            "metadata": {
-                "case_no": "NTPC-1131090247",
-                "year": "113",
-                "case_type": "廢棄物清理",
-                "result": "駁回",
-                "source_file": "NTPC-1131090247",
-            },
-        },
-        {
-            "content": {"text": "【事實】另一件…"},
-            "metadata": {
-                "case_no": "彰府訴字第9號",
-                "year": "112",
-                "case_type": "廢棄物清理",
-                "result": "駁回",
-                "source_file": "markdown/歷史訴願決定書/02.112年-違反廢棄物清理法事件.md",
-            },
-        },
-    ]
-    bart2 = MagicMock()
-    bart2.retrieve.side_effect = _filtering_retrieve(case_rows)
-    screening = ScreeningResult(passed=True, matched_clause=None, reasoning="通過")
-    crawl, official = _provider(bedrock_agent_runtime=bart2).find_similar_cases(
-        _info(), screening, "原文"
-    )
-    assert crawl.source_key is None
-    assert official.source_key == "markdown/歷史訴願決定書/02.112年-違反廢棄物清理法事件.md"
+    with pytest.raises(ClientError):
+        provider.find_references(_info())
 
 
 def test_extract_case_info_carries_the_answer_document_fields():
@@ -1074,47 +1479,6 @@ def test_f1_schema_requires_every_field_a_procedural_check_reads():
         assert field in schema["required"], field
 
 
-def test_similar_cases_carry_the_source_url_like_local_does():
-    """aws 與 local 的 F3 必須等價:其中一邊帶得出原始來源網址、另一邊帶不出來,
-    等於同一件案子在兩個模式下看到不一樣的東西。"""
-    url = "https://web.law.ntpc.gov.tw/Scripts/Su_contents03.aspx?NO=3&EANO=1141021559"
-    bart = MagicMock()
-    bart.retrieve.return_value = {
-        "retrievalResults": [
-            {
-                "content": {"text": "相似案例全文"},
-                "metadata": {
-                    "case_no": "1141021559",
-                    "year": "114",
-                    "case_type": "廢棄物清理",
-                    "appeal_article": "77(2)",
-                    "issue": "逾期提起",
-                    "result": "不受理",
-                    "source_url": url,
-                },
-            },
-            {
-                "content": {"text": "另一件相似案例"},
-                "metadata": {
-                    "case_no": "1141021560",
-                    "year": "114",
-                    "case_type": "廢棄物清理",
-                    "appeal_article": "77(2)",
-                    "issue": "逾期提起",
-                    "result": "不受理",
-                    "source_url": "NTPC-1141021560",  # 非網址,不得畫成連結
-                },
-            },
-        ]
-    }
-    provider = _provider(bedrock_agent_runtime=bart)
-    screening = ScreeningResult(passed=False, matched_clause="77條第2款", reasoning="逾期")
-
-    cases = provider.find_similar_cases(_info(), screening, "原文")
-
-    assert [c.source_url for c in cases] == [url, None]
-
-
 def test_f1_schema_required_matches_every_case_info_field():
     """schema 的欄位清單推導自 CaseInfo 本身,新增欄位不必記得同步兩份手寫清單。"""
     brt = MagicMock()
@@ -1160,65 +1524,3 @@ def test_generate_draft_schema_requires_gist():
     schema = kwargs["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
     assert "gist" in schema["properties"]
     assert "gist" in schema["required"]
-
-
-def test_find_references_gives_each_kind_its_own_quota():
-    """三類共用一個前 3 名時,排序靠前的那一類會把另兩類洗掉,畫面上那兩個分頁就是空的。
-    逐類各撈各的:函釋滿額不影響釋字與裁判各自被撈到。"""
-    rows = [
-        {
-            "content": {"text": f"法務部函釋第{n}號"},
-            "metadata": {
-                "law_name": f"法務部 法律字第{n}號",
-                "doc_kind": "行政函釋",
-                "law_type": "其他",
-            },
-        }
-        for n in range(1, 6)
-    ] + [
-        {
-            "content": {"text": "釋字第469號解釋文"},
-            "metadata": {"law_name": "釋字第469號", "doc_kind": "司法院釋字", "law_type": "其他"},
-        },
-        {
-            "content": {"text": "最高行政法院判決"},
-            "metadata": {
-                "law_name": "最高行政法院 102年度判字第147號",
-                "doc_kind": "行政法院裁判",
-                "law_type": "其他",
-            },
-        },
-    ]
-    bart = MagicMock()
-    bart.retrieve.side_effect = _filtering_retrieve(rows)
-
-    refs = _provider(bedrock_agent_runtime=bart).find_references(_info())
-
-    by_kind = {
-        k: [r.name for r in refs if r.doc_kind == k]
-        for k in ("司法院釋字", "行政函釋", "行政法院裁判")
-    }
-    assert by_kind["司法院釋字"] == ["釋字第469號"]
-    assert by_kind["行政法院裁判"] == ["最高行政法院 102年度判字第147號"]
-    assert by_kind["行政函釋"] == [f"法務部 法律字第{n}號" for n in range(1, 4)]  # 每類自己的上限仍是 3
-
-
-def test_find_references_returns_nothing_for_a_doc_kind_without_a_tab():
-    """三類是封閉集合:前端一類一個分頁,檢索也只認這三類。語料多出第四類時它不會悄悄
-    混進某一頁,而是整批不出現——要收它就得先給它一個分頁。"""
-    rows = [
-        {
-            "content": {"text": "訴願答辯書內容"},
-            "metadata": {"law_name": "某答辯書", "doc_kind": "訴願答辯書", "law_type": "其他"},
-        },
-        {
-            "content": {"text": "釋字第469號解釋文"},
-            "metadata": {"law_name": "釋字第469號", "doc_kind": "司法院釋字", "law_type": "其他"},
-        },
-    ]
-    bart = MagicMock()
-    bart.retrieve.side_effect = _filtering_retrieve(rows)
-
-    refs = _provider(bedrock_agent_runtime=bart).find_references(_info())
-
-    assert [r.name for r in refs] == ["釋字第469號"]

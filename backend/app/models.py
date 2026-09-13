@@ -189,14 +189,17 @@ class LawRef(BaseModel):
     text: str
     amend_date: str
     source_key: Optional[str] = None
+    # 一般欄位而非算出來:aws 從 DynamoDB item 的 source_url 直接填;None 時 validator 補算
+    source_url: Optional[str] = None
     relevance: str
 
-    @computed_field
-    @property
-    def source_url(self) -> Optional[str]:
-        """全國法規資料庫的條文連結。算出來而不是逐點填:F2 檢索、不受理法源精查、
+    @model_validator(mode="after")
+    def _fill_source_url(self):
+        """全國法規資料庫的條文連結。source_url 未顯式提供時才算——F2 檢索、不受理法源精查、
         DynamoDB 補全三處都生 LawRef,任一處忘了填就是少一個連結而不會有人發現。"""
-        return law_article_url(self.law_name, self.article_no)
+        if self.source_url is None:
+            self.source_url = law_article_url(self.law_name, self.article_no)
+        return self
 
 
 class ReferenceRef(BaseModel):
@@ -210,13 +213,17 @@ class ReferenceRef(BaseModel):
     topic: str = ""
     text: str
     source_key: Optional[str] = None
+    # 一般欄位而非算出來:aws 從 DynamoDB item 的 source_url 直接填(空字串視同未提供);
+    # None 時 validator 以 interpretation_url 補算
+    source_url: Optional[str] = None
     relevance: str
 
-    @computed_field
-    @property
-    def source_url(self) -> Optional[str]:
+    @model_validator(mode="after")
+    def _fill_source_url(self):
         """釋字推得出,函釋與裁判推不出來(見 law_urls.interpretation_url)。"""
-        return interpretation_url(self.doc_kind, self.name)
+        if self.source_url is None:
+            self.source_url = interpretation_url(self.doc_kind, self.name)
+        return self
 
 
 class SimilarCase(BaseModel):
@@ -230,6 +237,8 @@ class SimilarCase(BaseModel):
     similarity_note: str
     source_key: Optional[str] = None
     source_url: Optional[str] = None  # 爬蟲語料帶的原始查詢系統深連結,官方語料沒有
+    # F2 的候選法規來源:該案決定書引用的 law_id 清單,appeal_past_decisions 缺此欄或非數字時為空
+    law_ids: list[int] = []
 
 
 class DraftResult(BaseModel):

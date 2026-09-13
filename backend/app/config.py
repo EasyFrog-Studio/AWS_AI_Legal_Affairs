@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     BEDROCK_MAX_ATTEMPTS: int = 1
     KB_LAW_ID: str = ""
     KB_CASE_ID: str = ""
+    # F2+ 參考見解三類各自獨立的 KB;空字串代表該類尚未設定,find_references 逐類跳過不 raise
+    KB_INTERPRETATION_ID: str = ""
+    KB_RULING_ID: str = ""
+    KB_JUDGMENT_ID: str = ""
     S3_BUCKET: str = ""
     DDB_LAW_TABLE: str = "appeal_law_articles"
     # 法條表以「法規名稱#條號」為主鍵時留空;該鍵只是 GSI 時填索引名,查詢改走逐鍵 query
@@ -34,6 +38,12 @@ class Settings(BaseSettings):
     # 法條修正日期的屬性名;不同來源建的表欄位名不同,查錯欄位會讓修正日期整批落空
     DDB_LAW_DATE_FIELD: str = "amend_date"
     DDB_CASE_TABLE: str = "appeal_cases"
+    # 過往訴願決定書主檔;KB-CASE 的 chunk 只帶 case_id,詳細欄位一律回這張表精查
+    DDB_PAST_DECISIONS_TABLE: str = "appeal_past_decisions"
+    # F2+ 參考見解三類各自的精查表,PK 皆 ref_id
+    DDB_INTERPRETATION_TABLE: str = "appeal_interpretations"
+    DDB_RULING_TABLE: str = "appeal_rulings"
+    DDB_JUDGMENT_TABLE: str = "appeal_judgments"
     APPEAL_AGENCY_LOCATION: str = "新北市"  # 受理訴願機關所在地,查在途期間對照表用
     # 定稿 PDF 的落地位置(mock/local 模式;aws 模式落 S3 的 finalized/ 前綴)。
     # 以 backend/ 為基準而非 _REPO_ROOT:容器只把 backend/app COPY 進 /app/app,

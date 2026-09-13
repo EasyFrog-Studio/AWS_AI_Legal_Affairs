@@ -87,7 +87,9 @@ class MockProvider(AIProvider):
         standing = self._match_by_text(text).get("standing") or {}
         return StandingAssessment(**standing)
 
-    def recommend_laws(self, info: CaseInfo) -> list[LawRef]:
+    def recommend_laws(
+        self, info: CaseInfo, candidate_law_ids: Optional[list[int]] = None
+    ) -> list[LawRef]:
         time.sleep(1)
         # 樣本手寫五條,截到與真實 provider 同一個上限,否則兩種模式看到的筆數不一樣
         return [LawRef(**item) for item in self._match_by_info(info)["f2"]][:_TOP_K]

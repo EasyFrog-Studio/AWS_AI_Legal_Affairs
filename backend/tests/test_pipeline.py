@@ -41,7 +41,7 @@ class StubAdmissibleProvider(AIProvider):
     def assess_standing(self, info, text):
         raise AssertionError("測資無 disposition_recipient,check_standing 應回 consistent=None,不觸發 LLM")
 
-    def recommend_laws(self, info: CaseInfo) -> list[LawRef]:
+    def recommend_laws(self, info: CaseInfo, candidate_law_ids=None) -> list[LawRef]:
         return [
             LawRef(
                 law_name="廢棄物清理法",
@@ -117,7 +117,7 @@ class StubInadmissibleProvider(AIProvider):
     def assess_standing(self, info, text):
         raise AssertionError("測資無 disposition_recipient,check_standing 應回 consistent=None,不觸發 LLM")
 
-    def recommend_laws(self, info):
+    def recommend_laws(self, info, candidate_law_ids=None):
         raise AssertionError("inadmissible track 不應呼叫 recommend_laws(F2)")
 
     def find_references(self, info):
@@ -171,7 +171,7 @@ class StubErrorProvider(AIProvider):
     def assess_standing(self, info, text):
         raise AssertionError("不應執行到此")
 
-    def recommend_laws(self, info):
+    def recommend_laws(self, info, candidate_law_ids=None):
         raise AssertionError("不應執行到此")
 
     def find_references(self, info):
@@ -534,7 +534,7 @@ def test_run_case_auto_overrides_to_77_1_when_appellant_and_agency_both_missing(
         def assess_standing(self, info, text):
             raise AssertionError("測資無 disposition_recipient,不應觸發 LLM")
 
-        def recommend_laws(self, info):
+        def recommend_laws(self, info, candidate_law_ids=None):
             raise AssertionError("§77(1)不受理應跳過F2")
 
         def find_references(self, info):
@@ -598,7 +598,7 @@ def test_run_case_calls_assess_standing_only_when_recipient_inconsistent():
             calls.append((info.appellant, info.disposition_recipient))
             return StandingAssessment(referenced_norm="廢棄物清理法#27", has_standing=False)  # 無利害關係
 
-        def recommend_laws(self, info):
+        def recommend_laws(self, info, candidate_law_ids=None):
             raise AssertionError("§77(3)不受理應跳過F2")
 
         def find_references(self, info):
@@ -658,7 +658,7 @@ def test_run_case_does_not_override_when_model_cites_no_protective_norm():
             # 模型給了 has_standing=False,但指不出具體法規名稱＋條號
             return StandingAssessment(referenced_norm="", has_standing=False)
 
-        def recommend_laws(self, info):
+        def recommend_laws(self, info, candidate_law_ids=None):
             return [
                 LawRef(
                     law_name="廢棄物清理法",
@@ -1162,15 +1162,15 @@ class _StageRecordingStore(MemoryStore):
 
 
 class _CallOrderProvider(StubAdmissibleProvider):
-    """記錄檢索三段的實際呼叫順序。只看 current_stage 標籤不夠——F2 那次 update 本身就把
-    階段標成 f2_refs,即使檢索被移到 F3 之後,標籤的先後仍然看起來是對的。"""
+    """記錄檢索三段的實際呼叫順序。只看 current_stage 標籤不夠——某一次 update 本身就把
+    階段標成下一段的名字,標籤的先後不足以獨立驗證呼叫順序真的換了邊。"""
 
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    def recommend_laws(self, info):
+    def recommend_laws(self, info, candidate_law_ids=None):
         self.calls.append("f2")
-        return super().recommend_laws(info)
+        return super().recommend_laws(info, candidate_law_ids)
 
     def find_references(self, info):
         self.calls.append("f2_refs")
@@ -1182,6 +1182,7 @@ class _CallOrderProvider(StubAdmissibleProvider):
 
 
 def test_run_case_admissible_records_reference_opinions_between_f2_and_f3():
+    """順序改版:F3 -> F2 -> F2+ -> F4,F2 的候選法規來自 F3 案例,F3 必須先跑。"""
     store = _StageRecordingStore()
     _new_case(store)
     provider = _CallOrderProvider()
@@ -1191,9 +1192,10 @@ def test_run_case_admissible_records_reference_opinions_between_f2_and_f3():
     case = store.get("c-11111111")
     assert [r.name for r in case.f2_refs] == ["釋字第469號"]
     assert case.f2_refs[0].doc_kind == "司法院釋字"
-    assert provider.calls == ["f2", "f2_refs", "f3"]
-    # 資料要在階段往前推進的同一次寫入落庫,前端輪詢才不會看到「已到 F3 但參考見解還是空的」
-    assert store.stages.index("f2") < store.stages.index("f3")
+    assert provider.calls == ["f3", "f2", "f2_refs"]
+    # 資料要在階段往前推進的同一次寫入落庫,前端輪詢才不會看到「已到 f2_refs 但 f2 還是空的」
+    assert store.stages.index("f2") < store.stages.index("f2_refs")
+    assert store.stages == ["screening", "f3", "f2", "f2_refs", "f4", "done"]
 
 
 def test_run_case_inadmissible_still_gets_reference_opinions_though_f2_is_skipped():
@@ -1208,7 +1210,8 @@ def test_run_case_inadmissible_still_gets_reference_opinions_though_f2_is_skippe
     assert case.f2 is None
     assert case.f2_refs is not None and len(case.f2_refs) == 1
     assert "f2" not in store.stages
-    assert store.stages.index("f2_refs") < store.stages.index("f3")
+    # 順序改版:F3 先跑(候選法規來源),F2 被跳過,F2+ 緊接在 F3 之後
+    assert store.stages == ["screening", "f3", "f2_refs", "f4", "done"]
 
 
 def test_reference_opinions_never_reach_the_f4_citable_law_list():
@@ -1227,6 +1230,39 @@ def test_reference_opinions_never_reach_the_f4_citable_law_list():
 
     assert [l.law_name for l in captured["laws"]] == ["廢棄物清理法"]
     assert all(isinstance(l, LawRef) for l in captured["laws"])
+
+
+def test_run_case_candidate_law_ids_come_from_all_five_cases_not_just_the_top_three():
+    """F2 的候選 law_id 要吃 F3 全部重排候選案例的 law_ids(依出現次數遞減),
+    不是只看落地到 f3 的前 3 件——第 4、5 件雖然沒進 f3,law_id 仍要算進候選。"""
+    store = MemoryStore()
+    _new_case(store, "c-lawids01")
+    captured: dict = {}
+
+    cases = [
+        SimilarCase(
+            case_no=f"案{i}", year="112", case_type="廢棄物清理", appeal_article="",
+            issue="", result="駁回", summary="摘要", similarity_note="相似", law_ids=law_ids,
+        )
+        for i, law_ids in enumerate([[100], [100], [100], [200], [300]], start=1)
+    ]
+
+    class _Stub(StubAdmissibleProvider):
+        def find_similar_cases(self, info, screening, text):
+            return cases
+
+        def recommend_laws(self, info, candidate_law_ids=None):
+            captured["candidate_law_ids"] = candidate_law_ids
+            return super().recommend_laws(info, candidate_law_ids)
+
+    run_case("c-lawids01", store, _Stub())
+
+    case = store.get("c-lawids01")
+    assert [c.case_no for c in case.f3] == ["案1", "案2", "案3"]  # 只落前 3 件
+    candidate_law_ids = captured["candidate_law_ids"]
+    assert candidate_law_ids[0] == 100  # 出現 3 次,依次數遞減排最前
+    assert 200 in candidate_law_ids  # 第 4 件(未落 f3)的 law_id 仍要進候選
+    assert 300 in candidate_law_ids  # 第 5 件同理
 
 
 def test_run_case_reference_retrieval_failure_surfaces_as_error_status():

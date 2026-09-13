@@ -1,4 +1,5 @@
-"""案件處理 pipeline:F1 -> screening -> (F2 ->) F3 -> F4,逐階段落庫。"""
+"""案件處理 pipeline:F1 -> screening -> F3 -> (F2 ->) F2+ -> F4,逐階段落庫。"""
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Optional
@@ -42,6 +43,7 @@ from app.pdf_render import decision_plain_text
 from app.providers.base import AIProvider
 from app.store import CaseStore
 
+_F3_TOP_K = 3  # F3 呈現上限;provider.find_similar_cases 回傳的 25 件重排候選只落前 3 件到 f3
 _INADMISSIBLE_MAIN_TEXT = "訴願不受理。"  # 語料 90/90 件不受理決定書主文逐字相同,不交由模型決定
 _APPEAL_ACT_ARTICLE = 77
 _OVERDUE_CLAUSE = "77條第2款"
@@ -457,27 +459,38 @@ def _retrieval_and_draft(
     screening: ScreeningResult,
     case_text: str,
 ) -> None:
-    """F2/F3/F4:程序審查結論定了之後的檢索與草稿。單獨抽出來是為了讓重跑能從這裡起跑——
+    """F3/F2/F2+/F4:程序審查結論定了之後的檢索與草稿。單獨抽出來是為了讓重跑能從這裡起跑——
     曾被人工推翻的案件重跑時若又呼叫 screen_admissibility,人剛改的判斷會被模型改回去。
+
+    順序改為 F3 -> F2 -> F2+ -> F4:F2 的候選法規來自 F3 相似案例帶出的 law_id,F3 必須先跑;
+    `Stage` 的字面值不變(f2 仍在 f2_refs 之前),只有實際呼叫順序與落庫順序跟著調動。
     例外不在此處理,由呼叫端統一落 status=error。"""
     store.update(case_id, {"retrieval_input_screening": screening})
+    store.update(
+        case_id, {"track": "admissible" if screening.passed else "inadmissible", "current_stage": "f3"}
+    )
+
+    # F3:先找相似案例,25 件重排候選只落前 _F3_TOP_K 件,F2 的候選法規則吃全部 25 件的 law_ids
+    all_cases = provider.find_similar_cases(info, screening, case_text)
+    top_cases = all_cases[:_F3_TOP_K]
+
     if screening.passed:
-        store.update(case_id, {"track": "admissible", "current_stage": "f2"})
-        laws = provider.recommend_laws(info)
+        store.update(case_id, {"f3": top_cases, "current_stage": "f2"})
+        # 候選 law_id = 25 件案例 law_ids 的聯集,依出現次數遞減;案例全無 law_ids 時退回全庫檢索
+        counts = Counter(lid for case in all_cases for lid in case.law_ids)
+        candidate_law_ids = [lid for lid, _ in counts.most_common()] or None
+        laws = provider.recommend_laws(info, candidate_law_ids)
         store.update(case_id, {"f2": laws, "current_stage": "f2_refs"})
     else:
-        # 不通過:跳過 F2,直接找同款不受理案例;法源精查後只供草稿引用,不寫進 f2
-        store.update(case_id, {"track": "inadmissible", "current_stage": "f2_refs"})
+        # 不通過:跳過 F2,法源精查後只供草稿引用,不寫進 f2
+        store.update(case_id, {"f3": top_cases, "current_stage": "f2_refs"})
         laws = provider.get_law_articles(inadmissible_law_keys(screening.matched_clause))
 
     # F2+ 參考見解:兩條 track 都跑,但不進 laws——它們沒有條號,湊不出 F4 的引用格式
-    store.update(case_id, {"f2_refs": provider.find_references(info), "current_stage": "f3"})
-
-    similar_cases = provider.find_similar_cases(info, screening, case_text)
-    store.update(case_id, {"f3": similar_cases, "current_stage": "f4"})
+    store.update(case_id, {"f2_refs": provider.find_references(info), "current_stage": "f4"})
 
     draft = enforce_inadmissible_format(
-        provider.generate_draft(info, screening, laws, similar_cases), screening
+        provider.generate_draft(info, screening, laws, top_cases), screening
     )
     store.update(case_id, {"f4": draft})
     # 表頭預設值在落地那一刻實際寫進 decision_header,不是渲染時回落——之後承辦人改的就是這份
@@ -510,7 +523,7 @@ def rerun_case(case_id: str, store: CaseStore, provider: AIProvider, start: Rean
 def _screen_and_draft(
     case_id: str, store: CaseStore, provider: AIProvider, case: Case, info: CaseInfo
 ) -> None:
-    """程序審查 → F2/F3/F4。抽出來是為了讓「f1 已被人工修改」的案件能從這裡起跑:
+    """程序審查 → F3/F2/F2+/F4。抽出來是為了讓「f1 已被人工修改」的案件能從這裡起跑:
     那種案件重跑時不得再呼叫 extract_case_info,否則人剛改的欄位會被模型改回去。
     例外不在此處理,由呼叫端統一落 status=error。"""
     # f1_stale 的判準依據;順便重新讀一次 case,呼叫端手上的快照可能是重跑前尚未清好欄位的舊版本

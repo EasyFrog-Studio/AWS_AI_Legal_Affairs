@@ -61,9 +61,11 @@ function autoTarget(caseData) {
 }
 
 function stageMarker(key, caseData) {
-  // 參考依據是三個後端階段的合併節點:F3 跑完才算這一組完成,「不適用」只屬於裡面的法規那一組
+  // 參考依據是三個後端階段的合併節點:順序 f3→f2→f2_refs,f2_refs 最後落地才算這一組完成,「不適用」只屬於裡面的法規那一組
   const isRefs = key === 'refs'
-  const hasData = isRefs ? caseData.f3 !== null && caseData.f3 !== undefined : Boolean(caseData[key])
+  const hasData = isRefs
+    ? caseData.f2_refs !== null && caseData.f2_refs !== undefined
+    : Boolean(caseData[key])
   const atThisStage = isRefs ? atRefStage(caseData) : key === caseData.current_stage
   if (caseData.status === 'error' && atThisStage) {
     return { icon: 'square-error', modifier: 'error', note: '中斷' }

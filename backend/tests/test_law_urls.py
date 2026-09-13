@@ -56,6 +56,21 @@ def test_a_law_ref_outside_the_index_has_no_url():
     assert ref.model_dump()["source_url"] is None
 
 
+def test_a_law_ref_explicit_source_url_wins_over_the_computed_fallback():
+    """DynamoDB item 帶了 source_url 就直接用它,不被 pcode 對照表算出來的另一個網址蓋掉。"""
+    from app.models import LawRef
+
+    ref = LawRef(
+        law_name="廢棄物清理法",
+        article_no="46",
+        text="條文",
+        amend_date="民國 114 年",
+        relevance="命中",
+        source_url="https://example.gov.tw/explicit",
+    )
+    assert ref.source_url == "https://example.gov.tw/explicit"
+
+
 # ---------- F2+ 參考見解:釋字推得出連結,函釋與裁判推不出來 ----------
 
 
@@ -85,3 +100,19 @@ def test_interpretations_and_judgments_get_no_url():
         ("司法院釋字", "釋字令人看不懂的名稱"),
     ):
         assert _ref(doc_kind, name).source_url is None
+
+
+def test_a_reference_ref_explicit_source_url_wins_over_the_computed_fallback():
+    """DynamoDB item 帶了 source_url(如函釋、裁判)就直接用它,不受 interpretation_url 只認
+    司法院釋字這件事限制。"""
+    from app.models import ReferenceRef
+
+    ref = ReferenceRef(
+        doc_kind="行政函釋",
+        name="法務部 法律字第1000002151號",
+        issued_date="民國 100 年",
+        text="內容",
+        relevance="命中",
+        source_url="https://example.gov.tw/ruling",
+    )
+    assert ref.source_url == "https://example.gov.tw/ruling"

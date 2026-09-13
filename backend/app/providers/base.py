@@ -32,7 +32,12 @@ class AIProvider(ABC):
         ...
 
     @abstractmethod
-    def recommend_laws(self, info: CaseInfo) -> list[LawRef]: ...  # F2
+    def recommend_laws(
+        self, info: CaseInfo, candidate_law_ids: Optional[list[int]] = None
+    ) -> list[LawRef]:
+        """F2。candidate_law_ids 非 None 時是 F3 相似案例帶出的候選 law_id(依出現次數遞減),
+        aws 據此加 KB-LAW 的 in filter;為 None 或空清單時退回全庫檢索。"""
+        ...
 
     @abstractmethod
     def find_references(self, info: CaseInfo) -> list[ReferenceRef]:
