@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import SourceSiteLink from '../components/SourceSiteLink.jsx'
+import { REF_KINDS } from './refKinds.js'
 
 /** screening.matched_clause 解析出「第 N 款」;解析不到回傳空字串(不寫死條款)。 */
 function parseClause(matchedClause) {
@@ -129,17 +130,10 @@ function F3Section({ cases, running, onViewSource }) {
   )
 }
 
-/** 參考見解的三個分頁,key 即 ReferenceRef.doc_kind(後端逐類檢索,三類各取前 3 則)。 */
-const REF_KIND_TABS = [
-  { key: '司法院釋字', label: '釋字', empty: '未檢索到相關釋字。' },
-  { key: '行政函釋', label: '函釋', empty: '未檢索到相關函釋。' },
-  { key: '行政法院裁判', label: '法院裁判', empty: '未檢索到相關法院裁判。' },
-]
-
 const REF_TABS = [
   { key: 'f2', label: '法規法條' },
   { key: 'f3', label: '過往案例' },
-  ...REF_KIND_TABS,
+  ...REF_KINDS.map((kind) => ({ ...kind, label: kind.key })),
 ]
 
 /**
@@ -148,7 +142,7 @@ const REF_TABS = [
  */
 export function RefsStage({ caseData, isRunning, onViewSource }) {
   const [selectedTab, setSelectedTab] = useState(REF_TABS[0].key)
-  const kind = REF_KIND_TABS.find((tab) => tab.key === selectedTab)
+  const kind = REF_KINDS.find((k) => k.key === selectedTab)
 
   // refs-stage 沒有樣式,是草稿頁依據欄同時在 DOM 裡時用來指認階段頁這一塊的把手
   return (

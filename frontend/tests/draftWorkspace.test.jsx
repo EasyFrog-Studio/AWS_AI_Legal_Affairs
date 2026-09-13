@@ -90,38 +90,24 @@ describe('決定書版面', () => {
     expect(screen.queryByText(/定稿於/)).toBeNull()
   })
 
-  it('引用法條逐條一格,可改可增可刪,儲存時一併送出', async () => {
+  it('稿紙底部沒有引用法條清單:法條只在基本資訊的「相關法條」出現一次', async () => {
     const user = userEvent.setup()
     renderWorkspace(doneInadmissible, {
       draft: { ...doneInadmissible.f4, cited_laws: ['訴願法#77', '訴願法#14'] },
     })
 
-    expect(screen.getByLabelText('引用法條 1')).toHaveValue('訴願法#77')
-    expect(screen.getByLabelText('引用法條 2')).toHaveValue('訴願法#14')
+    expect(screen.queryByLabelText('引用法條 1')).toBeNull()
+    expect(screen.queryByRole('button', { name: '新增法條' })).toBeNull()
+    expect(screen.queryByText('引用法條')).toBeNull()
 
-    await user.click(screen.getByRole('button', { name: '刪除引用法條 2' }))
-    await user.click(screen.getByRole('button', { name: '新增法條' }))
-    await user.type(screen.getByLabelText('引用法條 2'), '行政程序法#92')
+    // 存檔不再帶 cited_laws:畫面上改不到它,送出等於拿舊值覆寫後端現值
+    await user.type(screen.getByLabelText('決定書全文'), '補一句')
     await user.click(screen.getByRole('button', { name: '儲存修改' }))
 
     expect(api.updateDraftText).toHaveBeenCalledWith('c-2', {
-      text: doneInadmissible.draft_plain_text,
-      cited_laws: ['訴願法#77', '行政程序法#92'],
+      text: `${doneInadmissible.draft_plain_text}補一句`,
       base_version: 0,
     })
-  })
-
-  it('沒有引用法條時仍可新增', async () => {
-    const user = userEvent.setup()
-    renderWorkspace(doneAdmissible)
-
-    await user.click(screen.getByRole('button', { name: '新增法條' }))
-    await user.type(screen.getByLabelText('引用法條 1'), '訴願法#79')
-
-    expect(screen.getByRole('button', { name: '儲存修改' })).not.toHaveAttribute(
-      'aria-disabled',
-      'true',
-    )
   })
 
   it('沒有修改時儲存鍵不改色,點了說沒有可儲存的修改', async () => {
@@ -151,7 +137,6 @@ describe('決定書草稿:整份可改、兩種下載', () => {
     // base_version 一起送:兩個視窗同時改時,後送出的那份不該無聲蓋掉前一份
     expect(api.updateDraftText).toHaveBeenCalledWith('c-1', {
       text: '新北市政府訴願決定書 主文:訴願駁回。 補一句',
-      cited_laws: [],
       base_version: 0,
     })
     // 逐欄輸入已經不存在:文件只有一份
@@ -250,7 +235,6 @@ describe('決定書草稿分段', () => {
     )
     expect(api.updateDraftText).toHaveBeenCalledWith('c-7', {
       text: expectedText,
-      cited_laws: [],
       base_version: 0,
     })
   })
@@ -271,79 +255,51 @@ describe('決定書草稿分段', () => {
   })
 })
 
-describe('引用法條連結', () => {
-  it('引用法條在 f2 中找得到且有 source_url 時顯示來源網站連結,找不到 source_url 的那條不顯示', () => {
-    const lawsWithSource = [
-      { law_name: '訴願法', article_no: '77', source_url: 'https://example.com/77' },
-      { law_name: '停車場法', article_no: '32', source_url: null },
-    ]
-    const { container } = renderWorkspace(doneAdmissible, {
-      laws: lawsWithSource,
-      draft: { ...doneAdmissible.f4, cited_laws: ['訴願法#77', '停車場法#32'] },
-    })
-
-    const citations = within(container.querySelector('.draft-citations'))
-    const links = citations.getAllByRole('link', { name: '來源網站' })
-    expect(links).toHaveLength(1)
-    expect(links[0]).toHaveAttribute('href', 'https://example.com/77')
-  })
-
-  it('引用法條在 f2 中找不到同一筆時不顯示連結', () => {
-    const lawsWithSource = [{ law_name: '訴願法', article_no: '77', source_url: 'https://example.com/77' }]
-    const { container } = renderWorkspace(doneAdmissible, {
-      laws: lawsWithSource,
-      draft: { ...doneAdmissible.f4, cited_laws: ['行政程序法#92'] },
-    })
-
-    const citations = within(container.querySelector('.draft-citations'))
-    expect(citations.queryByRole('link', { name: '來源網站' })).toBeNull()
-  })
-
-  it('承辦人新增法條後輸入 f2 中存在的鍵,連結即時出現(依 citations state 而非初值)', async () => {
-    const user = userEvent.setup()
-    const lawsWithSource = [{ law_name: '訴願法', article_no: '79', source_url: 'https://example.com/79' }]
-    const { container } = renderWorkspace(doneAdmissible, { laws: lawsWithSource })
-
-    const citations = within(container.querySelector('.draft-citations'))
-    expect(citations.queryByRole('link', { name: '來源網站' })).toBeNull()
-
-    await user.click(screen.getByRole('button', { name: '新增法條' }))
-    await user.type(screen.getByLabelText('引用法條 1'), '訴願法#79')
-
-    expect(citations.getByRole('link', { name: '來源網站' })).toHaveAttribute(
-      'href',
-      'https://example.com/79',
-    )
-  })
-
-  it('laws 為 null(不受理案或未跑)時不渲染任何連結,不報錯', () => {
-    const { container } = renderWorkspace(doneInadmissible, {
-      laws: null,
-      draft: { ...doneInadmissible.f4, cited_laws: ['訴願法#77'] },
-    })
-
-    const citations = within(container.querySelector('.draft-citations'))
-    expect(citations.queryByRole('link', { name: '來源網站' })).toBeNull()
-  })
-})
-
 describe('草稿頁的參考依據欄', () => {
-  it('法規、參考見解、案例三組都在同一欄,與階段頁一致', () => {
+  it('法規、三類參考見解、案例各自一組,與階段頁一致', () => {
     renderWorkspace(doneAdmissible)
 
     const panel = screen.getByRole('complementary', { name: '承辦參考依據' })
     expect(within(panel).getByText('參考法規（F2）')).toBeInTheDocument()
-    expect(within(panel).getByText('參考見解（F2+）')).toBeInTheDocument()
+    expect(within(panel).getByText('司法院釋字（F2+）')).toBeInTheDocument()
+    expect(within(panel).getByText('行政函釋（F2+）')).toBeInTheDocument()
+    expect(within(panel).getByText('行政法院裁判（F2+）')).toBeInTheDocument()
+    expect(within(panel).queryByText('參考見解（F2+）')).toBeNull()
     expect(within(panel).getByText('參考案例（F3）')).toBeInTheDocument()
     expect(within(panel).getByText('釋字第469號')).toBeInTheDocument()
   })
 
-  it('不受理案件隱藏法規那一組,參考見解與案例照常', () => {
+  it('見解依類別各歸各組,缺的那一類說自己那一類沒有', () => {
+    renderWorkspace(doneAdmissible, {
+      refs: doneAdmissible.f2_refs.filter((r) => r.doc_kind === '行政函釋'),
+    })
+
+    const panel = screen.getByRole('complementary', { name: '承辦參考依據' })
+    const group = (heading) => within(panel).getByText(heading).closest('.basis-panel__group')
+    expect(
+      within(group('行政函釋（F2+）')).getByText('法務部 法律字第0930014628號'),
+    ).toBeInTheDocument()
+    expect(within(group('司法院釋字（F2+）')).getByText('未檢索到相關釋字。')).toBeInTheDocument()
+    expect(
+      within(group('行政法院裁判（F2+）')).getByText('未檢索到相關法院裁判。'),
+    ).toBeInTheDocument()
+  })
+
+  it('檢索中(refs 為 null)時三類各自說檢索中', () => {
+    renderWorkspace(doneAdmissible, { refs: null })
+
+    const panel = screen.getByRole('complementary', { name: '承辦參考依據' })
+    expect(within(panel).getAllByText('檢索中…')).toHaveLength(3)
+  })
+
+  it('不受理案件隱藏法規那一組,三類參考見解與案例照常', () => {
     renderWorkspace(doneInadmissible)
 
     const panel = screen.getByRole('complementary', { name: '承辦參考依據' })
     expect(within(panel).queryByText('參考法規（F2）')).toBeNull()
-    expect(within(panel).getByText('參考見解（F2+）')).toBeInTheDocument()
+    expect(within(panel).getByText('司法院釋字（F2+）')).toBeInTheDocument()
+    expect(within(panel).getByText('行政函釋（F2+）')).toBeInTheDocument()
+    expect(within(panel).getByText('行政法院裁判（F2+）')).toBeInTheDocument()
     expect(within(panel).getByText('參考案例（F3）')).toBeInTheDocument()
   })
 })
@@ -384,7 +340,6 @@ describe('決定結果修改', () => {
 
     expect(api.updateDraftText).toHaveBeenCalledWith('c-1', {
       text: `${doneAdmissible.draft_plain_text}補一句`,
-      cited_laws: [],
       base_version: 0,
     })
     expect(api.updateDraftResult).toHaveBeenCalledWith('c-1', { draft_type: '撤銷另處' })
@@ -424,7 +379,7 @@ describe('決定結果修改', () => {
 })
 
 describe('稿紙版面', () => {
-  it('依基本資訊、本文、結尾、引用法條排序,沒有「全文」這個標題', () => {
+  it('依基本資訊、本文、結尾排序,沒有「全文」與「引用法條」這兩個標題', () => {
     renderWorkspace(doneAdmissibleSectioned, { text: SECTIONED_ADMISSIBLE_TEXT })
 
     const paper = screen.getByRole('group', { name: '決定書稿紙' })
@@ -432,11 +387,9 @@ describe('稿紙版面', () => {
       within(paper)
         .getAllByText(/^(基本資訊|全文|引用法條)$/)
         .map((node) => node.textContent),
-    ).toEqual(['基本資訊', '引用法條'])
+    ).toEqual(['基本資訊'])
 
     const footer = screen.getByLabelText('決定書結尾')
-    const citations = within(paper).getByText('引用法條')
-    expect(footer.compareDocumentPosition(citations) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     const main = screen.getByLabelText('主文')
     expect(main.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
@@ -540,7 +493,6 @@ describe('決定書表頭與結尾:整段純文字', () => {
     })
     expect(api.updateDraftText).toHaveBeenCalledWith('c-1', {
       text: `${doneAdmissible.draft_plain_text}補一句`,
-      cited_laws: [],
       base_version: 0,
     })
     expect(api.updateDecisionHeader.mock.invocationCallOrder[0]).toBeLessThan(

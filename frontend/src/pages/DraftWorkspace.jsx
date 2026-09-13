@@ -10,6 +10,7 @@ import AutoTextarea from '../components/AutoTextarea.jsx'
 import SourceSiteLink from '../components/SourceSiteLink.jsx'
 import { useNavGuard } from '../navGuard.js'
 import { formatBlock, parseBlock, INFO_SPEC, FOOTER_SPEC } from './decisionHeaderText.js'
+import { REF_KINDS } from './refKinds.js'
 import { splitDraft, joinDraft } from './draftSections.js'
 import './DraftWorkspace.css'
 
@@ -57,35 +58,40 @@ function BasisPanel({ laws, refs, cases, track, onViewSource }) {
             ))}
         </div>
       )}
-      {/* 參考見解兩條 track 都跑,故沒有 track 條件;但它不進 F4 的可引用清單,標題要與法規分開 */}
-      <div className="basis-panel__group">
-        <div className="basis-panel__heading">參考見解（F2+）</div>
-        {refs === null && <div className="state-message state-message--pending">檢索中…</div>}
-        {refs !== null && refs !== undefined && refs.length === 0 && (
-          <div className="state-message state-message--empty">未檢索到相關參考見解。</div>
-        )}
-        {refs &&
-          refs.length > 0 &&
-          refs.map((ref, i) => (
-            <div className="basis-item" key={i}>
-              <span className="basis-item__title">{ref.name}</span>
-              <span className="basis-item__meta">
-                {ref.doc_kind}
-                {ref.issuer ? ` · ${ref.issuer}` : ''} · {ref.issued_date}
-              </span>
-              {ref.source_key && (
-                <button
-                  type="button"
-                  className="btn-link"
-                  onClick={() => onViewSource(ref.source_key)}
-                >
-                  原文
-                </button>
-              )}
-              <SourceSiteLink url={ref.source_url} />
-            </div>
-          ))}
-      </div>
+      {/* 參考見解兩條 track 都跑,故沒有 track 條件;三類各占一組,與階段頁的三個分頁同一套分法 */}
+      {REF_KINDS.map((kind) => {
+        const ofKind = (refs ?? []).filter((ref) => ref.doc_kind === kind.key)
+        return (
+          <div className="basis-panel__group" key={kind.key}>
+            <div className="basis-panel__heading">{kind.key}（F2+）</div>
+            {refs === null || refs === undefined ? (
+              <div className="state-message state-message--pending">檢索中…</div>
+            ) : ofKind.length === 0 ? (
+              <div className="state-message state-message--empty">{kind.empty}</div>
+            ) : (
+              ofKind.map((ref, i) => (
+                <div className="basis-item" key={i}>
+                  <span className="basis-item__title">{ref.name}</span>
+                  <span className="basis-item__meta">
+                    {ref.issuer ? `${ref.issuer} · ` : ''}
+                    {ref.issued_date}
+                  </span>
+                  {ref.source_key && (
+                    <button
+                      type="button"
+                      className="btn-link"
+                      onClick={() => onViewSource(ref.source_key)}
+                    >
+                      原文
+                    </button>
+                  )}
+                  <SourceSiteLink url={ref.source_url} />
+                </div>
+              ))
+            )}
+          </div>
+        )
+      })}
       <div className="basis-panel__group">
         <div className="basis-panel__heading">參考案例（F3）</div>
         {cases === null && (
@@ -136,9 +142,7 @@ export default function DraftWorkspace({
   onSaved,
   hidden,
 }) {
-  const savedCitations = useMemo(() => draft.cited_laws ?? [], [draft.cited_laws])
   const [plain, setPlain] = useState(text || '')
-  const [citations, setCitations] = useState(savedCitations)
   const [result, setResult] = useState(draft.draft_type)
   const infoText0 = formatBlock(header, INFO_SPEC)
   const footerText0 = formatBlock(header, FOOTER_SPEC)
@@ -148,7 +152,6 @@ export default function DraftWorkspace({
   const [message, setMessage] = useState('')
   const prevCaseIdRef = useRef(caseId)
   const syncedPlainRef = useRef(text || '')
-  const syncedCitationsRef = useRef(savedCitations.join('\n'))
   const syncedResultRef = useRef(draft.draft_type)
   const syncedInfoRef = useRef(infoText0)
   const syncedFooterRef = useRef(footerText0)
@@ -158,8 +161,6 @@ export default function DraftWorkspace({
       prevCaseIdRef.current = caseId
       setPlain(text || '')
       syncedPlainRef.current = text || ''
-      setCitations(savedCitations)
-      syncedCitationsRef.current = savedCitations.join('\n')
       setResult(draft.draft_type)
       syncedResultRef.current = draft.draft_type
       setInfoText(infoText0)
@@ -169,7 +170,7 @@ export default function DraftWorkspace({
       setState('idle')
       setMessage('')
     }
-  }, [caseId, draft, savedCitations, infoText0, footerText0])
+  }, [caseId, draft, infoText0, footerText0])
 
   // 重跑會重新產生全文,那份內容要接得住;但使用者已經在改的字不能被輪詢回來的值蓋掉,
   // 故只在「本地仍等於上次同步的值」時採用。
@@ -181,15 +182,6 @@ export default function DraftWorkspace({
     syncedPlainRef.current = next
     setPlain((current) => (current === previous ? next : current))
   }, [text])
-
-  // 重跑會換掉引用法條清單,接法與全文同一套:只在本地仍等於上次同步的值時採用
-  useEffect(() => {
-    const next = savedCitations.join('\n')
-    if (next === syncedCitationsRef.current) return
-    const previous = syncedCitationsRef.current
-    syncedCitationsRef.current = next
-    setCitations((current) => (current.join('\n') === previous ? savedCitations : current))
-  }, [savedCitations])
 
   // 重跑會改判決定結果,接法與全文同一套
   useEffect(() => {
@@ -215,39 +207,17 @@ export default function DraftWorkspace({
     setFooterText((current) => (current === previous ? footerText0 : current))
   }, [footerText0])
 
-  // 空白列只是還沒打字的格子,不送出也不算修改
-  const trimmedCitations = citations.map((l) => l.trim()).filter(Boolean)
   const textDirty = plain !== (text || '')
-  const citationsDirty = trimmedCitations.join('\n') !== savedCitations.join('\n')
   const resultDirty = result !== draft.draft_type
   const headerDirty = infoText !== infoText0 || footerText !== footerText0
-  const dirty = textDirty || citationsDirty || resultDirty || headerDirty
+  const dirty = textDirty || resultDirty || headerDirty
 
   useNavGuard(dirty, '草稿有未儲存的修改，離開後將遺失。確定要離開？')
 
   const sections = useMemo(() => splitDraft(plain), [plain])
 
-  // 查表用同一把鍵組法:法規名#條號,與 citations 逐條字串同格式
-  const lawSourceMap = useMemo(() => {
-    const map = new Map()
-    ;(laws ?? []).forEach((law) => map.set(`${law.law_name}#${law.article_no}`, law.source_url))
-    return map
-  }, [laws])
-
   function updateSection(key, body) {
     setPlain(joinDraft(sections.map((s) => (s.key === key ? { ...s, body } : s))))
-  }
-
-  function updateCitation(index, value) {
-    setCitations(citations.map((law, i) => (i === index ? value : law)))
-  }
-
-  function addCitation() {
-    setCitations([...citations, ''])
-  }
-
-  function removeCitation(index) {
-    setCitations(citations.filter((_, i) => i !== index))
   }
 
   async function handleSave() {
@@ -272,13 +242,8 @@ export default function DraftWorkspace({
       // 表頭先送:文件只有一份,表頭與本文分兩支 API,失敗時已成功的一支不回滾
       if (headerDirty) await updateDecisionHeader(caseId, { ...info.values, ...footer.values })
       // 只改結果時不送全文:那會平白多存一版,版本歷史讀起來像改過內容但沒改
-      if (textDirty || citationsDirty) {
-        await updateDraftText(caseId, {
-          text: plain,
-          cited_laws: trimmedCitations,
-          base_version: versionCount,
-        })
-        setCitations(trimmedCitations)
+      if (textDirty) {
+        await updateDraftText(caseId, { text: plain, base_version: versionCount })
       }
       if (resultDirty) await updateDraftResult(caseId, { draft_type: result })
       setState('saved')
@@ -369,31 +334,6 @@ export default function DraftWorkspace({
           )}
         </section>
 
-        <div className="draft-citations">
-          <span className="draft-paper__section-title">引用法條</span>
-          {citations.map((law, i) => (
-            <div className="draft-citation" key={i}>
-              <input
-                className="input draft-citation__input"
-                aria-label={`引用法條 ${i + 1}`}
-                value={law}
-                onChange={(e) => updateCitation(i, e.target.value)}
-              />
-              <SourceSiteLink url={lawSourceMap.get(law.trim())} />
-              <button
-                type="button"
-                className="btn-link"
-                aria-label={`刪除引用法條 ${i + 1}`}
-                onClick={() => removeCitation(i)}
-              >
-                刪除
-              </button>
-            </div>
-          ))}
-          <button type="button" className="btn-link draft-citations__add" onClick={addCitation}>
-            新增法條
-          </button>
-        </div>
         <div className="draft-result">
           <select
             aria-label="結果"

@@ -124,7 +124,7 @@ describe('案件詳情', () => {
     const stage = within(refsStage())
     expect(stage.getByText(/本案經程序審查認定不受理/)).toBeInTheDocument()
     // 「不適用」只屬法規法條那一個分頁,其餘四個分頁照常
-    for (const name of ['過往案例', '釋字', '函釋', '法院裁判']) {
+    for (const name of ['過往案例', '司法院釋字', '行政函釋', '行政法院裁判']) {
       expect(stage.getByRole('tab', { name })).toBeInTheDocument()
     }
     expect(screen.queryByText('無')).toBeNull()
@@ -396,7 +396,7 @@ describe('參考見解的存檔原文', () => {
     renderDetail()
     await screen.findByRole('button', { name: /^參考依據/ })
     await user.click(rail(/^參考依據/))
-    await user.click(within(refsStage()).getByRole('tab', { name: '函釋' }))
+    await user.click(within(refsStage()).getByRole('tab', { name: '行政函釋' }))
 
     await user.click(within(refsStage()).getByRole('button', { name: '原文' }))
 
@@ -414,7 +414,7 @@ describe('F2+ 參考見解', () => {
     await screen.findByRole('button', { name: /^參考依據/ })
 
     await user.click(rail(/^參考依據/))
-    await user.click(within(refsStage()).getByRole('tab', { name: '釋字' }))
+    await user.click(within(refsStage()).getByRole('tab', { name: '司法院釋字' }))
 
     const yizi = within(refsStage()).getByText('釋字第469號').closest('.reference-ref')
     expect(within(yizi).getByText('司法院釋字')).toBeInTheDocument()
@@ -422,7 +422,7 @@ describe('F2+ 參考見解', () => {
     expect(within(yizi).getByText(/未收錄/)).toBeInTheDocument()
     expect(within(yizi).queryByRole('button', { name: '原文' })).toBeNull()
 
-    await user.click(within(refsStage()).getByRole('tab', { name: '函釋' }))
+    await user.click(within(refsStage()).getByRole('tab', { name: '行政函釋' }))
     const hanshi = within(refsStage())
       .getByText('法務部 法律字第0930014628號')
       .closest('.reference-ref')
@@ -453,9 +453,9 @@ describe('F2+ 參考見解', () => {
     expect(stage.getAllByRole('tab').map((t) => t.textContent)).toEqual([
       '法規法條',
       '過往案例',
-      '釋字',
-      '函釋',
-      '法院裁判',
+      '司法院釋字',
+      '行政函釋',
+      '行政法院裁判',
     ])
     expect(stage.getAllByRole('tabpanel')).toHaveLength(1)
 
@@ -468,9 +468,9 @@ describe('F2+ 參考見解', () => {
     // 案例卡的案號與相鄰欄位同在一個節點裡,故一律用 regex 比對
     const only = {
       過往案例: /112-0001/,
-      釋字: /釋字第469號/,
-      函釋: /法務部 法律字第0930014628號/,
-      法院裁判: /最高行政法院 102年度判字第147號/,
+      司法院釋字: /釋字第469號/,
+      行政函釋: /法務部 法律字第0930014628號/,
+      行政法院裁判: /最高行政法院 102年度判字第147號/,
     }
     const others = (name) => Object.entries(only).filter(([k]) => k !== name).map(([, v]) => v)
     for (const [name, text] of Object.entries(only)) {
@@ -491,7 +491,7 @@ describe('F2+ 參考見解', () => {
 
     expect(rail(/^參考依據/)).not.toHaveTextContent('不適用')
     await user.click(rail(/^參考依據/))
-    await user.click(within(refsStage()).getByRole('tab', { name: '釋字' }))
+    await user.click(within(refsStage()).getByRole('tab', { name: '司法院釋字' }))
     expect(within(refsStage()).getByText('釋字第469號')).toBeInTheDocument()
   })
 
@@ -502,7 +502,7 @@ describe('F2+ 參考見解', () => {
     let view = renderDetail()
     await screen.findByRole('button', { name: /^參考依據/ })
     await user.click(rail(/^參考依據/))
-    await user.click(within(refsStage()).getByRole('tab', { name: '釋字' }))
+    await user.click(within(refsStage()).getByRole('tab', { name: '司法院釋字' }))
     expect(within(refsStage()).getByText('尚未執行')).toBeInTheDocument()
     expect(within(refsStage()).queryByText('檢索中…')).toBeNull()
     view.unmount()
@@ -516,7 +516,7 @@ describe('F2+ 參考見解', () => {
     view = renderDetail()
     await screen.findByRole('button', { name: /^參考依據/ })
     await user.click(rail(/^參考依據/))
-    await user.click(within(refsStage()).getByRole('tab', { name: '釋字' }))
+    await user.click(within(refsStage()).getByRole('tab', { name: '司法院釋字' }))
     expect(within(refsStage()).getByText('檢索中…')).toBeInTheDocument()
     view.unmount()
 
@@ -524,7 +524,7 @@ describe('F2+ 參考見解', () => {
     view = renderDetail()
     await screen.findByRole('button', { name: /^參考依據/ })
     await user.click(rail(/^參考依據/))
-    await user.click(within(refsStage()).getByRole('tab', { name: '釋字' }))
+    await user.click(within(refsStage()).getByRole('tab', { name: '司法院釋字' }))
     expect(within(refsStage()).getByText('未檢索到相關釋字。')).toBeInTheDocument()
     view.unmount()
 
@@ -536,7 +536,7 @@ describe('F2+ 參考見解', () => {
     renderDetail()
     await screen.findByRole('button', { name: /^參考依據/ })
     await user.click(rail(/^參考依據/))
-    await user.click(within(refsStage()).getByRole('tab', { name: '釋字' }))
+    await user.click(within(refsStage()).getByRole('tab', { name: '司法院釋字' }))
     expect(within(refsStage()).getByText('未檢索到相關釋字。')).toBeInTheDocument()
     expect(within(refsStage()).queryByText('尚未執行')).toBeNull()
   })
