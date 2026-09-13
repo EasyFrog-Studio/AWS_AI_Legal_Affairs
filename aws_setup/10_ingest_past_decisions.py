@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import re
 import sys
 import time
@@ -45,7 +46,10 @@ from config import (  # noqa: E402
     load_resources,
 )
 
-HOLDOUT_YEARS = frozenset({"114"})
+# 評測要留 114 年當答案時設 PAST_DECISIONS_HOLDOUT_YEARS=114
+HOLDOUT_YEARS = frozenset(
+    y for y in os.environ.get("PAST_DECISIONS_HOLDOUT_YEARS", "").split(",") if y
+)
 # 同一部法的上千件案子,這兩種段落幾乎逐字相同,沒有區別力,只會把檢索名額佔滿
 KB_SKIP_ROLES = frozenset({"法規引述", "結語"})
 # 已在跑或已完成的不必重送;與 08_reference_ingest.py 同一組狀態
@@ -78,6 +82,11 @@ def parse_args() -> argparse.Namespace:
         "--execute",
         metavar="CONFIRMATION",
         help=f"真正寫入 AWS 必須傳入 {EXECUTE_CONFIRMATION}",
+    )
+    parser.add_argument(
+        "--delete-stale",
+        action="store_true",
+        help="明確授權刪除「KB 有、新語料沒有」的殘留文件;語料目錄指錯時 stale 會是整個庫,預設不刪",
     )
     return parser.parse_args()
 
@@ -259,9 +268,12 @@ def assert_aws_scope(session: boto3.Session) -> None:
         raise RuntimeError(f"AWS region 不符: expected={REGION}, actual={session.region_name}")
 
 
-def sync_kb_documents(bedrock_agent, limiter, kb_id: str, ds_id: str, to_kb: list[dict]) -> list[dict]:
+def sync_kb_documents(
+    bedrock_agent, limiter, kb_id: str, ds_id: str, to_kb: list[dict], delete_stale: bool = False
+) -> list[dict]:
     """刪掉不在新語料裡的舊文件(留出年度、已排除的段落角色),回傳這次仍需提交的 chunk。
-    已 INDEXED / IN_PROGRESS 的不重送,灌到一半憑證過期時重跑才不必整批重來。"""
+    已 INDEXED / IN_PROGRESS 的不重送,灌到一半憑證過期時重跑才不必整批重來。
+    語料目錄指錯時 stale 會是整個庫,刪除必須明確授權(--delete-stale),預設只印數字不刪。"""
     documents = base.list_kb_documents(bedrock_agent, limiter, kb_id, ds_id)
     wanted = {r["id"] for r in to_kb}
     status_by_id = {d["identifier"].get("custom", {}).get("id"): d.get("status", "") for d in documents}
@@ -272,8 +284,14 @@ def sync_kb_documents(bedrock_agent, limiter, kb_id: str, ds_id: str, to_kb: lis
         for d in documents
         if d.get("status") == "FAILED" and d["identifier"].get("custom", {}).get("id") in wanted
     ]
-    to_delete = stale + failed
-    print(f"[SYNC] KB-CASE 既有文件={len(documents)};不在新語料裡的={len(stale)};FAILED 待重灌={len(failed)}")
+    to_delete = failed + (stale if delete_stale else [])
+    if delete_stale:
+        print(f"[SYNC] KB-CASE 既有文件={len(documents)};不在新語料裡的={len(stale)};FAILED 待重灌={len(failed)}")
+    else:
+        print(
+            f"[SYNC] KB-CASE 既有文件={len(documents)};"
+            f"不在新語料裡的={len(stale)}(未給 --delete-stale,略過刪除);FAILED 待重灌={len(failed)}"
+        )
     for start in range(0, len(to_delete), base.KB_DELETE_BATCH_SIZE):
         batch = to_delete[start : start + base.KB_DELETE_BATCH_SIZE]
         limiter.call(
@@ -350,7 +368,7 @@ def main() -> None:
     bedrock_agent = session.client("bedrock-agent")
     limiter = base.RateLimiter(base.BEDROCK_MIN_INTERVAL_SECONDS)
 
-    todo = sync_kb_documents(bedrock_agent, limiter, kb_id, ds_id, to_kb)
+    todo = sync_kb_documents(bedrock_agent, limiter, kb_id, ds_id, to_kb, delete_stale=args.delete_stale)
 
     results = {"KB-CASE": {"success": 0, "fail": 0, "failures": []}}
     refing.ingest_all(
