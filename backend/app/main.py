@@ -725,18 +725,32 @@ def get_draft_docx(case_id: str):
 
 
 # ---------- 掛載前端靜態檔(若存在),SPA fallback(/api/* 除外) ----------
+# 檔名帶內容雜湊,內容變檔名就變,故可長快取
+_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
+
+
+def resolve_static_request(full_path: str, static_dir: Path) -> FileResponse:
+    """靜態檔請求:找得到回檔案,找不到只有 SPA 路由才兜底到 index.html。"""
+    # full_path 為外部輸入(含 %2e%2e 編碼繞過),resolve 後必須仍在 static_dir 內
+    static_root = static_dir.resolve()
+    candidate = (static_dir / full_path).resolve()
+    if full_path and candidate.is_relative_to(static_root) and candidate.is_file():
+        headers = {"Cache-Control": _ASSET_CACHE_CONTROL} if full_path.startswith("assets/") else None
+        return FileResponse(candidate, headers=headers)
+    # 帶副檔名就是在要實體檔案:回 index.html 會讓瀏覽器把 HTML 當 JS/CSS 解析而靜靜失敗
+    if "." in full_path.rsplit("/", 1)[-1]:
+        raise HTTPException(status_code=404)
+    index_file = static_dir / "index.html"
+    if index_file.is_file():
+        # 它內嵌的資產雜湊每次部署都變,沿用快取等於指向新容器上已不存在的檔名
+        return FileResponse(index_file, headers={"Cache-Control": "no-cache"})
+    raise HTTPException(status_code=404)
+
+
 if _STATIC_DIR.is_dir():
 
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         if full_path == "api" or full_path.startswith("api/"):
             raise HTTPException(status_code=404)
-        # full_path 為外部輸入(含 %2e%2e 編碼繞過),resolve 後必須仍在 static/ 內
-        static_root = _STATIC_DIR.resolve()
-        candidate = (_STATIC_DIR / full_path).resolve()
-        if full_path and candidate.is_relative_to(static_root) and candidate.is_file():
-            return FileResponse(candidate)
-        index_file = _STATIC_DIR / "index.html"
-        if index_file.is_file():
-            return FileResponse(index_file)
-        raise HTTPException(status_code=404)
+        return resolve_static_request(full_path, _STATIC_DIR)
