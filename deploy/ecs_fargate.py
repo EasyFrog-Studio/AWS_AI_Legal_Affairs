@@ -31,8 +31,15 @@ ALB_PORT = 80
 S3_BUCKET = f"appeal-ai-{ACCOUNT}"
 KB_LAW_ID = "WQVGZBCEUA"
 KB_CASE_ID = "HEVPST3YK1"
+KB_INTERPRETATION_ID = "ROM2C4XC2J"
+KB_RULING_ID = "I1PEFUMBIZ"
+KB_JUDGMENT_ID = "YHTYVE9RJG"
 DDB_LAW_TABLE = "appeal_law_articles"
 DDB_CASE_TABLE = "appeal_cases"
+DDB_PAST_DECISIONS_TABLE = "appeal_past_decisions"
+DDB_INTERPRETATION_TABLE = "appeal_interpretations"
+DDB_RULING_TABLE = "appeal_rulings"
+DDB_JUDGMENT_TABLE = "appeal_judgments"
 
 # 評審四組 + 開發者自用;這份清單就是對外暴露面的全部
 ALLOWED_INGRESS = [
@@ -53,12 +60,19 @@ ENV = {
     "BEDROCK_MIN_INTERVAL_SECONDS": "1.0",
     "KB_LAW_ID": KB_LAW_ID,
     "KB_CASE_ID": KB_CASE_ID,
+    "KB_INTERPRETATION_ID": KB_INTERPRETATION_ID,
+    "KB_RULING_ID": KB_RULING_ID,
+    "KB_JUDGMENT_ID": KB_JUDGMENT_ID,
     "S3_BUCKET": S3_BUCKET,
     "DDB_LAW_TABLE": DDB_LAW_TABLE,
     # 這張表的主鍵是 law_id,「法規名稱#條號」只是 GSI,故查詢走索引而非 batch_get
     "DDB_LAW_INDEX": "law-article-index",
     "DDB_LAW_DATE_FIELD": "revised_date",
     "DDB_CASE_TABLE": DDB_CASE_TABLE,
+    "DDB_PAST_DECISIONS_TABLE": DDB_PAST_DECISIONS_TABLE,
+    "DDB_INTERPRETATION_TABLE": DDB_INTERPRETATION_TABLE,
+    "DDB_RULING_TABLE": DDB_RULING_TABLE,
+    "DDB_JUDGMENT_TABLE": DDB_JUDGMENT_TABLE,
 }
 
 iam = boto3.client("iam")
@@ -97,9 +111,15 @@ def task_policy():
                       f"arn:aws:bedrock:{REGION}:{ACCOUNT}:inference-profile/*"]},
         {"Sid": "BedrockRetrieve", "Effect": "Allow", "Action": ["bedrock:Retrieve"],
          "Resource": [f"arn:aws:bedrock:{REGION}:{ACCOUNT}:knowledge-base/{KB_LAW_ID}",
-                      f"arn:aws:bedrock:{REGION}:{ACCOUNT}:knowledge-base/{KB_CASE_ID}"]},
+                      f"arn:aws:bedrock:{REGION}:{ACCOUNT}:knowledge-base/{KB_CASE_ID}",
+                      f"arn:aws:bedrock:{REGION}:{ACCOUNT}:knowledge-base/{KB_INTERPRETATION_ID}",
+                      f"arn:aws:bedrock:{REGION}:{ACCOUNT}:knowledge-base/{KB_RULING_ID}",
+                      f"arn:aws:bedrock:{REGION}:{ACCOUNT}:knowledge-base/{KB_JUDGMENT_ID}"]},
         {"Sid": "CaseObjects", "Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject"],
          "Resource": f"arn:aws:s3:::{S3_BUCKET}/*"},
+        # 沒有 ListBucket 時 GetObject 對不存在的 key 回 AccessDenied,後端分不出 404
+        {"Sid": "BucketList", "Effect": "Allow", "Action": ["s3:ListBucket"],
+         "Resource": f"arn:aws:s3:::{S3_BUCKET}"},
         {"Sid": "CaseTable", "Effect": "Allow",
          "Action": ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Scan"],
          "Resource": f"arn:aws:dynamodb:{REGION}:{ACCOUNT}:table/{DDB_CASE_TABLE}"},
@@ -107,6 +127,13 @@ def task_policy():
          "Action": ["dynamodb:GetItem", "dynamodb:BatchGetItem", "dynamodb:Query"],
          "Resource": [f"arn:aws:dynamodb:{REGION}:{ACCOUNT}:table/{DDB_LAW_TABLE}",
                       f"arn:aws:dynamodb:{REGION}:{ACCOUNT}:table/{DDB_LAW_TABLE}/index/*"]},
+        # 過往決定書總覽 + 參考見解三類:PK 精查用,四張表都沒有 GSI
+        {"Sid": "ReferenceTables", "Effect": "Allow",
+         "Action": ["dynamodb:GetItem", "dynamodb:BatchGetItem"],
+         "Resource": [f"arn:aws:dynamodb:{REGION}:{ACCOUNT}:table/{DDB_PAST_DECISIONS_TABLE}",
+                      f"arn:aws:dynamodb:{REGION}:{ACCOUNT}:table/{DDB_INTERPRETATION_TABLE}",
+                      f"arn:aws:dynamodb:{REGION}:{ACCOUNT}:table/{DDB_RULING_TABLE}",
+                      f"arn:aws:dynamodb:{REGION}:{ACCOUNT}:table/{DDB_JUDGMENT_TABLE}"]},
     ]}
 
 

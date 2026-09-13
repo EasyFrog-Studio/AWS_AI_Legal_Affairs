@@ -49,7 +49,7 @@ export default function Login() {
                 value={key}
                 onChange={(e) => setKey(e.target.value)}
                 aria-label="密碼"
-                placeholder="請輸入密碼"
+                placeholder="請輸入密碼（0000）"
                 disabled={busy}
               />
               {status === 'error' && <div className="field__error">{errorMsg}</div>}
