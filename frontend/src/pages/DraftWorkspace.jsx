@@ -11,6 +11,7 @@ import SourceSiteLink from '../components/SourceSiteLink.jsx'
 import { useNavGuard } from '../navGuard.js'
 import { formatBlock, parseBlock, INFO_SPEC, FOOTER_SPEC } from './decisionHeaderText.js'
 import { REF_KINDS } from './refKinds.js'
+import { inadmissibleLawNote } from './f2Notes.js'
 import { splitDraft, joinDraft } from './draftSections.js'
 import './DraftWorkspace.css'
 
@@ -24,40 +25,39 @@ const NOTICE_TEXT =
   '如不服本決定，得於決定書送達之次日起 2 個月內向臺北高等行政法院（地址：臺北市士林區福國路 101 號）提起行政訴訟。'
 const NO_NOTICE_RESULTS = ['原處分撤銷', '撤銷另處']
 
-function BasisPanel({ laws, refs, cases, track, onViewSource }) {
+function BasisPanel({ laws, refs, cases, track, screening, onViewSource }) {
   return (
     <aside className="basis-panel" aria-label="承辦參考依據">
-      {track !== 'inadmissible' && (
-        <div className="basis-panel__group">
-          <div className="basis-panel__heading">參考法規（F2）</div>
-          {laws === null && (
-            <div className="state-message state-message--pending">檢索中…</div>
-          )}
-          {laws !== null && laws.length === 0 && (
-            <div className="state-message state-message--empty">未檢索到相關法規。</div>
-          )}
-          {laws &&
-            laws.length > 0 &&
-            laws.map((law, i) => (
-              <div className="basis-item" key={i}>
-                <span className="basis-item__title">
-                  {law.law_name} 第 {law.article_no} 條
-                </span>
-                <span className="basis-item__meta">修正日期 {law.amend_date}</span>
-                {law.source_key && (
-                  <button
-                    type="button"
-                    className="btn-link"
-                    onClick={() => onViewSource(law.source_key)}
-                  >
-                    原文
-                  </button>
-                )}
-                <SourceSiteLink url={law.source_url} />
-              </div>
-            ))}
-        </div>
-      )}
+      {/* 不受理案這一組照樣列出,只是說明為何沒有推薦——空著會讓人以為檢索失敗 */}
+      <div className="basis-panel__group">
+        <div className="basis-panel__heading">參考法規（F2）</div>
+        {track === 'inadmissible' ? (
+          <div className="state-message state-message--na">{inadmissibleLawNote(screening)}</div>
+        ) : laws === null ? (
+          <div className="state-message state-message--pending">檢索中…</div>
+        ) : laws.length === 0 ? (
+          <div className="state-message state-message--empty">未檢索到相關法規。</div>
+        ) : (
+          laws.map((law, i) => (
+            <div className="basis-item" key={i}>
+              <span className="basis-item__title">
+                {law.law_name} 第 {law.article_no} 條
+              </span>
+              <span className="basis-item__meta">修正日期 {law.amend_date}</span>
+              {law.source_key && (
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => onViewSource(law.source_key)}
+                >
+                  原文
+                </button>
+              )}
+              <SourceSiteLink url={law.source_url} />
+            </div>
+          ))
+        )}
+      </div>
       {/* 參考見解兩條 track 都跑,故沒有 track 條件;三類各占一組,與階段頁的三個分頁同一套分法 */}
       {REF_KINDS.map((kind) => {
         const ofKind = (refs ?? []).filter((ref) => ref.doc_kind === kind.key)
@@ -136,6 +136,7 @@ export default function DraftWorkspace({
   refs,
   cases,
   track,
+  screening,
   header = {},
   versionCount = 0,
   onViewSource,
@@ -395,6 +396,7 @@ export default function DraftWorkspace({
         refs={refs}
         cases={cases}
         track={track}
+        screening={screening}
         onViewSource={onViewSource}
       />
     </div>

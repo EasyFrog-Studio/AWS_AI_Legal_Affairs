@@ -381,6 +381,7 @@ export default function CaseDetail() {
               refs={caseData.f2_refs}
               cases={caseData.f3}
               track={caseData.track}
+              screening={caseData.screening}
               header={caseData.decision_header}
               versionCount={caseData.draft_versions?.length ?? 0}
               onViewSource={handleViewSource}

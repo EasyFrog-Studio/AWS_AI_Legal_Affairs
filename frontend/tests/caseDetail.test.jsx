@@ -110,12 +110,13 @@ describe('案件詳情', () => {
     expect(isCurrent(/^參考依據/)).toBe(false)
   }, 12000)
 
-  it('不受理案件:法規那一組說「不適用」+ 說明句,不顯示「無」;草稿依據欄隱藏 F2 組', async () => {
+  it('不受理案件:法規那一組說「不適用」+ 說明句,不顯示「無」;草稿依據欄同樣列出 F2 組', async () => {
     api.getCase.mockResolvedValue(doneInadmissible)
     const user = userEvent.setup()
     renderDetail('c-2')
     await screen.findByLabelText('決定書全文')
-    expect(screen.queryByText('參考法規（F2）')).toBeNull()
+    expect(screen.getByText('參考法規（F2）')).toBeInTheDocument()
+    expect(screen.getAllByText(/本案經程序審查認定不受理/).length).toBeGreaterThan(0)
     expect(screen.queryByText('無')).toBeNull()
     expect(screen.getByText('參考案例（F3）')).toBeInTheDocument()
 

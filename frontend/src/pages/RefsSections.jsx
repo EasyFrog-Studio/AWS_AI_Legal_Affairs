@@ -1,13 +1,7 @@
 import { useState } from 'react'
 import SourceSiteLink from '../components/SourceSiteLink.jsx'
 import { REF_KINDS } from './refKinds.js'
-
-/** screening.matched_clause 解析出「第 N 款」;解析不到回傳空字串(不寫死條款)。 */
-function parseClause(matchedClause) {
-  if (!matchedClause) return ''
-  const m = /第\s*(\d+)\s*款/.exec(matchedClause)
-  return m ? `第 ${m[1]} 款` : ''
-}
+import { inadmissibleLawNote } from './f2Notes.js'
 
 /** 沒有結果時,「正在跑」與「這件從沒跑過這一段」必須分得出來(已審結的舊案件屬後者)。 */
 function PendingOrNotRun({ running }) {
@@ -20,12 +14,7 @@ function PendingOrNotRun({ running }) {
 
 function F2Section({ laws, track, screening, running, onViewSource }) {
   if (track === 'inadmissible') {
-    const clause = parseClause(screening?.matched_clause)
-    return (
-      <div className="state-message state-message--na">
-        {`本案經程序審查認定不受理，依訴願法第 77 條${clause}逕為不受理決定，未進行法規推薦。`}
-      </div>
-    )
+    return <div className="state-message state-message--na">{inadmissibleLawNote(screening)}</div>
   }
   if (laws === null) {
     return <PendingOrNotRun running={running} />

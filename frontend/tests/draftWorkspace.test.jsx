@@ -31,6 +31,7 @@ function propsFrom(caseData, extra = {}) {
     refs: caseData.f2_refs,
     cases: caseData.f3,
     track: caseData.track,
+    screening: caseData.screening,
     header: caseData.decision_header,
     versionCount: caseData.draft_versions?.length ?? 0,
     onViewSource: vi.fn(),
@@ -292,15 +293,41 @@ describe('草稿頁的參考依據欄', () => {
     expect(within(panel).getAllByText('檢索中…')).toHaveLength(3)
   })
 
-  it('不受理案件隱藏法規那一組,三類參考見解與案例照常', () => {
+  it('不受理案件的法規那一組照常出現,內容說明為何沒有推薦', () => {
     renderWorkspace(doneInadmissible)
 
     const panel = screen.getByRole('complementary', { name: '承辦參考依據' })
-    expect(within(panel).queryByText('參考法規（F2）')).toBeNull()
+    // toBeVisible 而非 toBeInTheDocument:要求是「顯示」,隱藏起來的元素仍在 DOM 裡
+    expect(within(panel).getByText('參考法規（F2）')).toBeVisible()
+    expect(
+      within(panel).getByText(
+        '本案經程序審查認定不受理，依訴願法第 77 條第 2 款逕為不受理決定，未進行法規推薦。',
+      ),
+    ).toBeVisible()
+    expect(within(panel).queryByText('未檢索到相關法規。')).toBeNull()
     expect(within(panel).getByText('司法院釋字（F2+）')).toBeInTheDocument()
     expect(within(panel).getByText('行政函釋（F2+）')).toBeInTheDocument()
     expect(within(panel).getByText('行政法院裁判（F2+）')).toBeInTheDocument()
     expect(within(panel).getByText('參考案例（F3）')).toBeInTheDocument()
+  })
+
+  it('不受理但解析不出款次時,說明不寫死款次', () => {
+    renderWorkspace(doneInadmissible, { screening: { passed: false, matched_clause: null } })
+
+    const panel = screen.getByRole('complementary', { name: '承辦參考依據' })
+    expect(
+      within(panel).getByText(
+        '本案經程序審查認定不受理，依訴願法第 77 條逕為不受理決定，未進行法規推薦。',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('不受理案件的法規那一組不跟著檢索狀態走:laws 為 null 也不顯示檢索中', () => {
+    renderWorkspace(doneInadmissible, { laws: null })
+
+    const panel = screen.getByRole('complementary', { name: '承辦參考依據' })
+    const group = within(panel).getByText('參考法規（F2）').closest('.basis-panel__group')
+    expect(within(group).queryByText('檢索中…')).toBeNull()
   })
 })
 
